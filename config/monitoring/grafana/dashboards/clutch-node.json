@@ -112,9 +112,8 @@
       },
       {
         "datasource": {
-          "default": true,
           "type": "prometheus",
-          "uid": "cdx2u5p4ynv9cd"
+          "uid": "PBFA97CFB590B2093"
         },
         "fieldConfig": {
           "defaults": {
@@ -186,9 +185,8 @@
       },
       {
         "datasource": {
-          "default": true,
-          "type": "prometheus",
-          "uid": "cdx2u5p4ynv9cd"
+          "type": "datasource",
+          "uid": "-- Dashboard --"
         },
         "fieldConfig": {
           "defaults": {
@@ -251,19 +249,10 @@
         "targets": [
           {
             "datasource": {
-              "type": "prometheus",
-              "uid": "cdx2u5p4ynv9cd"
+              "type": "datasource",
+              "uid": "-- Dashboard --"
             },
-            "disableTextWrap": false,
-            "editorMode": "builder",
-            "expr": "latest_block{job=\"node1\"}",
-            "fullMetaSearch": false,
-            "includeNullMetadata": true,
-            "instant": false,
-            "legendFormat": "{{block_hash}}",
-            "range": true,
-            "refId": "A",
-            "useBackend": false
+            "refId": "A"
           }
         ],
         "title": "Latest Block (Node 1)",
@@ -282,9 +271,8 @@
       },
       {
         "datasource": {
-          "default": true,
           "type": "prometheus",
-          "uid": "cdx2u5p4ynv9cd"
+          "uid": "PBFA97CFB590B2093"
         },
         "fieldConfig": {
           "defaults": {
@@ -348,18 +336,12 @@
           {
             "datasource": {
               "type": "prometheus",
-              "uid": "cdx2u5p4ynv9cd"
+              "uid": "PBFA97CFB590B2093"
             },
-            "disableTextWrap": false,
-            "editorMode": "builder",
-            "expr": "latest_block{job=\"node2\"}",
-            "fullMetaSearch": false,
-            "includeNullMetadata": true,
+            "expr": "",
             "instant": false,
-            "legendFormat": "{{block_hash}}",
             "range": true,
-            "refId": "A",
-            "useBackend": false
+            "refId": "A"
           }
         ],
         "title": "Latest Block (Node 2)",
@@ -378,9 +360,8 @@
       },
       {
         "datasource": {
-          "default": true,
           "type": "prometheus",
-          "uid": "cdx2u5p4ynv9cd"
+          "uid": "PBFA97CFB590B2093"
         },
         "fieldConfig": {
           "defaults": {
@@ -444,18 +425,12 @@
           {
             "datasource": {
               "type": "prometheus",
-              "uid": "cdx2u5p4ynv9cd"
+              "uid": "PBFA97CFB590B2093"
             },
-            "disableTextWrap": false,
-            "editorMode": "builder",
-            "expr": "latest_block{job=\"node3\"}",
-            "fullMetaSearch": false,
-            "includeNullMetadata": true,
+            "expr": "",
             "instant": false,
-            "legendFormat": "{{block_hash}}",
             "range": true,
-            "refId": "A",
-            "useBackend": false
+            "refId": "A"
           }
         ],
         "title": "Latest Block (Node 3)",
@@ -488,5 +463,5 @@
     "timezone": "browser",
     "title": "Clutch-Node",
     "uid": "cdx2uvflsag3kf",
-    "version": 1
+    "version": 2
   }
