@@ -79,6 +79,46 @@ services:
     volumes:
       - ./config/api:/app/config:ro
 
+  # Prometheus - metrics collection
+  prometheus:
+    image: prom/prometheus
+    container_name: prometheus-container
+    networks:
+      - clutch-network
+    ports:
+      - "9090:9090"
+    volumes:
+      - prometheus-data:/prometheus
+      - ./config/monitoring/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+    command:
+      - "--config.file=/etc/prometheus/prometheus.yml"
+      - "--storage.tsdb.path=/prometheus"
+      - "--web.console.libraries=/etc/prometheus/console_libraries"
+      - "--web.console.templates=/etc/prometheus/consoles"
+      - "--storage.tsdb.retention.time=200h"
+      - "--web.enable-lifecycle"
+    restart: unless-stopped
+
+  # Grafana - dashboards (port 3030 to avoid conflict with clutch-hub-api on 3000)
+  grafana:
+    image: grafana/grafana
+    container_name: grafana-container
+    depends_on:
+      - prometheus
+    networks:
+      - clutch-network
+    ports:
+      - "3030:3000"
+    volumes:
+      - grafana-data:/var/lib/grafana
+      - ./config/monitoring/grafana/datasources.yml:/etc/grafana/provisioning/datasources/datasources.yml:ro
+      - ./config/monitoring/grafana/dashboards.yml:/etc/grafana/provisioning/dashboards/dashboards.yml:ro
+      - ./config/monitoring/grafana/dashboards:/etc/grafana/provisioning/dashboards/clutch:ro
+    environment:
+      - GF_SECURITY_ADMIN_PASSWORD=admin
+      - GF_USERS_ALLOW_SIGN_UP=false
+    restart: unless-stopped
+
   # Seq - structured logging
   seq:
     image: datalust/seq
@@ -117,4 +157,8 @@ networks:
 
 volumes:
   seq-data:
+    driver: local
+  grafana-data:
+    driver: local
+  prometheus-data:
     driver: local

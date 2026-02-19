@@ -29,6 +29,8 @@ docker-compose up -d
 | node2          | 8082, 4002, 3002 | Blockchain node 2             |
 | node3          | 8083, 4003, 3003 | Blockchain node 3             |
 | clutch-hub-api | 3000   | API bridge (GraphQL, REST)     |
+| Prometheus     | 9090   | Metrics collection             |
+| Grafana        | 3030   | Dashboards (admin/admin)       |
 | Seq            | 5341   | Structured logging             |
 
 ## Optional: Nginx Proxy
@@ -45,7 +47,7 @@ docker-compose --profile proxy up -d
 - **API config:** `config/api/default.toml`
 - **Environment:** `.env` (from `.env.example`)
 
-For multi-node or monitoring (Prometheus, Grafana), see [clutch-node](https://github.com/clutchprotocol/clutch-node) repository.
+Monitoring (Prometheus, Grafana) is included. Grafana is on port **3030** to avoid conflict with the API on 3000. Configs: `config/monitoring/prometheus/` and `config/monitoring/grafana/`.
 
 ## Images
 
