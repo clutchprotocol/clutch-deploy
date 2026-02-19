@@ -1,0 +1,88 @@
+# Clutch Protocol - Full Stack Deployment
+# Node + API + Monitoring
+# Uses pre-built images from GHCR / Docker Hub
+
+services:
+  # Clutch blockchain node
+  node1:
+    image: ghcr.io/clutchprotocol/clutch-node:latest
+    container_name: clutch-node-container
+    networks:
+      - clutch-network
+    ports:
+      - "8081:8081"
+      - "4001:4001"
+      - "3001:3001"
+    volumes:
+      - ./config/node:/app/config:ro
+    command: ["--env", "node1"]
+    restart: unless-stopped
+
+  # Clutch Hub API (bridges apps to node)
+  # Use ghcr.io or 9194010019/clutch-hub-api (Docker Hub) depending on where it's published
+  clutch-hub-api:
+    image: 9194010019/clutch-hub-api:latest
+    container_name: clutch-hub-api-container
+    depends_on:
+      - node1
+      - seq
+    ports:
+      - "3000:3000"
+    environment:
+      - RUST_LOG=info
+      - CLUTCH_NODE_WS_URL=ws://node1:8081/ws
+      - SEQ_URL=http://seq:80
+      - SEQ_API_KEY=${SEQ_API_KEY:-}
+    env_file:
+      - .env
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://127.0.0.1:3000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+    networks:
+      - clutch-network
+    volumes:
+      - ./config/api:/app/config:ro
+
+  # Seq - structured logging
+  seq:
+    image: datalust/seq
+    container_name: seq-container
+    networks:
+      - clutch-network
+    ports:
+      - "5341:80"
+    volumes:
+      - seq-data:/data
+    environment:
+      - ACCEPT_EULA=Y
+      - SEQ_FIRSTRUN_NOAUTHENTICATION=true
+    restart: unless-stopped
+
+  # Optional: Nginx reverse proxy (use --profile proxy to enable)
+  nginx:
+    image: nginx:alpine
+    container_name: clutch-nginx-proxy
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./config/nginx/nginx.conf:/etc/nginx/nginx.conf:ro
+    depends_on:
+      - clutch-hub-api
+    networks:
+      - clutch-network
+    profiles:
+      - proxy
+    restart: unless-stopped
+
+networks:
+  clutch-network:
+    driver: bridge
+
+volumes:
+  seq-data:
+    driver: local

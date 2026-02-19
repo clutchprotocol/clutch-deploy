@@ -1,0 +1,11 @@
+# Clutch Hub API config - Docker deployment
+# Node URL: use node1 container hostname
+serve_metric_enabled = true
+serve_metric_addr = "0.0.0.0:3000"
+ws_addr = "0.0.0.0:8080"
+clutch_node_ws_url = "ws://node1:8081/ws"
+log_level = "info"
+seq_url = "http://seq:80"
+seq_api_key = ""
+jwt_secret = "change-me-in-production"
+jwt_expiration_hours = 6

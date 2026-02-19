@@ -1,0 +1,22 @@
+# Clutch Node 1 - Docker deployment config
+# Copy from clutch-node repo or customize
+libp2p_topic_name = "test-net"
+blockchain_name = "clutch-node-test-1"
+author_public_key = "0x9b6e8afff8329743cac73dbef83ca3cbf9a74c20"
+author_secret_key = "0883ddd3d07303b87c954b0c9383f7b78f45e002520fc03a8adc80595dbf6509"
+developer_mode = true
+websocket_addr = "0.0.0.0:8081"
+listen_addrs = ["/ip4/0.0.0.0/tcp/4001"]
+bootstrap_nodes = []
+authorities = [
+    "0x9b6e8afff8329743cac73dbef83ca3cbf9a74c20",
+    "0x6fc11ba44483201f6e9c5eba6435805bb94ad080",
+    "0xc4f3f661a43e099aedb8e396d9de1a831a1b4adc",
+]
+block_authoring_enabled = true
+sync_enabled = true
+serve_metric_enabled = true
+serve_metric_addr = "0.0.0.0:3001"
+log_level = "info"
+seq_url = "http://seq:80"
+seq_api_key = ""
