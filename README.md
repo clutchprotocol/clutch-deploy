@@ -23,11 +23,13 @@ docker-compose up -d
 
 ## Services
 
-| Service       | Port | Description                    |
-|---------------|------|--------------------------------|
-| clutch-node   | 8081 | Blockchain node                |
-| clutch-hub-api| 3000 | API bridge (GraphQL, REST)     |
-| Seq           | 5341 | Structured logging             |
+| Service        | Ports  | Description                    |
+|----------------|--------|--------------------------------|
+| node1          | 8081, 4001, 3001 | Blockchain node 1 (bootstrap) |
+| node2          | 8082, 4002, 3002 | Blockchain node 2             |
+| node3          | 8083, 4003, 3003 | Blockchain node 3             |
+| clutch-hub-api | 3000   | API bridge (GraphQL, REST)     |
+| Seq            | 5341   | Structured logging             |
 
 ## Optional: Nginx Proxy
 

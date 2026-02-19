@@ -3,10 +3,10 @@
 # Uses pre-built images from GHCR / Docker Hub
 
 services:
-  # Clutch blockchain node
+  # Clutch blockchain nodes
   node1:
     image: ghcr.io/clutchprotocol/clutch-node:latest
-    container_name: clutch-node-container
+    container_name: clutch-node-container-node1
     networks:
       - clutch-network
     ports:
@@ -14,8 +14,40 @@ services:
       - "4001:4001"
       - "3001:3001"
     volumes:
-      - ./config/node:/app/config:ro
+      - ./config:/app/config:ro
     command: ["--env", "node1"]
+    restart: unless-stopped
+
+  node2:
+    image: ghcr.io/clutchprotocol/clutch-node:latest
+    container_name: clutch-node-container-node2
+    depends_on:
+      - node1
+    networks:
+      - clutch-network
+    ports:
+      - "8082:8082"
+      - "4002:4002"
+      - "3002:3002"
+    volumes:
+      - ./config:/app/config:ro
+    command: ["--env", "node2"]
+    restart: unless-stopped
+
+  node3:
+    image: ghcr.io/clutchprotocol/clutch-node:latest
+    container_name: clutch-node-container-node3
+    depends_on:
+      - node1
+    networks:
+      - clutch-network
+    ports:
+      - "8083:8083"
+      - "4003:4003"
+      - "3003:3003"
+    volumes:
+      - ./config:/app/config:ro
+    command: ["--env", "node3"]
     restart: unless-stopped
 
   # Clutch Hub API (bridges apps to node)

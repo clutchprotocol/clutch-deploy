@@ -1,0 +1,22 @@
+# Clutch Node 3 - Docker deployment config
+# Bootstrap: use node1 container hostname
+libp2p_topic_name = "test-net"
+blockchain_name = "clutch-node-test-3"
+author_public_key = "0xc4f3f661a43e099aedb8e396d9de1a831a1b4adc"
+author_secret_key = "2d75bdfabbbaa65d7a182968e579adf2566fbb6931411752dd834c56bbf092c9"
+developer_mode = true
+websocket_addr = "0.0.0.0:8083"
+listen_addrs = ["/ip4/0.0.0.0/tcp/4003"]
+bootstrap_nodes = ["/dns4/node1/tcp/4001"]
+authorities = [
+    "0x9b6e8afff8329743cac73dbef83ca3cbf9a74c20",
+    "0x6fc11ba44483201f6e9c5eba6435805bb94ad080",
+    "0xc4f3f661a43e099aedb8e396d9de1a831a1b4adc",
+]
+block_authoring_enabled = true
+sync_enabled = true
+serve_metric_enabled = true
+serve_metric_addr = "0.0.0.0:3003"
+log_level = "info"
+seq_url = "http://seq:80"
+seq_api_key = ""
