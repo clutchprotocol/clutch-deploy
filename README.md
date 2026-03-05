@@ -37,6 +37,18 @@ docker compose up -d
 | Prometheus     | 9090            | http://localhost:9090 (metrics)      |
 | Grafana        | 3030            | http://localhost:3030 (admin/admin)  |
 | Seq            | 5341            | http://localhost:5341 (logs)         |
+| clutch-hub-demo-app | 5173        | http://localhost:5173 (demo, `--profile demo`) |
+
+## Optional: Demo App
+
+Run with the Clutch Hub Demo App (React + map-based ride request):
+
+```bash
+# Requires clutch-hub-demo-app as sibling of clutch-deploy
+docker compose --profile demo up -d
+```
+
+Demo: http://localhost:5173
 
 ## Optional: Nginx Proxy
 

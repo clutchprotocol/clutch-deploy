@@ -134,6 +134,25 @@ services:
       - SEQ_FIRSTRUN_NOAUTHENTICATION=true
     restart: unless-stopped
 
+  # Optional: Demo app (use --profile demo to enable)
+  clutch-hub-demo-app:
+    image: ghcr.io/clutchprotocol/clutch-hub-demo-app:latest
+    build:
+      context: ../clutch-hub-demo-app
+      dockerfile: Dockerfile
+      args:
+        VITE_API_URL: http://localhost:3000
+    container_name: clutch-hub-demo-app-container
+    ports:
+      - "5173:80"
+    depends_on:
+      - clutch-hub-api
+    networks:
+      - clutch-network
+    profiles:
+      - demo
+    restart: unless-stopped
+
   # Optional: Nginx reverse proxy (use --profile proxy to enable)
   nginx:
     image: nginx:alpine
