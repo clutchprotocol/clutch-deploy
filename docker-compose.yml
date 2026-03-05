@@ -134,7 +134,7 @@ services:
       - SEQ_FIRSTRUN_NOAUTHENTICATION=true
     restart: unless-stopped
 
-  # Optional: Demo app (use --profile demo to enable)
+  # Demo app (React + map-based ride request)
   clutch-hub-demo-app:
     image: ghcr.io/clutchprotocol/clutch-hub-demo-app:latest
     build:
@@ -149,8 +149,6 @@ services:
       - clutch-hub-api
     networks:
       - clutch-network
-    profiles:
-      - demo
     restart: unless-stopped
 
   # Optional: Nginx reverse proxy (use --profile proxy to enable)
