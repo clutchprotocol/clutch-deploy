@@ -6,6 +6,6 @@ ws_addr = "0.0.0.0:3000"
 clutch_node_ws_url = "ws://node1:8081/ws"
 log_level = "info"
 seq_url = "http://seq:80"
-seq_api_key = ""
+seq_api_key = "FZii3D6ILDI38a0oIeDL"
 jwt_secret = "change-me-in-production"
 jwt_expiration_hours = 6
