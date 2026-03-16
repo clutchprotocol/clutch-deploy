@@ -51,9 +51,8 @@ services:
     restart: unless-stopped
 
   # Clutch Hub API (bridges apps to node)
-  # Use ghcr.io or 9194010019/clutch-hub-api (Docker Hub) depending on where it's published
   clutch-hub-api:
-    image: 9194010019/clutch-hub-api:latest
+    image: ghcr.io/clutchprotocol/clutch-hub-api:latest
     container_name: clutch-hub-api-container
     depends_on:
       - node1
