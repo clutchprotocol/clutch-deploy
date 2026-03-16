@@ -83,6 +83,19 @@ docker compose down -v
 docker compose up -d
 ```
 
+## Local Development (build from local source)
+
+If you have the repos checked out next to `clutch-deploy/` (sibling folders):
+- `../clutch-node`
+- `../clutch-hub-api`
+- `../clutch-hub-demo-app`
+
+You can build the Clutch services from your local source code using the dev override file `docker-compose.dev.yml`:
+
+```bash
+docker compose -f docker-compose.yml -f docker-compose.dev.yml up --build -d
+```
+
 ## Project Structure
 
 ```
