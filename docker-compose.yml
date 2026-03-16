@@ -98,7 +98,7 @@ services:
       - "--web.enable-lifecycle"
     restart: unless-stopped
 
-  # Grafana - dashboards (port 3030 to avoid conflict with clutch-hub-api on 3000)
+  # Grafana - dashboards 
   grafana:
     image: grafana/grafana
     container_name: grafana-container
@@ -107,7 +107,7 @@ services:
     networks:
       - clutch-network
     ports:
-      - "3030:3000"
+      - "3030:3030"
     volumes:
       - grafana-data:/var/lib/grafana
       - ./config/monitoring/grafana/datasources.yml:/etc/grafana/provisioning/datasources/datasources.yml:ro
