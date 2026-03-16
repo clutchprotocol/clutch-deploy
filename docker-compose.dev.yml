@@ -1,0 +1,41 @@
+services:
+  # Use local source for the API when developing
+  clutch-hub-api:
+    build:
+      context: ../clutch-hub-api
+      dockerfile: Dockerfile
+    image: clutch-hub-api:dev
+    # Reuse the same env and config as base compose
+    env_file:
+      - .env
+    volumes:
+      - ./config/api:/app/config:ro
+
+  # Optionally build the demo app from local source as well
+  clutch-hub-demo-app:
+    build:
+      context: ../clutch-hub-demo-app
+      dockerfile: Dockerfile
+    image: clutch-hub-demo-app:dev
+
+  # Use local source for clutch-node (all three nodes share same dev image)
+  #
+  # Note: there is no ./clutch-node folder inside clutch-deploy on disk.
+  # The clutch-node repo is a sibling folder (../clutch-node).
+  node1:
+    build:
+      context: ../clutch-node
+      dockerfile: Dockerfile
+    image: clutch-node:dev
+
+  node2:
+    image: clutch-node:dev
+
+  node3:
+    image: clutch-node:dev
+
+  # Monitoring/logging services (use base images; no dev overrides needed)
+  prometheus: {}
+  grafana: {}
+  seq: {}
+
