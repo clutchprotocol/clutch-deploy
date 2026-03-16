@@ -11,11 +11,13 @@ services:
     volumes:
       - ./config/api:/app/config:ro
 
-  # Optionally build the demo app from local source as well
+  # Demo app: build from local source in dev
   clutch-hub-demo-app:
     build:
       context: ../clutch-hub-demo-app
       dockerfile: Dockerfile
+      args:
+        VITE_API_URL: http://localhost:3000
     image: clutch-hub-demo-app:dev
 
   # Use local source for clutch-node (all three nodes share same dev image)

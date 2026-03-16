@@ -136,11 +136,6 @@ services:
   # Demo app (React + map-based ride request)
   clutch-hub-demo-app:
     image: ghcr.io/clutchprotocol/clutch-hub-demo-app:latest
-    build:
-      context: ../clutch-hub-demo-app
-      dockerfile: Dockerfile
-      args:
-        VITE_API_URL: http://localhost:3000
     container_name: clutch-hub-demo-app-container
     ports:
       - "5173:80"
