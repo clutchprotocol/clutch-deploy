@@ -11,14 +11,20 @@ services:
     volumes:
       - ./config/api:/app/config:ro
 
-  # Demo app: build from local source in dev
+  # Demo app: run Vite dev server with hot reload from local source
   clutch-hub-demo-app:
-    build:
-      context: ../clutch-hub-demo-app
-      dockerfile: Dockerfile
-      args:
-        VITE_API_URL: http://localhost:3000
-    image: clutch-hub-demo-app:dev
+    image: node:20-alpine
+    working_dir: /app
+    command: >-
+      sh -c "if [ ! -d node_modules ] || [ -z \"$(ls -A node_modules 2>/dev/null)\" ]; then npm ci; fi &&
+      npm run dev -- --host 0.0.0.0 --port 80"
+    environment:
+      VITE_API_URL: http://localhost:3000
+      CHOKIDAR_USEPOLLING: "true"
+      CHOKIDAR_INTERVAL: "300"
+    volumes:
+      - ../clutch-hub-demo-app:/app
+      - clutch-hub-demo-app-node_modules:/app/node_modules
 
   # Use local source for clutch-node (all three nodes share same dev image)
   #
@@ -40,4 +46,7 @@ services:
   prometheus: {}
   grafana: {}
   seq: {}
+
+volumes:
+  clutch-hub-demo-app-node_modules:
 
