@@ -19,4 +19,4 @@ serve_metric_enabled = true
 serve_metric_addr = "0.0.0.0:3003"
 log_level = "info"
 seq_url = "http://seq:80"
-seq_api_key = ""
+seq_api_key = "hQyVU1t5Q2YHIVs34WpC"
