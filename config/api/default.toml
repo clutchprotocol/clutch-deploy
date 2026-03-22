@@ -9,3 +9,8 @@ seq_url = "http://seq:80"
 seq_api_key = "FZii3D6ILDI38a0oIeDL"
 jwt_secret = "change-me-in-production"
 jwt_expiration_hours = 6
+
+# Faucet: POST /faucet { "address": "0x..." } — test networks only; requires a funded key.
+faucet_enabled = true
+faucet_private_key = "d2c446110cfcecbdf05b2be528e72483de5b6f7ef9c7856df2f81f48e9f2748f"
+faucet_amount_clt = 1000
