@@ -1,28 +1,28 @@
 services:
   # Stage: don't expose internal ports publicly; only reverse proxy should be public.
   node1:
-    ports: []
+    ports: !reset []
 
   node2:
-    ports: []
+    ports: !reset []
 
   node3:
-    ports: []
+    ports: !reset []
 
   clutch-hub-api:
-    ports: []
+    ports: !reset []
 
   prometheus:
-    ports: []
+    ports: !reset []
 
   grafana:
-    ports: []
+    ports: !reset []
 
   seq:
-    ports: []
+    ports: !reset []
 
   clutch-hub-demo-app:
-    ports: []
+    ports: !reset []
 
   # Stage reverse proxy (HTTP-only here; add TLS later if desired)
   #
