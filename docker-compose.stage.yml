@@ -25,10 +25,20 @@ services:
     ports: []
 
   # Stage reverse proxy (HTTP-only here; add TLS later if desired)
-  nginx:
-    profiles: [] # always on in stage
+  #
+  # Note: this is a separate service name so it doesn't inherit the base
+  # `nginx` service's `profiles: [proxy]` setting.
+  nginx-stage:
+    image: nginx:alpine
+    container_name: clutch-nginx-proxy-stage
+    ports:
+      - "80:80"
+      - "443:443"
     volumes:
       - ./config/nginx/nginx.stage.conf:/etc/nginx/nginx.conf:ro
     depends_on:
       - clutch-hub-api
       - clutch-hub-demo-app
+    networks:
+      - clutch-network
+    restart: unless-stopped
