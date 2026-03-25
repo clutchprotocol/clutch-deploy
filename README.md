@@ -46,7 +46,8 @@ Stage runs the stack with a reverse proxy that routes:
 Start stage (PowerShell):
 
 ```powershell
-docker compose -f .\docker-compose.yml -f .\docker-compose.stage.yml up -d
+docker compose -f .\docker-compose.yml -f .\docker-compose.stage.yml pull clutch-hub-demo-app
+docker compose -f .\docker-compose.yml -f .\docker-compose.stage.yml up -d --force-recreate
 ```
 
 Stop stage:
