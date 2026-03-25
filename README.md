@@ -1,125 +1,60 @@
 # Clutch Deploy
 
-Docker Compose deployment for the Clutch Protocol full stack: **clutch-node** (blockchain) + **clutch-hub-api** (GraphQL bridge) + **monitoring** (Prometheus, Grafana, Seq).
+This folder contains Docker Compose configs to run the Clutch Protocol stack in two modes:
+
+- **Dev**: build/run from local source with hot reload (Vite dev server)
+- **Stage**: run as a staged deployment behind Nginx using a stage domain
 
 ## Prerequisites
 
-- Docker & Docker Compose
-- (Optional) GHCR login if using private images: `docker login ghcr.io`
+- Docker Desktop (includes Docker Compose)
+- A `.env` file in this folder (copy from `.env.example`)
 
-## Quick Start
+## Run (dev)
 
-```bash
-# Clone this repo
-git clone https://github.com/clutchprotocol/clutch-deploy.git
-cd clutch-deploy
+Dev assumes you have these sibling repos next to `clutch-deploy/`:
 
-# Copy env and customize
-cp .env.example .env
-
-# Start the stack
-docker compose up -d
-```
-
-**Verify:**
-- API health: http://localhost:3000/health
-- Grafana: http://localhost:3030 (admin/admin)
-- Seq logs: http://localhost:5341
-
-## Services
-
-| Service        | Ports           | URL / Description                    |
-|----------------|-----------------|--------------------------------------|
-| clutch-hub-api | 3000            | http://localhost:3000 (GraphQL, /health) |
-| node1          | 8081, 4001, 3001| Bootstrap node (WebSocket, libp2p, metrics) |
-| node2          | 8082, 4002, 3002| Blockchain node 2                    |
-| node3          | 8083, 4003, 3003| Blockchain node 3                    |
-| Prometheus     | 9090            | http://localhost:9090 (metrics)      |
-| Grafana        | 3030            | http://localhost:3030 (admin/admin)  |
-| Seq            | 5341            | http://localhost:5341 (logs)         |
-| clutch-hub-demo-app | 5173        | http://localhost:5173 (demo, `--profile demo`) |
-
-## Optional: Demo App
-
-Run with the Clutch Hub Demo App (React + map-based ride request):
-
-```bash
-# Requires clutch-hub-demo-app as sibling of clutch-deploy
-docker compose --profile demo up -d
-```
-
-Demo: http://localhost:5173
-
-## Optional: Nginx Proxy
-
-Run with Nginx as reverse proxy on port 80:
-
-```bash
-docker compose --profile proxy up -d
-```
-
-## Configuration
-
-| Path | Purpose |
-|------|---------|
-| `config/node/node1.toml`, `node2.toml`, `node3.toml` | Node settings, bootstrap peers |
-| `config/api/default.toml` | API bind address, node WebSocket URL, Seq |
-| `config/monitoring/prometheus/prometheus.yml` | Scrape targets |
-| `config/monitoring/grafana/` | Datasources, dashboards |
-| `config/nginx/nginx.conf` | Proxy config (when using `--profile proxy`) |
-| `.env` | `SEQ_API_KEY`, `JWT_SECRET`, `ALLOWED_ORIGINS` (from `.env.example`) |
-
-## Common Commands
-
-```bash
-# View logs
-docker compose logs -f clutch-hub-api
-
-# Restart API
-docker compose restart clutch-hub-api
-
-# Full reset (stops containers, removes volumes)
-docker compose down -v
-docker compose up -d
-```
-
-## Local Development (build from local source)
-
-If you have the repos checked out next to `clutch-deploy/` (sibling folders):
 - `../clutch-node`
 - `../clutch-hub-api`
 - `../clutch-hub-demo-app`
+- `../clutch-hub-sdk-js`
 
-You can build the Clutch services from your local source code using the dev override file `docker-compose.dev.yml`:
+Start dev (PowerShell):
 
-```bash
-docker compose -f docker-compose.yml -f docker-compose.dev.yml up --build -d
+```powershell
+docker compose -f .\docker-compose.yml -f .\docker-compose.dev.yml up -d --build
 ```
 
-## Project Structure
+Useful dev URLs:
 
-```
-clutch-deploy/
-├── docker-compose.yml
-├── .env.example
-├── config/
-│   ├── api/default.toml
-│   ├── node/node1.toml, node2.toml, node3.toml
-│   ├── nginx/nginx.conf
-│   └── monitoring/
-│       ├── prometheus/prometheus.yml
-│       └── grafana/
-│           ├── datasources.yml
-│           ├── dashboards.yml
-│           └── dashboards/clutch-node.json
-└── README.md
+- Demo app (Vite): `http://localhost:5173/`
+- Hub API health: `http://localhost:3000/health`
+
+Stop dev:
+
+```powershell
+docker compose -f .\docker-compose.yml -f .\docker-compose.dev.yml down
 ```
 
-## Images
+## Run (stage)
 
-| Image | Source |
-|-------|--------|
-| clutch-node | `ghcr.io/clutchprotocol/clutch-node:latest` |
-| clutch-hub-api | `9194010019/clutch-hub-api:latest` (Docker Hub) |
+Stage runs the stack with a reverse proxy that routes:
 
-Each project builds and pushes its own image via CI. To use a different registry, update `docker-compose.yml`.
+- `stage.web.clutchprotocol.io/` → demo web app
+- `stage.web.clutchprotocol.io/api/*` and `/graphql` → hub API
+
+Start stage (PowerShell):
+
+```powershell
+docker compose -f .\docker-compose.yml -f .\docker-compose.stage.yml up -d
+```
+
+Stop stage:
+
+```powershell
+docker compose -f .\docker-compose.yml -f .\docker-compose.stage.yml down
+```
+
+Stage Nginx config lives at:
+
+- `config/nginx/nginx.stage.conf`
