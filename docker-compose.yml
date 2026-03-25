@@ -6,7 +6,6 @@ services:
   # Clutch blockchain nodes
   node1:
     image: ghcr.io/clutchprotocol/clutch-node:latest
-    container_name: clutch-node-container-node1
     networks:
       - clutch-network
     ports:
@@ -20,7 +19,6 @@ services:
 
   node2:
     image: ghcr.io/clutchprotocol/clutch-node:latest
-    container_name: clutch-node-container-node2
     depends_on:
       - node1
     networks:
@@ -36,7 +34,6 @@ services:
 
   node3:
     image: ghcr.io/clutchprotocol/clutch-node:latest
-    container_name: clutch-node-container-node3
     depends_on:
       - node1
     networks:
@@ -53,7 +50,6 @@ services:
   # Clutch Hub API (bridges apps to node)
   clutch-hub-api:
     image: ghcr.io/clutchprotocol/clutch-hub-api:latest
-    container_name: clutch-hub-api-container
     depends_on:
       - node1
       - seq
@@ -81,7 +77,6 @@ services:
   # Prometheus - metrics collection
   prometheus:
     image: prom/prometheus
-    container_name: prometheus-container
     networks:
       - clutch-network
     ports:
@@ -101,7 +96,6 @@ services:
   # Grafana - dashboards 
   grafana:
     image: grafana/grafana
-    container_name: grafana-container
     depends_on:
       - prometheus
     networks:
@@ -122,7 +116,6 @@ services:
   # Seq - structured logging
   seq:
     image: datalust/seq
-    container_name: seq-container
     networks:
       - clutch-network
     ports:
@@ -137,7 +130,6 @@ services:
   # Demo app (React + map-based ride request)
   clutch-hub-demo-app:
     image: ghcr.io/clutchprotocol/clutch-hub-demo-app:latest
-    container_name: clutch-hub-demo-app-container
     ports:
       - "5173:80"
     depends_on:
@@ -149,7 +141,6 @@ services:
   # Optional: Nginx reverse proxy (use --profile proxy to enable)
   nginx:
     image: nginx:alpine
-    container_name: clutch-nginx-proxy
     ports:
       - "80:80"
       - "443:443"

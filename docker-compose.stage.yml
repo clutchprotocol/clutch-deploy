@@ -30,7 +30,6 @@ services:
   # `nginx` service's `profiles: [proxy]` setting.
   nginx-stage:
     image: nginx:alpine
-    container_name: clutch-nginx-proxy-stage
     ports:
       - "80:80"
       - "443:443"

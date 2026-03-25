@@ -22,7 +22,7 @@ Dev assumes you have these sibling repos next to `clutch-deploy/`:
 Start dev (PowerShell):
 
 ```powershell
-docker compose -f .\docker-compose.yml -f .\docker-compose.dev.yml up -d --build
+docker compose -p dev -f .\docker-compose.yml -f .\docker-compose.dev.yml up -d --build
 ```
 
 Useful dev URLs:
@@ -33,7 +33,7 @@ Useful dev URLs:
 Stop dev:
 
 ```powershell
-docker compose -f .\docker-compose.yml -f .\docker-compose.dev.yml down
+docker compose -p dev -f .\docker-compose.yml -f .\docker-compose.dev.yml down
 ```
 
 ## Run (stage)
@@ -46,14 +46,14 @@ Stage runs the stack with a reverse proxy that routes:
 Start stage (PowerShell):
 
 ```powershell
-docker compose -f .\docker-compose.yml -f .\docker-compose.stage.yml up -d --pull always --force-recreate
+docker compose -p stage -f .\docker-compose.yml -f .\docker-compose.stage.yml up -d --pull always --force-recreate
 
 ```
 
 Stop stage:
 
 ```powershell
-docker compose -f .\docker-compose.yml -f .\docker-compose.stage.yml down
+docker compose -p stage -f .\docker-compose.yml -f .\docker-compose.stage.yml down
 ```
 
 Stage Nginx config lives at:
