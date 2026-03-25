@@ -40,8 +40,8 @@ docker compose -f .\docker-compose.yml -f .\docker-compose.dev.yml down
 
 Stage runs the stack with a reverse proxy that routes:
 
-- `stage.web.clutchprotocol.io/` → demo web app
-- `stage.web.clutchprotocol.io/api/*` and `/graphql` → hub API
+- `stageweb.clutchprotocol.io/` → demo web app
+- `stageweb.clutchprotocol.io/api/*` and `/graphql` → hub API
 
 Start stage (PowerShell):
 
