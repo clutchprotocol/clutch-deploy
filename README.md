@@ -22,7 +22,8 @@ Dev assumes you have these sibling repos next to `clutch-deploy/`:
 Start dev (PowerShell):
 
 ```powershell
-docker compose -p dev -f .\docker-compose.yml -f .\docker-compose.dev.yml up -d --build
+docker compose -p clutch-dev -f .\docker-compose.yml -f .\docker-compose.dev.yml up -d --build
+
 ```
 
 Useful dev URLs:
@@ -46,7 +47,7 @@ Stage runs the stack with a reverse proxy that routes:
 Start stage (PowerShell):
 
 ```powershell
-docker compose -p stage -f .\docker-compose.yml -f .\docker-compose.stage.yml up -d --pull always --force-recreate
+docker compose -p clutch-stage -f .\docker-compose.yml -f .\docker-compose.stage.yml up -d --force-recreate
 
 ```
 
