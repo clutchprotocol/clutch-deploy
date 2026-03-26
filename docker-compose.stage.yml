@@ -32,7 +32,6 @@ services:
     image: nginx:alpine
     ports:
       - "80:80"
-      - "443:443"
     volumes:
       - ./config/nginx/nginx.stage.conf:/etc/nginx/nginx.conf:ro
     depends_on:
