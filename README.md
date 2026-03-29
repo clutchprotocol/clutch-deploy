@@ -62,7 +62,7 @@ docker compose -p clutch-stage -f docker-compose.yml -f docker-compose.stage.clo
 Stop stage:
 
 ```powershell
-docker compose -p clutch-stage -f .\docker-compose.yml -f .\docker-compose.stage.cloudflare-flex.yml down
+docker compose -p clutch-stage -f docker-compose.yml -f docker-compose.stage.cloudflare-flex.yml down
 ```
 
 Files:
