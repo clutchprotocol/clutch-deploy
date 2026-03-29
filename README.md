@@ -92,7 +92,7 @@ Configure these in **GitHub → Settings → Secrets and variables → Actions**
 |--------|-------------|
 | `STAGE_HOST` | VPS hostname or IP |
 | `STAGE_USER` | SSH user (e.g. `root` or `deploy`) |
-| `STAGE_SSH_PRIVATE_KEY` | PEM private key for that user (full key including `BEGIN`/`END` lines) |
+| `STAGE_SSH_PASSWORD` | SSH password for that user (GitHub encrypt-at-rest). Using an **SSH key** is more secure if you can enable key-only login on the server. |
 | `STAGE_DEPLOY_PATH` | Absolute path to this repo on the server (e.g. `/root/clutch-deploy`) |
 
 If SSH is not on port 22, add `port: YOUR_PORT` under `with:` in the workflow (or use `~/.ssh/config` on a self-hosted runner).

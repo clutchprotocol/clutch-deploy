@@ -3,7 +3,7 @@
 # Required repo secrets:
 #   STAGE_HOST              — VPS hostname or IP
 #   STAGE_USER              — SSH user (e.g. root or deploy)
-#   STAGE_SSH_PRIVATE_KEY   — full private key (PEM), including -----BEGIN/END-----
+#   STAGE_SSH_PASSWORD      — SSH password for that user (store in GitHub Secrets; prefer SSH keys when possible)
 #   STAGE_DEPLOY_PATH       — absolute path to clutch-deploy on the server (e.g. /root/clutch-deploy)
 #
 # Optional:
@@ -41,7 +41,7 @@ jobs:
         with:
           host: ${{ secrets.STAGE_HOST }}
           username: ${{ secrets.STAGE_USER }}
-          key: ${{ secrets.STAGE_SSH_PRIVATE_KEY }}
+          password: ${{ secrets.STAGE_SSH_PASSWORD }}
           script_stop: true
           script: |
             set -euo pipefail
