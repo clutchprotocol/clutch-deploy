@@ -1,0 +1,51 @@
+# Deploy stage stack on the VPS over SSH.
+#
+# Required repo secrets:
+#   STAGE_HOST              — VPS hostname or IP
+#   STAGE_USER              — SSH user (e.g. root or deploy)
+#   STAGE_SSH_PRIVATE_KEY   — full private key (PEM), including -----BEGIN/END-----
+#   STAGE_DEPLOY_PATH       — absolute path to clutch-deploy on the server (e.g. /root/clutch-deploy)
+#
+# Optional:
+#   STAGE_SSH_PORT          — SSH port if not 22
+#
+# The server must: have Docker + Compose v2, git clone of this repo at STAGE_DEPLOY_PATH (for git pull),
+# and for private GHCR images: docker login ghcr.io (run once on the VPS).
+
+name: Deploy stage (VPS)
+
+on:
+  workflow_dispatch: {}
+
+  push:
+    branches: [main]
+    paths:
+      - "docker-compose.yml"
+      - "docker-compose.stage.cloudflare-flex.yml"
+      - "config/**"
+      - ".github/workflows/deploy-stage.yml"
+
+  repository_dispatch:
+    types: [deploy-stage]
+
+concurrency:
+  group: deploy-stage
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Deploy via SSH
+        uses: appleboy/ssh-action@v1.2.0
+        with:
+          host: ${{ secrets.STAGE_HOST }}
+          username: ${{ secrets.STAGE_USER }}
+          key: ${{ secrets.STAGE_SSH_PRIVATE_KEY }}
+          script_stop: true
+          script: |
+            set -euo pipefail
+            cd "${{ secrets.STAGE_DEPLOY_PATH }}"
+            git pull --ff-only || echo "Note: git pull failed or not a git repo — continuing"
+            docker compose -p clutch-stage -f docker-compose.yml -f docker-compose.stage.cloudflare-flex.yml pull
+            docker compose -p clutch-stage -f docker-compose.yml -f docker-compose.stage.cloudflare-flex.yml up -d --build --force-recreate

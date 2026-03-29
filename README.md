@@ -56,8 +56,10 @@ Start stage (PowerShell):
 
 ```powershell
 docker compose -p clutch-stage -f docker-compose.yml -f docker-compose.stage.cloudflare-flex.yml pull
-docker compose -p clutch-stage -f docker-compose.yml -f docker-compose.stage.cloudflare-flex.yml up -d --force-recreate
+docker compose -p clutch-stage -f docker-compose.yml -f docker-compose.stage.cloudflare-flex.yml up -d --build --force-recreate
 ```
+
+(`--build` rebuilds the demo app image; CI uses the same flags.)
 
 Stop stage:
 
@@ -77,3 +79,42 @@ Nginx sets `X-Forwarded-Proto https` so the app sees the public scheme correctly
 ## VPS setup over SSH
 
 Step-by-step (Ubuntu Server): [docs/SSH-SERVER-SETUP.md](docs/SSH-SERVER-SETUP.md)
+
+## Automated stage deploy (GitHub Actions)
+
+Workflow: [`.github/workflows/deploy-stage.yml`](.github/workflows/deploy-stage.yml) runs **`git pull`** (if the deploy dir is a clone), **`docker compose pull`**, then **`up -d --build --force-recreate`** with the Cloudflare flex files.
+
+### Repository secrets
+
+Configure these in **GitHub → Settings → Secrets and variables → Actions**:
+
+| Secret | Description |
+|--------|-------------|
+| `STAGE_HOST` | VPS hostname or IP |
+| `STAGE_USER` | SSH user (e.g. `root` or `deploy`) |
+| `STAGE_SSH_PRIVATE_KEY` | PEM private key for that user (full key including `BEGIN`/`END` lines) |
+| `STAGE_DEPLOY_PATH` | Absolute path to this repo on the server (e.g. `/root/clutch-deploy`) |
+
+If SSH is not on port 22, add `port: YOUR_PORT` under `with:` in the workflow (or use `~/.ssh/config` on a self-hosted runner).
+
+### Server one-time setup
+
+- Clone this repo on the VPS at `STAGE_DEPLOY_PATH` so `git pull` updates compose and config.
+- Copy `.env` and ensure **`ALLOWED_ORIGINS`**, **`JWT_SECRET`**, etc. exist (not stored in Git).
+- For **private** images on GHCR, run **`docker login ghcr.io`** once on the server (or use a read-only PAT).
+
+### When it runs
+
+- **Manual:** Actions → **Deploy stage (VPS)** → Run workflow.
+- **On push to `main`:** when `docker-compose*.yml`, `config/**`, or this workflow file changes.
+- **From another repo** (e.g. after an image publish): send a **`repository_dispatch`** with event type **`deploy-stage`**:
+
+```bash
+curl -X POST \
+  -H "Accept: application/vnd.github+json" \
+  -H "Authorization: Bearer YOUR_PAT_WITH_REPO_SCOPE" \
+  https://api.github.com/repos/OWNER/clutch-deploy/dispatches \
+  -d '{"event_type":"deploy-stage"}'
+```
+
+Or add a job in `clutch-hub-api` / `clutch-node` CI that calls [`repository_dispatch`](https://docs.github.com/en/rest/repos/repos#create-a-repository-dispatch-event) after `docker push` so stage updates whenever a new image is published.
