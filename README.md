@@ -72,7 +72,7 @@ Files:
 
 Nginx sets `X-Forwarded-Proto https` so the app sees the public scheme correctly.
 
-**Frontend / SDK:** Build the demo with API and GraphQL WebSocket URLs using your **public** `https://` (and `wss://`) hostnames behind Cloudflare, not raw VPS HTTP URLs.
+**Frontend / SDK:** The demo resolves the Hub API from the page hostname: **`stageweb.<domain>` → `https://stageapi.<domain>`** (GraphQL HTTP and `wss://…/graphql/ws` follow). The stage compose file also passes **`VITE_API_URL`** at image build time. Set **`ALLOWED_ORIGINS`** in `.env` to include your demo origin (e.g. `https://stageweb.clutchprotocol.io`) so the Hub API accepts browser requests.
 
 ## VPS setup over SSH
 

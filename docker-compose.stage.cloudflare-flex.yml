@@ -29,6 +29,9 @@ services:
     build:
       context: ..
       dockerfile: clutch-hub-demo-app/Dockerfile
+      args:
+        # Baked at build; runtime also maps stageweb.* -> stageapi.* in src/config.js
+        VITE_API_URL: https://stageapi.clutchprotocol.io
 
   nginx-stage:
     image: nginx:alpine
