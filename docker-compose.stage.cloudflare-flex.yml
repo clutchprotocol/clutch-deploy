@@ -24,14 +24,10 @@ services:
   seq:
     ports: !reset []
 
+  # Pre-built image (see clutch-hub-demo-app CI). `docker compose pull` updates stage without --build.
   clutch-hub-demo-app:
     ports: !reset []
-    build:
-      context: ..
-      dockerfile: clutch-hub-demo-app/Dockerfile
-      args:
-        # Baked at build; runtime also maps stageweb.* -> stageapi.* in src/config.js
-        VITE_API_URL: https://stageapi.clutchprotocol.io
+    image: ghcr.io/clutchprotocol/clutch-hub-demo-app:latest
 
   nginx-stage:
     image: nginx:alpine
