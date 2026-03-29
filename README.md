@@ -56,10 +56,10 @@ Start stage (PowerShell):
 
 ```powershell
 docker compose -p clutch-stage -f docker-compose.yml -f docker-compose.stage.cloudflare-flex.yml pull
-docker compose -p clutch-stage -f docker-compose.yml -f docker-compose.stage.cloudflare-flex.yml up -d --build --force-recreate
+docker compose -p clutch-stage -f docker-compose.yml -f docker-compose.stage.cloudflare-flex.yml up -d --force-recreate
 ```
 
-(`--build` rebuilds the demo app image; CI uses the same flags.)
+Use **`--build`** only when you need to rebuild an image from a local `Dockerfile` (e.g. the demo app). GitHub Actions deploy does **not** run `--build`; it pulls published images and recreates containers.
 
 Stop stage:
 
@@ -82,7 +82,7 @@ Step-by-step (Ubuntu Server): [docs/SSH-SERVER-SETUP.md](docs/SSH-SERVER-SETUP.m
 
 ## Automated stage deploy (GitHub Actions)
 
-Workflow: [`.github/workflows/deploy-stage.yml`](.github/workflows/deploy-stage.yml) runs **`git pull`** (if the deploy dir is a clone), **`docker compose pull`**, then **`up -d --build --force-recreate`** with the Cloudflare flex files.
+Workflow: [`.github/workflows/deploy-stage.yml`](.github/workflows/deploy-stage.yml) runs **`git pull`** (if the deploy dir is a clone), **`docker compose pull`**, then **`up -d --force-recreate`** with the Cloudflare flex files (no **`--build`**).
 
 ### Repository secrets
 

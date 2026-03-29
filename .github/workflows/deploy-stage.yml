@@ -48,4 +48,4 @@ jobs:
             cd "${{ secrets.STAGE_DEPLOY_PATH }}"
             git pull --ff-only || echo "Note: git pull failed or not a git repo — continuing"
             docker compose -p clutch-stage -f docker-compose.yml -f docker-compose.stage.cloudflare-flex.yml pull
-            docker compose -p clutch-stage -f docker-compose.yml -f docker-compose.stage.cloudflare-flex.yml up -d --build --force-recreate
+            docker compose -p clutch-stage -f docker-compose.yml -f docker-compose.stage.cloudflare-flex.yml up -d --force-recreate
