@@ -1,5 +1,5 @@
-# Stage behind Cloudflare "Flexible" SSL: origin listens on HTTP :80 only.
-# Use INSTEAD of docker-compose.stage.yml (do not merge both — port lists would combine).
+# Stage / VPS: origin HTTP :80 only; TLS terminates at Cloudflare (e.g. SSL mode Flexible).
+# Use with docker-compose.yml only — do not stack another overlay that re-publishes node/API ports.
 #
 # docker compose -p clutch-stage -f docker-compose.yml -f docker-compose.stage.cloudflare-flex.yml up -d
 services:
