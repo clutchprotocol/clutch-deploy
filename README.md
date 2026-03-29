@@ -107,9 +107,9 @@ If SSH is not on port 22, add `port: YOUR_PORT` under `with:` in the workflow (o
 
 - **Manual:** Actions → **Deploy stage (VPS)** → Run workflow.
 - **On push to `main`:** when `docker-compose*.yml`, `config/**`, or this workflow file changes.
-- **After `clutch-hub-demo-app` publishes to GHCR:** that repo’s **`docker-publish`** workflow dispatches **`deploy-stage`** here (if secret **`CLUTCH_DEPLOY_DISPATCH_TOKEN`** is set in **clutch-hub-demo-app** — a PAT with permission to trigger workflows on **clutch-deploy**). Stage compose uses **`ghcr.io/clutchprotocol/clutch-hub-demo-app:latest`** so **`docker compose pull`** picks up the new demo image.
+- **After images publish to GHCR** from **`clutch-hub-demo-app`**, **`clutch-hub-api`**, or **`clutch-node`:** each repo’s Docker workflow can dispatch **`deploy-stage`** here. Add the same secret **`CLUTCH_DEPLOY_DISPATCH_TOKEN`** (a PAT that may **`repository_dispatch`** on **clutch-deploy**) to **each** of those repositories under **Settings → Secrets and variables → Actions**. Stage compose pulls **`ghcr.io/clutchprotocol/...:latest`** for node, API, and demo so **`docker compose pull`** updates the stack.
 
-Pushing **only** to **clutch-hub-demo-app** does **not** run workflows in **clutch-deploy** by itself; the dispatch step (or a manual / compose-only push to **clutch-deploy**) ties them together.
+Pushing to **clutch-hub-api** / **clutch-node** / **clutch-hub-demo-app** does **not** run workflows in **clutch-deploy** by itself; the **`trigger-stage-deploy`** job (or **`repository_dispatch`** / manual run) ties them together.
 
 - **From any automation:** send a **`repository_dispatch`** with event type **`deploy-stage`**:
 
