@@ -124,7 +124,9 @@ services:
       - seq-data:/data
     environment:
       - ACCEPT_EULA=Y
-      - SEQ_FIRSTRUN_NOAUTHENTICATION=true
+      # Enable authentication on first run (requires empty/new /data volume)
+      - SEQ_FIRSTRUN_ADMINUSERNAME=${SEQ_ADMIN_USERNAME:-admin}
+      - SEQ_FIRSTRUN_ADMINPASSWORD=${SEQ_ADMIN_PASSWORD:-}
     restart: unless-stopped
 
   # Demo app (React + map-based ride request)
