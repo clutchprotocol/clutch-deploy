@@ -1,16 +1,23 @@
-# Stage / VPS: origin HTTP :80 only; TLS terminates at Cloudflare (e.g. SSL mode Flexible).
-# Use with docker-compose.yml only — do not stack another overlay that re-publishes node/API ports.
+# Stage / VPS: origin HTTP :80 (TLS terminates at Cloudflare, e.g. SSL mode Flexible).
+# For transparency we publish node RPC/metrics ports externally (8081-8083, 3001-3003).
+# P2P ports (4001-4003) remain internal.
 #
 # docker compose -p clutch-stage -f docker-compose.yml -f docker-compose.stage.cloudflare-flex.yml up -d
 services:
   node1:
-    ports: !reset []
+    ports:
+      - "8081:8081"
+      - "3001:3001"
 
   node2:
-    ports: !reset []
+    ports:
+      - "8082:8082"
+      - "3002:3002"
 
   node3:
-    ports: !reset []
+    ports:
+      - "8083:8083"
+      - "3003:3003"
 
   clutch-hub-api:
     ports: !reset []
