@@ -74,7 +74,7 @@ Files:
 
 Nginx sets `X-Forwarded-Proto https` so the app sees the public scheme correctly.
 
-**Frontend / SDK:** The demo resolves the Hub API from the page hostname: **`stageweb.<domain>` → `https://stageapi.<domain>`** (GraphQL HTTP and `wss://…/graphql/ws` follow). The stage compose file also passes **`VITE_API_URL`** at image build time. Set **`ALLOWED_ORIGINS`** in `.env` to include your demo origin (e.g. `https://stageweb.clutchprotocol.io`) so the Hub API accepts browser requests.
+**Frontend / SDK:** The demo resolves the Hub API from the page hostname: **`app-stage.<domain>` → `https://api-stage.<domain>`** (GraphQL HTTP and `wss://…/graphql/ws` follow). The stage compose file also passes **`VITE_API_URL`** at image build time. Set **`ALLOWED_ORIGINS`** in `.env` to include your demo origin (e.g. `https://app-stage.clutchprotocol.io`) so the Hub API accepts browser requests.
 
 ## VPS setup over SSH
 
