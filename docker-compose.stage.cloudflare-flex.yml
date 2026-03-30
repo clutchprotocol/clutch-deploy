@@ -5,19 +5,13 @@
 # docker compose -p clutch-stage -f docker-compose.yml -f docker-compose.stage.cloudflare-flex.yml up -d
 services:
   node1:
-    ports:
-      - "8081:8081"
-      - "3001:3001"
+    ports: !reset []
 
   node2:
-    ports:
-      - "8082:8082"
-      - "3002:3002"
+    ports: !reset []
 
   node3:
-    ports:
-      - "8083:8083"
-      - "3003:3003"
+    ports: !reset []
 
   clutch-hub-api:
     ports: !reset []
