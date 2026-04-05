@@ -31,17 +31,27 @@ services:
   #
   # Note: there is no ./clutch-node folder inside clutch-deploy on disk.
   # The clutch-node repo is a sibling folder (../clutch-node).
+  # All three declare build so Compose does not pull clutch-node:dev from Docker Hub.
   node1:
     build:
       context: ../clutch-node
       dockerfile: Dockerfile
     image: clutch-node:dev
+    pull_policy: build
 
   node2:
+    build:
+      context: ../clutch-node
+      dockerfile: Dockerfile
     image: clutch-node:dev
+    pull_policy: build
 
   node3:
+    build:
+      context: ../clutch-node
+      dockerfile: Dockerfile
     image: clutch-node:dev
+    pull_policy: build
 
   # Monitoring/logging services (use base images; no dev overrides needed)
   prometheus: {}
