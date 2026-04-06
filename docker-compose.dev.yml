@@ -27,11 +27,13 @@ services:
       - ../clutch-hub-sdk-js:/clutch-hub-sdk-js
       - clutch-hub-demo-app-node_modules:/app/node_modules
 
-  # Use local source for clutch-node (all three nodes share same dev image)
+  # Use local source for clutch-node (all three nodes share one dev image).
   #
   # Note: there is no ./clutch-node folder inside clutch-deploy on disk.
   # The clutch-node repo is a sibling folder (../clutch-node).
-  # All three declare build so Compose does not pull clutch-node:dev from Docker Hub.
+  #
+  # Only node1 runs docker build. node2/node3 reuse the same tag; three parallel
+  # builds of one tag fail with: image "clutch-node:dev" already exists.
   node1:
     build:
       context: ../clutch-node
@@ -40,18 +42,16 @@ services:
     pull_policy: build
 
   node2:
-    build:
-      context: ../clutch-node
-      dockerfile: Dockerfile
     image: clutch-node:dev
-    pull_policy: build
+    pull_policy: never
+    depends_on:
+      - node1
 
   node3:
-    build:
-      context: ../clutch-node
-      dockerfile: Dockerfile
     image: clutch-node:dev
-    pull_policy: build
+    pull_policy: never
+    depends_on:
+      - node1
 
   # Monitoring/logging services (use base images; no dev overrides needed)
   prometheus: {}
