@@ -65,7 +65,7 @@ services:
       fi;
       exec node ./node_modules/vite/bin/vite.js --host 0.0.0.0 --port 80"
     environment:
-      VITE_API_URL: http://192.168.1.54:3000
+      VITE_API_URL: http://127.0.0.1:3000
       CHOKIDAR_USEPOLLING: "true"
       CHOKIDAR_INTERVAL: "300"
       NPM_CONFIG_REGISTRY: ${NPM_CONFIG_REGISTRY:-https://registry.npmjs.org/}
