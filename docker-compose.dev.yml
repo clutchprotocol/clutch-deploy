@@ -15,17 +15,70 @@ services:
   clutch-hub-demo-app:
     image: node:20-alpine
     working_dir: /app
+    # Install deps only when missing; retry npm ci for transient registry/DNS errors.
+    # Use -f (file exists), not -x: Docker Desktop Windows bind mounts often drop the
+    # executable bit, so .bin/vite looks "missing" and npm ci loops forever.
+    # Start Vite via node + vite.js (no execute bit required on the shim).
     command: >-
-      sh -c "npm install &&
-      npm run dev -- --host 0.0.0.0 --port 80"
+      sh -c "set -eu;
+      npm_ci_or_retry() {
+        dir=$$1;
+        cd \"$$dir\";
+        tries=0;
+        until [ $$tries -ge 5 ]; do
+          if npm ci --no-audit --prefer-offline; then return 0; fi;
+          tries=$$((tries + 1));
+          echo \"npm ci failed in $$dir (attempt $$tries/5); cleaning and retrying\";
+          rm -rf node_modules;
+          sleep $$((tries * 10));
+        done;
+        echo \"npm ci failed in $$dir after 5 attempts\";
+        return 1;
+      };
+      ensure_sdk_deps() {
+        if [ -f /clutch-hub-sdk-js/node_modules/typescript/bin/tsc ] || [ -f /clutch-hub-sdk-js/node_modules/.bin/tsc ]; then
+          echo \"SDK deps already present; skipping npm ci\";
+        else
+          echo \"SDK deps missing; running npm ci\";
+          npm_ci_or_retry /clutch-hub-sdk-js;
+        fi;
+      };
+      ensure_app_deps() {
+        if [ -f /app/node_modules/vite/bin/vite.js ]; then
+          echo \"App deps already present; skipping npm ci\";
+        else
+          echo \"App deps missing; running npm ci\";
+          npm_ci_or_retry /app;
+        fi;
+      };
+      npm config set fetch-retries 5;
+      npm config set fetch-retry-mintimeout 20000;
+      npm config set fetch-retry-maxtimeout 120000;
+      npm config set fetch-timeout 600000;
+      npm config set prefer-offline true;
+      npm config set registry \"$$NPM_CONFIG_REGISTRY\";
+      ensure_sdk_deps;
+      ensure_app_deps;
+      cd /app;
+      if [ ! -f ./node_modules/vite/bin/vite.js ]; then
+        echo \"vite not found after install (expected ./node_modules/vite/bin/vite.js)\"; exit 1;
+      fi;
+      exec node ./node_modules/vite/bin/vite.js --host 0.0.0.0 --port 80"
     environment:
       VITE_API_URL: http://192.168.1.54:3000
       CHOKIDAR_USEPOLLING: "true"
       CHOKIDAR_INTERVAL: "300"
+      NPM_CONFIG_REGISTRY: ${NPM_CONFIG_REGISTRY:-https://registry.npmjs.org/}
+      HTTP_PROXY: ${HTTP_PROXY:-}
+      HTTPS_PROXY: ${HTTPS_PROXY:-}
+      NO_PROXY: ${NO_PROXY:-localhost,127.0.0.1,clutch-hub-api,node1,node2,node3}
+    dns:
+      - 1.1.1.1
+      - 8.8.8.8
     volumes:
       - ../clutch-hub-demo-app:/app
       - ../clutch-hub-sdk-js:/clutch-hub-sdk-js
-      - clutch-hub-demo-app-node_modules:/app/node_modules
+      - clutch-hub-demo-app-npm-cache:/root/.npm
 
   # Use local source for clutch-node (all three nodes share one dev image).
   #
@@ -59,5 +112,5 @@ services:
   seq: {}
 
 volumes:
-  clutch-hub-demo-app-node_modules:
+  clutch-hub-demo-app-npm-cache:
 
