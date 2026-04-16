@@ -44,10 +44,10 @@ services:
         fi;
       };
       ensure_app_deps() {
-        if [ -f /app/node_modules/vite/bin/vite.js ]; then
+        if [ -f /app/node_modules/vite/bin/vite.js ] && [ -d /app/node_modules/@rollup/rollup-linux-x64-musl ]; then
           echo \"App deps already present; skipping npm ci\";
         else
-          echo \"App deps missing; running npm ci\";
+          echo \"App deps missing or incomplete; running npm ci\";
           npm_ci_or_retry /app;
         fi;
       };
@@ -78,6 +78,8 @@ services:
     volumes:
       - ../clutch-hub-demo-app:/app
       - ../clutch-hub-sdk-js:/clutch-hub-sdk-js
+      - clutch-hub-demo-app-node-modules:/app/node_modules
+      - clutch-hub-sdk-js-node-modules:/clutch-hub-sdk-js/node_modules
       - clutch-hub-demo-app-npm-cache:/root/.npm
 
   # Use local source for clutch-node (all three nodes share one dev image).
@@ -113,4 +115,6 @@ services:
 
 volumes:
   clutch-hub-demo-app-npm-cache:
+  clutch-hub-demo-app-node-modules:
+  clutch-hub-sdk-js-node-modules:
 
