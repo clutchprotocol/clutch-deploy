@@ -42,6 +42,14 @@ services:
     ports: !reset []
     image: ghcr.io/clutchprotocol/clutch-explorer-frontend:latest
 
+  clutch-explorer-indexer:
+    ports: !reset []
+    image: ghcr.io/clutchprotocol/clutch-explorer-backend:latest
+
+  clutch-explorer-postgres:
+    ports: !reset []
+    image: postgres:16-alpine
+
   nginx-stage:
     image: nginx:alpine
     ports:

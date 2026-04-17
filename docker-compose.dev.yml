@@ -92,8 +92,43 @@ services:
       - .env
     environment:
       APP_STRICT_MODE: "true"
+      APP_DATA_SOURCE: postgres
+      APP_DATABASE_URL: postgres://${EXPLORER_POSTGRES_USER:-postgres}:${EXPLORER_POSTGRES_PASSWORD:-postgres}@clutch-explorer-postgres:5432/${EXPLORER_POSTGRES_DB:-clutch_explorer}
+    depends_on:
+      - clutch-explorer-postgres
+      - clutch-explorer-indexer
     volumes:
       - ./config/explorer:/app/config:ro
+
+  clutch-explorer-indexer:
+    build:
+      context: ../clutch-explorer/backend
+      dockerfile: Dockerfile
+    image: clutch-explorer-backend:dev
+    command: ["indexer", "--env", "default"]
+    env_file:
+      - .env
+    environment:
+      APP_DATA_SOURCE: postgres
+      APP_DATABASE_URL: postgres://${EXPLORER_POSTGRES_USER:-postgres}:${EXPLORER_POSTGRES_PASSWORD:-postgres}@clutch-explorer-postgres:5432/${EXPLORER_POSTGRES_DB:-clutch_explorer}
+      APP_NODE_METRICS_URL: http://node1:3001/metrics
+      APP_NODE_WS_URL: http://node1:8081
+      APP_INDEXER_POLL_INTERVAL_MS: "4000"
+      APP_INDEXER_START_HEIGHT: "0"
+    depends_on:
+      - clutch-explorer-postgres
+      - node1
+    volumes:
+      - ./config/explorer:/app/config:ro
+
+  clutch-explorer-postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: ${EXPLORER_POSTGRES_DB:-clutch_explorer}
+      POSTGRES_USER: ${EXPLORER_POSTGRES_USER:-postgres}
+      POSTGRES_PASSWORD: ${EXPLORER_POSTGRES_PASSWORD:-postgres}
+    volumes:
+      - clutch-explorer-postgres-data:/var/lib/postgresql/data
 
   # Explorer frontend with Vite dev server and hot reload
   clutch-explorer-frontend:
@@ -155,4 +190,5 @@ volumes:
   clutch-hub-sdk-js-node-modules:
   clutch-explorer-frontend-node-modules:
   clutch-explorer-frontend-npm-cache:
+  clutch-explorer-postgres-data:
 
