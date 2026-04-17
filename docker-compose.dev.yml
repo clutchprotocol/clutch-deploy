@@ -99,7 +99,7 @@ services:
     working_dir: /app
     command: >-
       sh -c "set -eu;
-      if [ ! -f /app/node_modules/vite/bin/vite.js ]; then
+      if [ ! -f /app/node_modules/vite/bin/vite.js ] || [ ! -d /app/node_modules/react-router-dom ]; then
         npm ci --no-audit --prefer-offline;
       fi;
       exec node ./node_modules/vite/bin/vite.js --host 0.0.0.0 --port 80"
