@@ -143,6 +143,43 @@ services:
       - clutch-network
     restart: unless-stopped
 
+  clutch-explorer-backend:
+    image: ghcr.io/clutchprotocol/clutch-explorer-backend:latest
+    depends_on:
+      - node1
+      - seq
+    ports:
+      - "8088:8088"
+    environment:
+      - APP_LOG_LEVEL=info
+      - APP_CLUTCH_NODE_API_URL=http://node1:8081
+      - APP_SEQ_URL=http://seq:80
+      - APP_SEQ_API_KEY=${SEQ_API_KEY:-}
+      - APP_ALLOWED_ORIGINS=${EXPLORER_ALLOWED_ORIGINS:-*}
+    env_file:
+      - .env
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://127.0.0.1:8088/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+    networks:
+      - clutch-network
+    volumes:
+      - ./config/explorer:/app/config:ro
+
+  clutch-explorer-frontend:
+    image: ghcr.io/clutchprotocol/clutch-explorer-frontend:latest
+    ports:
+      - "5174:80"
+    depends_on:
+      - clutch-explorer-backend
+    networks:
+      - clutch-network
+    restart: unless-stopped
+
   # Optional: Nginx reverse proxy (use --profile proxy to enable)
   nginx:
     image: nginx:alpine
@@ -153,6 +190,8 @@ services:
       - ./config/nginx/nginx.conf:/etc/nginx/nginx.conf:ro
     depends_on:
       - clutch-hub-api
+      - clutch-hub-demo-app
+      - clutch-explorer-frontend
     networks:
       - clutch-network
     profiles:

@@ -34,6 +34,14 @@ services:
     ports: !reset []
     image: ghcr.io/clutchprotocol/clutch-hub-demo-app:latest
 
+  clutch-explorer-backend:
+    ports: !reset []
+    image: ghcr.io/clutchprotocol/clutch-explorer-backend:latest
+
+  clutch-explorer-frontend:
+    ports: !reset []
+    image: ghcr.io/clutchprotocol/clutch-explorer-frontend:latest
+
   nginx-stage:
     image: nginx:alpine
     ports:
@@ -43,6 +51,8 @@ services:
     depends_on:
       - clutch-hub-api
       - clutch-hub-demo-app
+      - clutch-explorer-backend
+      - clutch-explorer-frontend
     networks:
       - clutch-network
     command: ["nginx", "-g", "daemon off;"]

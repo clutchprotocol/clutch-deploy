@@ -82,6 +82,40 @@ services:
       - clutch-hub-sdk-js-node-modules:/clutch-hub-sdk-js/node_modules
       - clutch-hub-demo-app-npm-cache:/root/.npm
 
+  # Explorer backend from local source
+  clutch-explorer-backend:
+    build:
+      context: ../clutch-explorer/backend
+      dockerfile: Dockerfile
+    image: clutch-explorer-backend:dev
+    env_file:
+      - .env
+    volumes:
+      - ./config/explorer:/app/config:ro
+
+  # Explorer frontend with Vite dev server and hot reload
+  clutch-explorer-frontend:
+    image: node:20-alpine
+    working_dir: /app
+    command: >-
+      sh -c "set -eu;
+      if [ ! -f /app/node_modules/vite/bin/vite.js ]; then
+        npm ci --no-audit --prefer-offline;
+      fi;
+      exec node ./node_modules/vite/bin/vite.js --host 0.0.0.0 --port 80"
+    environment:
+      VITE_EXPLORER_API_URL: http://127.0.0.1:8088
+      CHOKIDAR_USEPOLLING: "true"
+      CHOKIDAR_INTERVAL: "300"
+      NPM_CONFIG_REGISTRY: ${NPM_CONFIG_REGISTRY:-https://registry.npmjs.org/}
+      HTTP_PROXY: ${HTTP_PROXY:-}
+      HTTPS_PROXY: ${HTTPS_PROXY:-}
+      NO_PROXY: ${NO_PROXY:-localhost,127.0.0.1,clutch-explorer-backend,node1,node2,node3}
+    volumes:
+      - ../clutch-explorer/frontend:/app
+      - clutch-explorer-frontend-node-modules:/app/node_modules
+      - clutch-explorer-frontend-npm-cache:/root/.npm
+
   # Use local source for clutch-node (all three nodes share one dev image).
   #
   # Note: there is no ./clutch-node folder inside clutch-deploy on disk.
@@ -117,4 +151,6 @@ volumes:
   clutch-hub-demo-app-npm-cache:
   clutch-hub-demo-app-node-modules:
   clutch-hub-sdk-js-node-modules:
+  clutch-explorer-frontend-node-modules:
+  clutch-explorer-frontend-npm-cache:
 

@@ -1,0 +1,6 @@
+log_level = "info"
+listen_addr = "0.0.0.0:8088"
+clutch_node_api_url = "http://node1:8081"
+seq_url = "http://seq:80"
+seq_api_key = ""
+allowed_origins = "*"
