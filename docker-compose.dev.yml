@@ -90,6 +90,8 @@ services:
     image: clutch-explorer-backend:dev
     env_file:
       - .env
+    environment:
+      APP_STRICT_MODE: "true"
     volumes:
       - ./config/explorer:/app/config:ro
 

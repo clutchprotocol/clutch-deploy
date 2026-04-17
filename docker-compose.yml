@@ -153,6 +153,7 @@ services:
     environment:
       - APP_LOG_LEVEL=info
       - APP_CLUTCH_NODE_API_URL=http://node1:8081
+      - APP_STRICT_MODE=true
       - APP_SEQ_URL=http://seq:80
       - APP_SEQ_API_KEY=${SEQ_API_KEY:-}
       - APP_ALLOWED_ORIGINS=${EXPLORER_ALLOWED_ORIGINS:-*}
