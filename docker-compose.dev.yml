@@ -105,7 +105,7 @@ services:
       context: ../clutch-explorer/backend
       dockerfile: Dockerfile
     image: clutch-explorer-backend:dev
-    command: ["indexer", "--env", "default"]
+    command: ["/usr/local/bin/indexer", "--env", "default"]
     env_file:
       - .env
     environment:

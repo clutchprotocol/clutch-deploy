@@ -181,7 +181,7 @@ services:
       - node1
       - seq
       - clutch-explorer-postgres
-    command: ["indexer", "--env", "default"]
+    command: ["/usr/local/bin/indexer", "--env", "default"]
     environment:
       - APP_LOG_LEVEL=info
       - APP_DATA_SOURCE=postgres
