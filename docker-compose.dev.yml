@@ -94,9 +94,12 @@ services:
       APP_STRICT_MODE: "true"
       APP_DATA_SOURCE: postgres
       APP_DATABASE_URL: postgres://${EXPLORER_POSTGRES_USER:-postgres}:${EXPLORER_POSTGRES_PASSWORD:-postgres}@clutch-explorer-postgres:5432/${EXPLORER_POSTGRES_DB:-clutch_explorer}
+      APP_SEQ_URL: http://seq:80
+      APP_SEQ_API_KEY: ${SEQ_API_KEY:-}
     depends_on:
       - clutch-explorer-postgres
       - clutch-explorer-indexer
+      - seq
     volumes:
       - ./config/explorer:/app/config:ro
 
@@ -115,9 +118,12 @@ services:
       APP_NODE_WS_URL: http://node1:8081
       APP_INDEXER_POLL_INTERVAL_MS: "4000"
       APP_INDEXER_START_HEIGHT: "0"
+      APP_SEQ_URL: http://seq:80
+      APP_SEQ_API_KEY: ${SEQ_API_KEY:-}
     depends_on:
       - clutch-explorer-postgres
       - node1
+      - seq
     volumes:
       - ./config/explorer:/app/config:ro
 
