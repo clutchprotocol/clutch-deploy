@@ -93,6 +93,7 @@ services:
     environment:
       APP_STRICT_MODE: "true"
       APP_DEVELOPER_MODE: ${EXPLORER_DEVELOPER_MODE:-true}
+      APP_CLEANUP_ON_START: "true"
       APP_DATA_SOURCE: postgres
       APP_DATABASE_URL: postgres://${EXPLORER_POSTGRES_USER:-postgres}:${EXPLORER_POSTGRES_PASSWORD:-postgres}@clutch-explorer-postgres:5432/${EXPLORER_POSTGRES_DB:-clutch_explorer}
       APP_SEQ_URL: http://seq:80
@@ -115,6 +116,7 @@ services:
     environment:
       APP_DATA_SOURCE: postgres
       APP_DEVELOPER_MODE: ${EXPLORER_DEVELOPER_MODE:-true}
+      APP_CLEANUP_ON_START: "true"
       APP_DATABASE_URL: postgres://${EXPLORER_POSTGRES_USER:-postgres}:${EXPLORER_POSTGRES_PASSWORD:-postgres}@clutch-explorer-postgres:5432/${EXPLORER_POSTGRES_DB:-clutch_explorer}
       APP_NODE_METRICS_URL: http://node1:3001/metrics
       APP_NODE_WS_URL: http://node1:8081
