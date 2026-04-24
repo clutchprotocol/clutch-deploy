@@ -37,6 +37,8 @@ services:
   clutch-explorer-backend:
     ports: !reset []
     image: ghcr.io/clutchprotocol/clutch-explorer-backend:latest
+    environment:
+      - APP_DEVELOPER_MODE=true
 
   clutch-explorer-frontend:
     ports: !reset []
@@ -45,6 +47,8 @@ services:
   clutch-explorer-indexer:
     ports: !reset []
     image: ghcr.io/clutchprotocol/clutch-explorer-backend:latest
+    environment:
+      - APP_DEVELOPER_MODE=true
 
   clutch-explorer-postgres:
     ports: !reset []

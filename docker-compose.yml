@@ -158,6 +158,7 @@ services:
       - APP_DATABASE_URL=postgres://${EXPLORER_POSTGRES_USER:-postgres}:${EXPLORER_POSTGRES_PASSWORD:-postgres}@clutch-explorer-postgres:5432/${EXPLORER_POSTGRES_DB:-clutch_explorer}
       - APP_CLUTCH_NODE_API_URL=http://node1:8081
       - APP_STRICT_MODE=true
+      - APP_DEVELOPER_MODE=${EXPLORER_DEVELOPER_MODE:-false}
       - APP_SEQ_URL=http://seq:80
       - APP_SEQ_API_KEY=${SEQ_API_KEY:-}
       - APP_ALLOWED_ORIGINS=${EXPLORER_ALLOWED_ORIGINS:-*}
@@ -188,6 +189,7 @@ services:
       - APP_DATABASE_URL=postgres://${EXPLORER_POSTGRES_USER:-postgres}:${EXPLORER_POSTGRES_PASSWORD:-postgres}@clutch-explorer-postgres:5432/${EXPLORER_POSTGRES_DB:-clutch_explorer}
       - APP_NODE_METRICS_URL=http://node1:3001/metrics
       - APP_NODE_WS_URL=http://node1:8081
+      - APP_DEVELOPER_MODE=${EXPLORER_DEVELOPER_MODE:-false}
       - APP_INDEXER_POLL_INTERVAL_MS=4000
       - APP_INDEXER_START_HEIGHT=0
       - APP_SEQ_URL=http://seq:80
