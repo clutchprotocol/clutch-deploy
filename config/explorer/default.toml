@@ -2,6 +2,7 @@ log_level = "info"
 listen_addr = "0.0.0.0:8088"
 clutch_node_api_url = "http://node1:8081"
 strict_mode = true
+developer_mode = true
 data_source = "postgres"
 database_url = "postgres://postgres:postgres@clutch-explorer-postgres:5432/clutch_explorer"
 node_metrics_url = "http://node1:3001/metrics"
