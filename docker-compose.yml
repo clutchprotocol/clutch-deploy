@@ -6,6 +6,7 @@ services:
   # Clutch blockchain nodes
   node1:
     image: ghcr.io/clutchprotocol/clutch-node:latest
+    stop_grace_period: 30s
     networks:
       - clutch-network
     ports:
@@ -19,6 +20,7 @@ services:
 
   node2:
     image: ghcr.io/clutchprotocol/clutch-node:latest
+    stop_grace_period: 30s
     depends_on:
       - node1
     networks:
@@ -34,6 +36,7 @@ services:
 
   node3:
     image: ghcr.io/clutchprotocol/clutch-node:latest
+    stop_grace_period: 30s
     depends_on:
       - node1
     networks:
@@ -145,6 +148,7 @@ services:
 
   clutch-explorer-backend:
     image: ghcr.io/clutchprotocol/clutch-explorer-backend:latest
+    stop_grace_period: 30s
     depends_on:
       - node1
       - seq
@@ -178,6 +182,7 @@ services:
 
   clutch-explorer-indexer:
     image: ghcr.io/clutchprotocol/clutch-explorer-backend:latest
+    stop_grace_period: 30s
     depends_on:
       - node1
       - seq
