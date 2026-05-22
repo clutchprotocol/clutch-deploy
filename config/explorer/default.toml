@@ -12,3 +12,6 @@ indexer_start_height = 0
 seq_url = "http://seq:80"
 seq_api_key = ""
 allowed_origins = "*"
+
+ride_request_referrer_fee_percent = 1
+ride_offer_referrer_fee_percent = 1
