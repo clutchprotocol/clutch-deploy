@@ -29,6 +29,25 @@ Useful dev URLs:
 
 - Demo app (Vite): `http://localhost:5173/`
 - Hub API health: `http://localhost:3000/health`
+- Explorer UI: `http://localhost:5174/`
+- Explorer API: `http://localhost:8088/health`
+- Grafana: `http://localhost:3030/` (admin/admin)
+- Seq logs: `http://localhost:5341/`
+
+**Documentation:** https://docs.clutchprotocol.io/deployment/clutch-deploy
+
+## Services (docker-compose.yml)
+
+| Service | Ports | Description |
+|---------|-------|-------------|
+| clutch-hub-api | 3000 | GraphQL, /health, /faucet |
+| clutch-hub-demo-app | 5173 | Reference React demo |
+| clutch-explorer-backend | 8088 | Block explorer API |
+| clutch-explorer-frontend | 5174 | Block explorer UI |
+| node1–3 | 8081–8083, 4001–4003 | Validator nodes |
+| Prometheus | 9090 | Metrics |
+| Grafana | 3030 | Dashboards |
+| Seq | 5341 | Structured logs |
 
 Stop dev:
 
