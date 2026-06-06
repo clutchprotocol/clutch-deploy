@@ -1,5 +1,4 @@
-# Stage / VPS: origin HTTP :8080 (TLS terminates at Cloudflare, e.g. SSL mode Flexible).
-# Host port 80 is not used; set Cloudflare Origin Rule destination port 8080 for stage hostnames.
+# Stage / VPS: origin HTTP :80 (TLS terminates at Cloudflare, e.g. SSL mode Flexible).
 # For transparency we publish node RPC/metrics ports externally (8081-8083, 3001-3003).
 # P2P ports (4001-4003) remain internal.
 #
@@ -60,7 +59,7 @@ services:
   nginx-stage:
     image: nginx:alpine
     ports:
-      - "8080:8080"
+      - "80:80"
     volumes:
       - ./config/nginx/nginx.stage.cloudflare-flex.conf:/etc/nginx/nginx.conf:ro
     depends_on:
