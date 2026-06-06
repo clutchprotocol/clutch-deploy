@@ -1,5 +1,4 @@
-# Stage / VPS: origin HTTP :80 (TLS terminates at Cloudflare, e.g. SSL mode Flexible).
-# For transparency we publish node RPC/metrics ports externally (8081-8083, 3001-3003).
+# Stage / VPS: app stack only (no nginx). Run nginx separately — see docker-compose.stage.nginx.yml.
 # P2P ports (4001-4003) remain internal.
 #
 # docker compose -p clutch-stage -f docker-compose.yml -f docker-compose.stage.cloudflare-flex.yml up -d
@@ -55,19 +54,3 @@ services:
   clutch-explorer-postgres:
     ports: !reset []
     image: postgres:16-alpine
-
-  nginx-stage:
-    image: nginx:alpine
-    ports:
-      - "80:80"
-    volumes:
-      - ./config/nginx/nginx.stage.cloudflare-flex.conf:/etc/nginx/nginx.conf:ro
-    depends_on:
-      - clutch-hub-api
-      - clutch-hub-demo-app
-      - clutch-explorer-backend
-      - clutch-explorer-frontend
-    networks:
-      - clutch-network
-    command: ["nginx", "-g", "daemon off;"]
-    restart: unless-stopped

@@ -1,0 +1,25 @@
+# Standalone nginx for stage (Cloudflare Flexible, origin HTTP :80).
+# Start the app stack first, then run nginx on the same host or another host.
+#
+# Same host (joins existing clutch-stage network):
+#   docker compose -p clutch-stage -f docker-compose.yml -f docker-compose.stage.cloudflare-flex.yml up -d
+#   docker compose -p clutch-nginx -f docker-compose.stage.nginx.yml up -d
+#
+# Other host: edit nginx.stage.cloudflare-flex.conf upstreams to the app server IP/hostnames
+# and publish required ports on the app stack, or use a private link between hosts.
+services:
+  nginx-stage:
+    image: nginx:alpine
+    ports:
+      - "80:80"
+    volumes:
+      - ./config/nginx/nginx.stage.cloudflare-flex.conf:/etc/nginx/nginx.conf:ro
+    networks:
+      - clutch-network
+    command: ["nginx", "-g", "daemon off;"]
+    restart: unless-stopped
+
+networks:
+  clutch-network:
+    external: true
+    name: clutch-stage_clutch-network

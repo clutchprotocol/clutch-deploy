@@ -88,8 +88,15 @@ docker compose -p clutch-stage -f docker-compose.yml -f docker-compose.stage.clo
 
 Files:
 
-- Overlay: `docker-compose.stage.cloudflare-flex.yml`
-- Nginx: `config/nginx/nginx.stage.cloudflare-flex.conf` (edit `server_name` to match your hostnames)
+- App overlay: `docker-compose.stage.cloudflare-flex.yml` (no nginx)
+- Nginx (separate compose): `docker-compose.stage.nginx.yml`
+- Nginx config: `config/nginx/nginx.stage.cloudflare-flex.conf` (edit `server_name` to match your hostnames)
+
+Start nginx after the app stack (same VPS):
+
+```powershell
+docker compose -p clutch-nginx -f docker-compose.stage.nginx.yml up -d
+```
 
 Nginx sets `X-Forwarded-Proto https` so the app sees the public scheme correctly.
 
