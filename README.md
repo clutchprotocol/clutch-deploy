@@ -49,6 +49,12 @@ Useful dev URLs:
 | Grafana | 3030 | Dashboards |
 | Seq | 5341 | Structured logs |
 
+Optional local reverse proxy on port 80 (after dev stack is up):
+
+```powershell
+docker compose -p clutch-nginx -f docker-compose.nginx.yml up -d
+```
+
 Stop dev:
 
 ```powershell

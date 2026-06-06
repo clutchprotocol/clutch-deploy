@@ -1,0 +1,22 @@
+# Local/dev nginx reverse proxy (optional). Start the app stack first.
+#
+#   docker compose -p clutch-dev -f docker-compose.yml -f docker-compose.dev.yml up -d
+#   docker compose -p clutch-nginx -f docker-compose.nginx.yml up -d
+#
+# Open http://localhost/ (routes via config/nginx/nginx.conf).
+services:
+  nginx:
+    image: nginx:alpine
+    ports:
+      - "80:80"
+    volumes:
+      - ./config/nginx/nginx.conf:/etc/nginx/nginx.conf:ro
+    networks:
+      - clutch-network
+    command: ["nginx", "-g", "daemon off;"]
+    restart: unless-stopped
+
+networks:
+  clutch-network:
+    external: true
+    name: clutch-dev_clutch-network
