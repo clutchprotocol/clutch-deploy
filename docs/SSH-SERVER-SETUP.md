@@ -111,10 +111,10 @@ Log out completely and SSH in again so the `docker` group applies.
 ```bash
 sudo apt install -y ufw
 sudo ufw allow OpenSSH
-sudo ufw allow 80/tcp
+sudo ufw allow 8080/tcp
 ```
 
-**Cloudflare Flexible** (TLS ends at Cloudflare; origin is HTTP): **80/tcp** is enough for public HTTP from the edge.
+**Cloudflare Flexible** (TLS ends at Cloudflare; origin is HTTP on port **8080**): allow **8080/tcp** and set a Cloudflare **Origin Rule** (destination port **8080**) for stage hostnames. Host port **80** is not used by stage nginx.
 
 If you later serve **HTTPS on the VPS** (e.g. Cloudflare **Full (strict)**):
 

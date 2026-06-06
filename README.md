@@ -57,15 +57,16 @@ docker compose -p clutch-dev -f .\docker-compose.yml -f .\docker-compose.dev.yml
 
 ## Run (stage on VPS / Cloudflare)
 
-Stage uses Nginx on the server on **port 80 only** (no TLS on the origin). Visitors use **HTTPS** via Cloudflare; Cloudflare reaches your VPS over **HTTP**.
+Stage uses Nginx on the server on **port 8080** (host port **80** stays free). Visitors use **HTTPS** via Cloudflare; Cloudflare reaches your VPS over **HTTP** on port **8080**.
 
-**What this means:** Traffic is encrypted between visitors and Cloudflare. Between Cloudflare and your VPS it is **unencrypted HTTP** on port 80. That is acceptable for some staging setups; for production, consider **Full (strict)** with an origin certificate or tunnel so the last hop is also TLS.
+**What this means:** Traffic is encrypted between visitors and Cloudflare. Between Cloudflare and your VPS it is **unencrypted HTTP** on port 8080. That is acceptable for some staging setups; for production, consider **Full (strict)** with an origin certificate or tunnel so the last hop is also TLS.
 
 **Cloudflare dashboard**
 
-1. Point your DNS **A** records (e.g. `stageweb`, `stageapi`) at your server IP.
+1. Point your DNS **A** records (e.g. `app-stage`, `api-stage`) at your server IP (proxied / orange cloud).
 2. Under **SSL/TLS → Overview**, set encryption mode to **Flexible** when the origin only serves HTTP.
-3. Allow inbound **TCP 80** on the VPS firewall (Cloudflare reaches the origin on HTTP).
+3. Under **Rules → Origin Rules**, add a rule for your stage hostnames (or `*stage*.clutchprotocol.io`) with **Destination port** override **8080** (Cloudflare defaults to origin port 80).
+4. Allow inbound **TCP 8080** on the VPS firewall (Cloudflare reaches the origin on HTTP).
 
 **Docker Compose**
 
