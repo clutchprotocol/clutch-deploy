@@ -49,3 +49,16 @@ jobs:
             git pull --ff-only || echo "Note: git pull failed or not a git repo — continuing"
             docker compose -p clutch-stage -f docker-compose.yml -f docker-compose.stage.cloudflare-flex.yml pull
             docker compose -p clutch-stage -f docker-compose.yml -f docker-compose.stage.cloudflare-flex.yml up -d --force-recreate --remove-orphans
+
+            # nginx-stage is a separate long-lived container; after --force-recreate the app
+            # containers get new IPs, so nginx must re-resolve its upstreams or it 502s.
+            docker exec nginx-stage nginx -s reload || docker restart nginx-stage
+
+            # Health gate: fail the deploy loudly if the API is not reachable THROUGH nginx.
+            ok=""
+            for i in $(seq 1 30); do
+              code=$(curl -s -o /dev/null -w "%{http_code}" -H "Host: api-stage.clutchprotocol.io" http://localhost/health || true)
+              if [ "$code" = "200" ]; then ok=1; echo "api healthy via nginx"; break; fi
+              echo "waiting for api (got $code)..."; sleep 2
+            done
+            [ -n "$ok" ] || { echo "DEPLOY FAILED: api not reachable through nginx"; exit 1; }
