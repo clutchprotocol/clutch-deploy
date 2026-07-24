@@ -114,7 +114,10 @@ services:
       - ./config/monitoring/grafana/dashboards:/etc/grafana/provisioning/dashboards/clutch:ro
     environment:
       - GF_SERVER_HTTP_PORT=3030
-      - GF_SECURITY_ADMIN_PASSWORD=admin
+      # Was hardcoded 'admin'. Committed value is a fallback only — override with
+      # GRAFANA_ADMIN_PASSWORD in .env per environment. Grafana re-applies this to the
+      # admin user on every restart, so a redeploy rotates it.
+      - GF_SECURITY_ADMIN_PASSWORD=${GRAFANA_ADMIN_PASSWORD:-boENqfSmW7XkfGbk385nZWbw}
       - GF_SECURITY_ALLOW_EMBEDDING=true
       - GF_USERS_ALLOW_SIGN_UP=false
       - GF_AUTH_ANONYMOUS_ENABLED=true

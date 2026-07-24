@@ -48,7 +48,7 @@ App-level config is TOML under `config/` (mounted read-only): `config/node/node{
 ## Monitoring
 
 - **Prometheus**: `config/monitoring/prometheus/prometheus.yml` scrapes `nodeN:300N/metrics` every 10s. Add scrape jobs there; `--web.enable-lifecycle` is on, so `curl -X POST localhost:9090/-/reload` applies without restart. 200h retention.
-- **Grafana**: provisioning via `config/monitoring/grafana/{datasources.yml,dashboards.yml}`; dashboard JSON goes in `config/monitoring/grafana/dashboards/` (e.g. `clutch-node.json`) — picked up within 10s into the "Clutch Protocol" folder, no restart needed. Anonymous viewer access is enabled; admin/admin.
+- **Grafana**: provisioning via `config/monitoring/grafana/{datasources.yml,dashboards.yml}`; dashboard JSON goes in `config/monitoring/grafana/dashboards/` (e.g. `clutch-node.json`) — picked up within 10s into the "Clutch Protocol" folder, no restart needed. Anonymous **viewer** access is enabled (read-only public dashboards); admin password comes from `GRAFANA_ADMIN_PASSWORD` (committed fallback in `docker-compose.yml`, override in `.env`).
 - **Seq** (:5341→80): Rust services push structured logs; per-service ingestion API keys are set in the TOML configs / `SEQ_API_KEY`.
 
 ## Common operations (PowerShell, from this folder)
