@@ -63,6 +63,8 @@ services:
       - CLUTCH_NODE_WS_URL=ws://node1:8081/ws
       - SEQ_URL=http://seq:80
       - SEQ_API_KEY=${SEQ_API_KEY:-}
+      - APP_ALLOWED_ORIGINS=${ALLOWED_ORIGINS:-*}
+      - APP_JWT_SECRET=${JWT_SECRET:-b93ee84f5c75b27cdcaa1ddbb2bd74bbf9b3ed7d2b1effb06ab0a71b61467caf}
     env_file:
       - .env
     restart: unless-stopped

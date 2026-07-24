@@ -7,8 +7,12 @@ clutch_node_ws_url = "ws://node1:8081/ws"
 log_level = "info"
 seq_url = "http://seq:80"
 seq_api_key = "FZii3D6ILDI38a0oIeDL"
-jwt_secret = "change-me-in-production"
+# Committed fallback only — override per-environment with APP_JWT_SECRET (see .env.example).
+# hub-api refuses to start on an empty/placeholder/short secret (src/hub/configuration.rs).
+jwt_secret = "b93ee84f5c75b27cdcaa1ddbb2bd74bbf9b3ed7d2b1effb06ab0a71b61467caf"
 jwt_expiration_hours = 6
+# "*" here; override per-environment with APP_ALLOWED_ORIGINS (see .env.example).
+allowed_origins = "*"
 
 # Faucet: POST /faucet { "address": "0x..." } — test networks only; requires a funded key.
 faucet_enabled = true
