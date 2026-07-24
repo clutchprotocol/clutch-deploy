@@ -58,8 +58,14 @@ App-level config is TOML under `config/` (mounted read-only): `config/node/node{
 docker compose -p clutch-dev -f .\docker-compose.yml -f .\docker-compose.dev.yml up -d --build
 docker compose -p clutch-dev -f .\docker-compose.yml -f .\docker-compose.dev.yml down
 
-# Rebuild one service (e.g. after Rust changes)
-docker compose -p clutch-dev -f .\docker-compose.yml -f .\docker-compose.dev.yml up -d --build clutch-hub-api
+# Rebuild one service (e.g. after Rust changes) — add --no-deps so --build does not
+# also rebuild that service's dependencies.
+docker compose -p clutch-dev -f .\docker-compose.yml -f .\docker-compose.dev.yml up -d --build --no-deps clutch-hub-api
+
+# Restart a frontend (demo app / explorer frontend). NEVER pass --build here: these
+# services have no Dockerfile, and --build without --no-deps walks depends_on and
+# rebuilds clutch-hub-api + clutch-node from source instead.
+docker compose -p clutch-dev -f .\docker-compose.yml -f .\docker-compose.dev.yml up -d --no-deps --force-recreate clutch-hub-demo-app
 
 # Logs
 docker compose -p clutch-dev -f .\docker-compose.yml -f .\docker-compose.dev.yml logs -f node1 clutch-explorer-indexer
