@@ -17,7 +17,9 @@ allowed_origins = "*"
 # Faucet: POST /faucet { "address": "0x..." } — test networks only; requires a funded key.
 faucet_enabled = true
 faucet_private_key = "d2c446110cfcecbdf05b2be528e72483de5b6f7ef9c7856df2f81f48e9f2748f"
-faucet_amount_clt = 1000
+# $100 at the peg of 1 USD = 1,000,000 CLT. Must match clutch-hub-api's own default;
+# 1000 was $0.001 here, exactly one tx_fee, leaving a funded account unable to ride.
+faucet_amount_clt = 100000000
 
 # App-developer referrers injected by Hub API (clients must not pass referrer).
 default_ride_request_referrer = "0x0912514c7cc3eec2b2dab4e1d150c4b5eaee5a6f"
