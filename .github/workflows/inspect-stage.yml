@@ -1,0 +1,113 @@
+# Read-only inspection of the stage VPS.
+#
+# Exists because deploying blind to this host has cost real time twice: a `chmod +x` left the
+# checkout dirty and silently blocked every `git pull` for an hour, and the nginx serving stage
+# turned out to be a hand-made container mounting a config that is not in this repo at all.
+# Both were invisible from the deploy log and both were one `docker inspect` away.
+#
+# Deliberately NOT parameterised with a command input. A workflow that runs arbitrary strings on
+# the production host is a remote shell with the repo's write access as its auth; the fixed
+# command set below is the whole point. Add a case here when you need a new probe.
+#
+# Every command is read-only: ps/inspect/grep/ss. Nothing starts, stops, or writes.
+
+name: Inspect stage (read-only)
+
+on:
+  workflow_dispatch:
+    inputs:
+      probe:
+        description: "What to inspect"
+        type: choice
+        default: nginx
+        options:
+          - nginx
+          - containers
+          - git
+
+concurrency:
+  group: inspect-stage
+  cancel-in-progress: true
+
+jobs:
+  inspect:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Inspect via SSH
+        uses: appleboy/ssh-action@v1.2.0
+        with:
+          host: ${{ secrets.STAGE_HOST }}
+          username: ${{ secrets.STAGE_USER }}
+          password: ${{ secrets.STAGE_SSH_PASSWORD }}
+          script_stop: true
+          script: |
+            set -uo pipefail
+            cd "${{ secrets.STAGE_DEPLOY_PATH }}"
+            PROBE="${{ inputs.probe }}"
+            # Default rather than fail: `inputs` is empty on any trigger that is not
+            # workflow_dispatch, and an empty probe silently matching nothing is worse than a
+            # useless-but-obvious default.
+            [ -n "$PROBE" ] || PROBE=nginx
+            echo "probe: $PROBE"
+
+            if [ "$PROBE" = "nginx" ]; then
+              echo "=== containers with 'nginx' in the name ==="
+              # .Labels is printed raw so an unexpected compose project shows up rather than
+              # being normalised away by a --filter.
+              docker ps -a --format '{{.ID}}  {{.Names}}  {{.Image}}  {{.Status}}  {{.Ports}}' \
+                | grep -i nginx || echo "(none)"
+
+              echo ""
+              echo "=== compose ownership + config mounts of the live nginx ==="
+              for c in $(docker ps -a --format '{{.Names}}' | grep -i nginx || true); do
+                echo "--- $c"
+                echo "    project: $(docker inspect "$c" --format '{{index .Config.Labels "com.docker.compose.project"}}' 2>/dev/null || echo '?')"
+                echo "    service: $(docker inspect "$c" --format '{{index .Config.Labels "com.docker.compose.service"}}' 2>/dev/null || echo '?')"
+                echo "    mounts:"
+                docker inspect "$c" --format '{{range .Mounts}}      {{.Source}} -> {{.Destination}} ({{.Type}}){{"\n"}}{{end}}' 2>/dev/null || true
+                echo "    networks: $(docker inspect "$c" --format '{{range $k,$v := .NetworkSettings.Networks}}{{$k}} {{end}}' 2>/dev/null || true)"
+              done
+
+              echo ""
+              echo "=== live nginx.conf: size, server_names, locations ==="
+              # From INSIDE the container: whatever is actually being served, regardless of
+              # which host path it came from or whether the inode still matches.
+              LIVE=$(docker ps --format '{{.Names}}' | grep -i nginx | head -1 || true)
+              if [ -n "$LIVE" ]; then
+                echo "live container: $LIVE"
+                echo "lines: $(docker exec "$LIVE" wc -l < /etc/nginx/nginx.conf 2>/dev/null || echo '?')"
+                echo "--- server_name / listen ---"
+                docker exec "$LIVE" grep -nE '^[[:space:]]*(server_name|listen)' /etc/nginx/nginx.conf 2>/dev/null || true
+                echo "--- location blocks ---"
+                docker exec "$LIVE" grep -nE '^[[:space:]]*location' /etc/nginx/nginx.conf 2>/dev/null || true
+                echo "--- does it already route /payment/ ? ---"
+                docker exec "$LIVE" grep -n 'payment' /etc/nginx/nginx.conf 2>/dev/null || echo "(no /payment/ route in the LIVE config)"
+              else
+                echo "no running nginx container"
+              fi
+
+              echo ""
+              echo "=== who holds :80 / :443 on the host ==="
+              ss -lntp 2>/dev/null | grep -E ':80 |:443 ' || echo "(ss unavailable or nothing bound)"
+            fi
+
+            if [ "$PROBE" = "containers" ]; then
+              echo "=== all containers by compose project ==="
+              docker ps -a --format '{{.Names}}\t{{.Status}}\t{{.Image}}' || true
+              echo ""
+              echo "=== compose projects present ==="
+              docker ps -a --format '{{.Label "com.docker.compose.project"}}' | sort -u || true
+              echo ""
+              echo "=== disk ==="
+              df -h / | tail -2 || true
+              docker system df || true
+            fi
+
+            if [ "$PROBE" = "git" ]; then
+              echo "=== checkout state (a dirty tree blocks git pull --ff-only, silently) ==="
+              git status --porcelain || true
+              echo "--- HEAD ---"
+              git log --oneline -3 || true
+              echo "--- fileMode setting ---"
+              git config core.fileMode || echo "(unset)"
+            fi
