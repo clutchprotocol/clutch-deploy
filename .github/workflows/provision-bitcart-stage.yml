@@ -42,7 +42,13 @@ jobs:
           script_stop: true
           script: |
             set -euo pipefail
+            # Report WHERE a failure happened. Without this, `set -e` aborts silently and the log
+            # just stops — which cost two wrong guesses at the cause already. $BASH_COMMAND is
+            # bash-only and simply expands empty elsewhere, so this is safe either way.
+            trap 'rc=$?; echo "ABORT: exit $rc at line ${LINENO} running: ${BASH_COMMAND:-?}" >&2; exit $rc' ERR
+            echo "shell: ${BASH_VERSION:-not-bash} | user: $(id -un) | pwd: $(pwd)"
             cd "${{ secrets.STAGE_DEPLOY_PATH }}"
+            echo "env perms: $(ls -ld .env 2>/dev/null || echo 'no .env')"
 
             # Bitcart is reached over the docker network, NOT a host port. On stage its 8092 is
             # `ports: !reset []` — unpublished on purpose, because that port is the ADMIN API. So
