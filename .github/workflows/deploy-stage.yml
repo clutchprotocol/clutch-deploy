@@ -102,6 +102,14 @@ jobs:
               echo "treasury secrets present"
             fi
 
+            # PULL BEFORE TEARDOWN. This ordering is the whole point.
+            #
+            # It used to be down -v first, and a missing image then destroyed stage and left it
+            # offline: the teardown succeeded, `pull` failed with "repository does not exist", and
+            # `script_stop` aborted before anything came back up. Pulling first means an image
+            # problem fails while the old stack is still serving.
+            docker compose -p clutch-stage $FILES pull
+
             # Opt-in, never a default. A plain deploy must never destroy stage data; this exists
             # for the one case that genuinely needs it — a genesis change, where the new ChainInit
             # genesis cannot import onto the old chain and every node would refuse to start.
@@ -110,7 +118,6 @@ jobs:
               docker compose -p clutch-stage $FILES down -v --remove-orphans
             fi
 
-            docker compose -p clutch-stage $FILES pull
             docker compose -p clutch-stage $FILES up -d --force-recreate --remove-orphans
 
             # nginx-stage is a separate long-lived container; after --force-recreate the app
