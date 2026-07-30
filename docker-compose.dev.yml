@@ -66,6 +66,11 @@ services:
       exec node ./node_modules/vite/bin/vite.js --host 0.0.0.0 --port 80"
     environment:
       VITE_API_URL: http://127.0.0.1:3000
+      # payment-orchestrator's published host port (docker-compose.treasury.yml) — same
+      # 127.0.0.1 convention as VITE_API_URL above (browser's perspective, not container DNS).
+      # Only resolved if the treasury overlay is composed in; harmless if the service is absent,
+      # since nothing calls it unless the deposit panel is opened.
+      VITE_ORCHESTRATOR_URL: http://127.0.0.1:8091
       CHOKIDAR_USEPOLLING: "true"
       CHOKIDAR_INTERVAL: "300"
       NPM_CONFIG_REGISTRY: ${NPM_CONFIG_REGISTRY:-https://registry.npmjs.org/}
