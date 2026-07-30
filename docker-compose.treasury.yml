@@ -1,0 +1,151 @@
+# Treasury stack: the mint authority and the public payment orchestrator.
+#
+# Kept as its own overlay rather than folded into docker-compose.yml so the base stack still
+# comes up for anyone not running the reserve side, and so local vs stage can opt in per
+# environment. Compose it after the base file:
+#
+#   docker compose -p clutch-dev -f docker-compose.yml -f docker-compose.dev.yml \
+#                                -f docker-compose.treasury.yml up -d
+#
+# NETWORK POSTURE — the point of this file, and the thing not to "simplify" later:
+#
+#   treasury-service      PRIVATE. Holds the chain mint key. NO published ports, ever. Reachable
+#                         only from other containers. It joins clutch-network solely to read
+#                         node1's WebSocket RPC.
+#   payment-orchestrator  PUBLIC. Holds no chain keys. Published on 8091 because real users and
+#                         Bitcart's IPN have to reach it. Joins treasury-network as well so it
+#                         can call the treasury's internal API.
+#   treasury-network      internal: true — containers on it cannot reach, or be reached from,
+#                         the outside world except via another network they also sit on. This is
+#                         what keeps both Postgres instances unreachable from the host.
+#
+# Two databases, not one: the services own separate schemas and separate migration histories
+# (sqlx's _sqlx_migrations table has no configurable name, so sharing one database corrupts
+# both migrators). This mirrors what the test rig already does per-crate.
+#
+# Every secret comes from .env. Nothing sensitive is defaulted inline — the one exception is
+# noted at APP_MINT_AUTHORITY_SECRET below, and it is a hard failure by design.
+services:
+  treasury-postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: treasury
+      POSTGRES_USER: treasury
+      POSTGRES_PASSWORD: ${TREASURY_POSTGRES_PASSWORD:?set TREASURY_POSTGRES_PASSWORD in .env}
+    volumes:
+      - treasury-postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U treasury"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+    restart: unless-stopped
+    networks:
+      - treasury-network
+
+  orchestrator-postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: orchestrator
+      POSTGRES_USER: orchestrator
+      POSTGRES_PASSWORD: ${ORCHESTRATOR_POSTGRES_PASSWORD:?set ORCHESTRATOR_POSTGRES_PASSWORD in .env}
+    volumes:
+      - orchestrator-postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U orchestrator"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+    restart: unless-stopped
+    networks:
+      - treasury-network
+
+  # PRIVATE ZONE. Deliberately has no `ports:` — adding one exposes the mint authority.
+  treasury-service:
+    build:
+      context: ../clutch-treasury
+      dockerfile: Dockerfile
+    image: clutch-treasury:dev
+    depends_on:
+      treasury-postgres:
+        condition: service_healthy
+    environment:
+      - RUST_LOG=${TREASURY_LOG_LEVEL:-info}
+      - APP_DATABASE_URL=postgres://treasury:${TREASURY_POSTGRES_PASSWORD}@treasury-postgres:5432/treasury
+      - APP_NODE_WS_URL=ws://node1:8081/ws
+      - APP_CHAIN_ID=${CHAIN_ID:-2077}
+      # No default: the node refuses to mint without the authority key, and a placeholder here
+      # would turn "misconfigured" into "silently signing with the wrong key".
+      - APP_MINT_AUTHORITY_SECRET=${MINT_AUTHORITY_SECRET:?set MINT_AUTHORITY_SECRET in .env}
+      - APP_INITIATOR_TOKEN=${TREASURY_INITIATOR_TOKEN:?set TREASURY_INITIATOR_TOKEN in .env}
+      - APP_APPROVER_TOKEN=${TREASURY_APPROVER_TOKEN:?set TREASURY_APPROVER_TOKEN in .env}
+      - APP_READONLY_TOKEN=${TREASURY_READONLY_TOKEN:?set TREASURY_READONLY_TOKEN in .env}
+      # TronGrid: read-only deposit verification. Without a key TronGrid still answers, but
+      # rate-limits hard — fine for local, set one for stage.
+      - APP_TRONGRID_URL=${TRONGRID_URL:-https://api.shasta.trongrid.io}
+      - APP_TRONGRID_API_KEY=${TRONGRID_API_KEY:-}
+      - APP_CUSTODY_TRON_ADDRESS=${CUSTODY_TRON_ADDRESS:-}
+      # MUST match the network APP_TRONGRID_URL points at. The crate's default is the MAINNET
+      # USDT contract; this default is Shasta's, because a local/stage stack has no business
+      # verifying against mainnet.
+      - APP_USDT_CONTRACT=${USDT_CONTRACT:-TXLAQ63Xg1NAzckPwKHvzw7CSEmLMEqcdj}
+    restart: unless-stopped
+    networks:
+      - treasury-network   # its own Postgres
+      - clutch-network     # node1's WebSocket RPC only
+
+  # PUBLIC ZONE. Holds no chain keys; the worst a compromise here can do is create intents the
+  # treasury's verifier and breakers still have to agree to.
+  payment-orchestrator:
+    build:
+      context: ../clutch-treasury
+      dockerfile: Dockerfile.orchestrator
+    image: clutch-orchestrator:dev
+    depends_on:
+      orchestrator-postgres:
+        condition: service_healthy
+    ports:
+      - "8091:8091"
+    environment:
+      - RUST_LOG=${ORCHESTRATOR_LOG_LEVEL:-info}
+      - APP_DATABASE_URL=postgres://orchestrator:${ORCHESTRATOR_POSTGRES_PASSWORD}@orchestrator-postgres:5432/orchestrator
+      # Same secret the hub API signs user JWTs with — the orchestrator authenticates end users
+      # by verifying those, so a mismatch rejects every real request.
+      - APP_JWT_SECRET=${JWT_SECRET:-b93ee84f5c75b27cdcaa1ddbb2bd74bbf9b3ed7d2b1effb06ab0a71b61467caf}
+      - APP_TREASURY_URL=http://treasury-service:8090
+      - APP_TREASURY_INITIATOR_TOKEN=${TREASURY_INITIATOR_TOKEN:?set TREASURY_INITIATOR_TOKEN in .env}
+      - APP_TREASURY_READONLY_TOKEN=${TREASURY_READONLY_TOKEN:?set TREASURY_READONLY_TOKEN in .env}
+      - APP_BITCART_URL=${BITCART_URL:-http://bitcart-backend:8000}
+      - APP_BITCART_TOKEN=${BITCART_TOKEN:-}
+      - APP_BITCART_STORE_ID=${BITCART_STORE_ID:-}
+      # Where Bitcart posts its IPN. Container-to-container on the shared network, so the
+      # webhook never needs public exposure while Bitcart is co-hosted.
+      - APP_PUBLIC_BASE_URL=${ORCHESTRATOR_INTERNAL_URL:-http://payment-orchestrator:8091}
+      - APP_CUSTODY_TRON_ADDRESS=${CUSTODY_TRON_ADDRESS:-}
+      # OFF. The treasury's payout rail is still a stub (payout.rs fabricates a payout_ref and
+      # sends nothing). Spec §7.6 wants a working off-ramp before real deposits; enabling this
+      # invites users to burn real CLT for a payout that cannot happen, and the burn is
+      # irreversible. Do not flip until a real TRC-20 payout rail replaces the stub.
+      - APP_REDEMPTIONS_ENABLED=false
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://127.0.0.1:8091/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 20s
+    networks:
+      - treasury-network   # reach the treasury's internal API
+      - clutch-network     # reachable by users, Bitcart, nginx
+
+networks:
+  treasury-network:
+    driver: bridge
+    # No route off this network. Both Postgres instances live here and nowhere else.
+    internal: true
+
+volumes:
+  treasury-postgres-data:
+    driver: local
+  orchestrator-postgres-data:
+    driver: local
