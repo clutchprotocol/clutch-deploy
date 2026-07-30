@@ -52,6 +52,14 @@ jobs:
           script_stop: true
           script: |
             cd "${{ secrets.STAGE_DEPLOY_PATH }}"
-            git pull --ff-only || echo "Note: git pull failed — continuing with the checked-out copy"
-            chmod +x scripts/provision-bitcart.sh
+            # Ignore file-MODE drift and discard any local edits before pulling.
+            #
+            # A previous version of this step ran `chmod +x` on a tracked file. That is a local
+            # change as far as git is concerned, so every later `git pull --ff-only` aborted with
+            # "local changes would be overwritten" — and because the pull failure is tolerated,
+            # the host silently kept running an old copy of the script through several fixes.
+            # The exec bit now lives in the index, so no chmod is needed at all.
+            git config core.fileMode false
+            git checkout -- . 2>/dev/null || true
+            git pull --ff-only
             bash scripts/provision-bitcart.sh '${{ inputs.custody_address }}' '${{ inputs.usdt_contract }}' clutch-stage
