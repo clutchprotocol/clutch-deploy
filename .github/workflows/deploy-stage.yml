@@ -15,13 +15,24 @@
 name: Deploy stage (VPS)
 
 on:
-  workflow_dispatch: {}
+  workflow_dispatch:
+    inputs:
+      reset_chain:
+        description: "DESTRUCTIVE — `down -v` first. Wipes the stage chain, explorer DB, Grafana/Seq state and any treasury databases. Required when the genesis changes: a new ChainInit genesis cannot import onto old chain data."
+        type: boolean
+        default: false
+      include_treasury:
+        description: "Also deploy treasury-service, payment-orchestrator and Bitcart. Needs the treasury secrets present in .env on the VPS — the compose uses ${VAR:?} so a missing one fails the deploy loudly rather than starting half-configured."
+        type: boolean
+        default: false
 
   push:
     branches: [main]
     paths:
       - "docker-compose.yml"
       - "docker-compose.stage.cloudflare-flex.yml"
+      - "docker-compose.treasury.yml"
+      - "docker-compose.bitcart.yml"
       - "config/**"
       - ".github/workflows/deploy-stage.yml"
 
@@ -47,8 +58,27 @@ jobs:
             set -euo pipefail
             cd "${{ secrets.STAGE_DEPLOY_PATH }}"
             git pull --ff-only || echo "Note: git pull failed or not a git repo — continuing"
-            docker compose -p clutch-stage -f docker-compose.yml -f docker-compose.stage.cloudflare-flex.yml pull
-            docker compose -p clutch-stage -f docker-compose.yml -f docker-compose.stage.cloudflare-flex.yml up -d --force-recreate --remove-orphans
+
+            # Overlay list. The stage overlay MUST stay last of the port-bearing files: compose
+            # MERGES port lists, and its `ports: !reset []` entries are what keep the orchestrator
+            # (8091) and Bitcart's admin API (8092) off this box's public interface.
+            FILES="-f docker-compose.yml"
+            if [ "${{ inputs.include_treasury }}" = "true" ]; then
+              FILES="$FILES -f docker-compose.treasury.yml -f docker-compose.bitcart.yml"
+            fi
+            FILES="$FILES -f docker-compose.stage.cloudflare-flex.yml"
+            echo "Compose files: $FILES"
+
+            # Opt-in, never a default. A plain deploy must never destroy stage data; this exists
+            # for the one case that genuinely needs it — a genesis change, where the new ChainInit
+            # genesis cannot import onto the old chain and every node would refuse to start.
+            if [ "${{ inputs.reset_chain }}" = "true" ]; then
+              echo "reset_chain=true — tearing down WITH VOLUMES (chain, explorer DB, monitoring, treasury DBs)"
+              docker compose -p clutch-stage $FILES down -v --remove-orphans
+            fi
+
+            docker compose -p clutch-stage $FILES pull
+            docker compose -p clutch-stage $FILES up -d --force-recreate --remove-orphans
 
             # nginx-stage is a separate long-lived container; after --force-recreate the app
             # containers get new IPs, so nginx must re-resolve its upstreams or it 502s.
