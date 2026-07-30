@@ -1,0 +1,30 @@
+# Dev overlay for the treasury stack: build from the sibling ../clutch-treasury checkout instead
+# of pulling GHCR images.
+#
+# Split out for the same reason node1/hub-api/explorer are: docker-compose.treasury.yml is the
+# BASE and must reference published images, because the stage deploy runs `compose pull` and
+# deliberately never passes `--build` (stage consumes GHCR images published by each repo's CI).
+# A `build:` in the base file made stage try to `pull clutch-treasury:dev` from Docker Hub and
+# fail with "repository does not exist" — after the teardown had already run, which left stage
+# down until the next deploy.
+#
+# Local:
+#   docker compose -p clutch-dev -f docker-compose.yml -f docker-compose.dev.yml \
+#     -f docker-compose.treasury.yml -f docker-compose.treasury.dev.yml \
+#     -f docker-compose.bitcart.yml up -d --build
+#
+# Bitcart needs no dev counterpart — it is a pinned upstream image in both environments.
+services:
+  treasury-service:
+    build:
+      context: ../clutch-treasury
+      dockerfile: Dockerfile
+    image: clutch-treasury:dev
+    pull_policy: build
+
+  payment-orchestrator:
+    build:
+      context: ../clutch-treasury
+      dockerfile: Dockerfile.orchestrator
+    image: clutch-orchestrator:dev
+    pull_policy: build
