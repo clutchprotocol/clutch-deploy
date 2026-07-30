@@ -76,6 +76,32 @@ jobs:
             fi
             echo "Compose files: $FILES"
 
+            # Preflight the treasury secrets BEFORE touching anything.
+            #
+            # Compose's ${VAR:?} fails on the FIRST missing variable, so without this you fix one,
+            # re-run, and hit the next — eight round trips. Worse, that failure lands partway
+            # through the script; with reset_chain=true it aborts at the teardown, which reads
+            # alarmingly like stage was half-destroyed (it isn't — compose validates the project
+            # before doing any work). Check them all up front and list every one that's missing.
+            if [ "${{ inputs.include_treasury }}" = "true" ]; then
+              missing=""
+              for v in TREASURY_POSTGRES_PASSWORD ORCHESTRATOR_POSTGRES_PASSWORD \
+                       MINT_AUTHORITY_SECRET TREASURY_INITIATOR_TOKEN TREASURY_APPROVER_TOKEN \
+                       TREASURY_READONLY_TOKEN; do
+                grep -qE "^${v}=.+" .env 2>/dev/null || missing="$missing $v"
+              done
+              if [ -n "$missing" ]; then
+                echo "DEPLOY ABORTED — include_treasury=true but .env on this host is missing:"
+                for v in $missing; do echo "  - $v"; done
+                echo ""
+                echo "Nothing was changed. Add them to $(pwd)/.env and re-run."
+                echo "MINT_AUTHORITY_SECRET must be a key generated FOR STAGE — never the"
+                echo "publicly-committed node1 dev key used locally."
+                exit 1
+              fi
+              echo "treasury secrets present"
+            fi
+
             # Opt-in, never a default. A plain deploy must never destroy stage data; this exists
             # for the one case that genuinely needs it — a genesis change, where the new ChainInit
             # genesis cannot import onto the old chain and every node would refuse to start.
