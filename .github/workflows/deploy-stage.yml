@@ -59,11 +59,35 @@ jobs:
             cd "${{ secrets.STAGE_DEPLOY_PATH }}"
             git pull --ff-only || echo "Note: git pull failed or not a git repo — continuing"
 
-            # Overlay list. The stage overlay MUST stay last of the port-bearing files: compose
-            # MERGES port lists, and its `ports: !reset []` entries are what keep the orchestrator
-            # (8091) and Bitcart's admin API (8092) off this box's public interface.
+            # Whether the treasury stack is part of this deployment is STICKY, recorded on the
+            # host rather than read from the trigger.
+            #
+            # `inputs` is only populated for workflow_dispatch — on `push` and on the
+            # repository_dispatch that sibling repos fire after publishing an image, every input
+            # is the empty string. Deriving the file list from inputs alone therefore built a
+            # CORE-ONLY list on those runs, and `up -d --remove-orphans` then saw
+            # treasury-service, payment-orchestrator and the four Bitcart containers as orphans
+            # and deleted them. A routine clutch-node image publish would have silently destroyed
+            # the treasury stack on stage.
+            #
+            # So: an explicit dispatch sets or clears the marker; any other trigger inherits it.
+            MARKER=".stage-treasury-enabled"
+            if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+              if [ "${{ inputs.include_treasury }}" = "true" ]; then
+                touch "$MARKER"; echo "treasury: ENABLED for this host (marker written)"
+              else
+                rm -f "$MARKER"; echo "treasury: disabled for this host (marker cleared)"
+              fi
+            fi
+            TREASURY="false"
+            [ -f "$MARKER" ] && TREASURY="true"
+            echo "treasury included: $TREASURY (trigger: ${{ github.event_name }})"
+
+            # The stage overlay MUST stay last of the port-bearing files: compose MERGES port
+            # lists, and its `ports: !reset []` entries are what keep the orchestrator (8091) and
+            # Bitcart's admin API (8092) off this box's public interface.
             FILES="-f docker-compose.yml"
-            if [ "${{ inputs.include_treasury }}" = "true" ]; then
+            if [ "$TREASURY" = "true" ]; then
               FILES="$FILES -f docker-compose.treasury.yml -f docker-compose.bitcart.yml"
             fi
             FILES="$FILES -f docker-compose.stage.cloudflare-flex.yml"
@@ -71,7 +95,7 @@ jobs:
             # `ports: !reset []` still DECLARES that service, so keeping these in the main stage
             # overlay made a core-only deploy fail with "bitcart-backend has neither an image nor
             # a build context". Applied last so the resets win the port-list merge.
-            if [ "${{ inputs.include_treasury }}" = "true" ]; then
+            if [ "$TREASURY" = "true" ]; then
               FILES="$FILES -f docker-compose.stage.treasury.yml"
             fi
             echo "Compose files: $FILES"
@@ -83,7 +107,7 @@ jobs:
             # through the script; with reset_chain=true it aborts at the teardown, which reads
             # alarmingly like stage was half-destroyed (it isn't — compose validates the project
             # before doing any work). Check them all up front and list every one that's missing.
-            if [ "${{ inputs.include_treasury }}" = "true" ]; then
+            if [ "$TREASURY" = "true" ]; then
               missing=""
               for v in TREASURY_POSTGRES_PASSWORD ORCHESTRATOR_POSTGRES_PASSWORD \
                        MINT_AUTHORITY_SECRET TREASURY_INITIATOR_TOKEN TREASURY_APPROVER_TOKEN \
@@ -91,7 +115,7 @@ jobs:
                 grep -qE "^${v}=.+" .env 2>/dev/null || missing="$missing $v"
               done
               if [ -n "$missing" ]; then
-                echo "DEPLOY ABORTED — include_treasury=true but .env on this host is missing:"
+                echo "DEPLOY ABORTED — treasury is enabled on this host but .env is missing:"
                 for v in $missing; do echo "  - $v"; done
                 echo ""
                 echo "Nothing was changed. Add them to $(pwd)/.env and re-run."
@@ -132,3 +156,25 @@ jobs:
               echo "waiting for api (got $code)..."; sleep 2
             done
             [ -n "$ok" ] || { echo "DEPLOY FAILED: api not reachable through nginx"; exit 1; }
+
+            # When the treasury is part of this deployment, gate on it too. The check above only
+            # proves the hub API is up — an orchestrator that crash-loops on a bad config would
+            # otherwise leave the deploy reporting success.
+            #
+            # Checked from INSIDE the network on purpose: the orchestrator is deliberately not
+            # published on this host, so there is no host port to curl. treasury-service is
+            # checked the same way and is even stricter — it has no published port anywhere.
+            if [ "$TREASURY" = "true" ]; then
+              for svc in payment-orchestrator:8091 treasury-service:8090; do
+                name="${svc%%:*}"; port="${svc##*:}"
+                tok=""
+                for i in $(seq 1 30); do
+                  if docker run --rm --network clutch-stage_clutch-network curlimages/curl:8.10.1 \
+                       -sf -m 5 "http://${name}:${port}/health" >/dev/null 2>&1; then
+                    tok=1; echo "${name} healthy"; break
+                  fi
+                  sleep 2
+                done
+                [ -n "$tok" ] || { echo "DEPLOY FAILED: ${name} not healthy"; docker logs "clutch-stage-${name}-1" 2>&1 | tail -30; exit 1; }
+              done
+            fi

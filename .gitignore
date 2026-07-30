@@ -12,3 +12,7 @@
 # OS
 .DS_Store
 Thumbs.db
+
+# Host-local marker written by deploy-stage.yml to remember whether the treasury stack is
+# part of this host's deployment. Per-host state, never committed.
+.stage-treasury-enabled
