@@ -146,9 +146,20 @@ jobs:
 
             docker compose -p clutch-stage $FILES up -d --force-recreate --remove-orphans
 
-            # nginx-stage is a separate long-lived container; after --force-recreate the app
-            # containers get new IPs, so nginx must re-resolve its upstreams or it 502s.
-            docker exec nginx-stage nginx -s reload || docker restart nginx-stage
+            # RECREATE nginx-stage, don't reload it.
+            #
+            # Two things need to happen and only recreation does both. After --force-recreate the
+            # app containers have new IPs, so nginx must re-resolve its upstreams or it 502s —
+            # a reload covers that. But the config is bind-mounted as a SINGLE FILE
+            # (docker-compose.stage.nginx.yml), and Docker binds a single file by inode: `git pull`
+            # replaces the file with a new inode, so the container keeps serving the ORIGINAL
+            # config forever. `nginx -s reload` re-reads that same stale inode, and `docker
+            # restart` keeps the same binding too. That is why a /payment/ route sat in the repo
+            # while nginx still 405'd it as a static path.
+            #
+            # nginx lives in its own compose project, hence the separate -p / -f here.
+            docker compose -p clutch-nginx -f docker-compose.stage.nginx.yml up -d --force-recreate nginx-stage \
+              || docker exec nginx-stage nginx -s reload
 
             # Health gate: fail the deploy loudly if the API is not reachable THROUGH nginx.
             ok=""
