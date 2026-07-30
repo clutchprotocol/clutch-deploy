@@ -220,13 +220,30 @@ if [ "$TREASURY" = "true" ]; then
   #
   # 401 is the PASS here. Unauthenticated POST reaching the orchestrator is exactly
   # what should happen; 405/404 means nginx handled it locally.
-  pcode=$(curl -s -o /dev/null -w "%{http_code}" -X POST \
-    -H "Host: app-stage.clutchprotocol.io" -H "Content-Type: application/json" \
-    -d '{}' http://localhost/payment/api/v1/deposits || true)
-  case "$pcode" in
-    401|400|422) echo "payment route reaches the orchestrator (HTTP $pcode)" ;;
-    *) echo "DEPLOY FAILED: /payment/ returned $pcode — nginx is not proxying it"
-       echo "(405/404 means the request never left nginx; 502 means the upstream is unreachable)"
-       exit 1 ;;
-  esac
+  #
+  # Retried, not single-shot. `nginx -s reload` returns as soon as the master has signalled;
+  # the OLD workers keep serving in-flight connections with the OLD config for a moment after.
+  # A gate that fires immediately reads the pre-reload world and reports 405 for a route that
+  # is in fact live — which is exactly what happened on run 30583006089, where the config was
+  # confirmed patched and reloaded and the gate still failed.
+  pok=""; pcode=""
+  for i in $(seq 1 15); do
+    pcode=$(curl -s -o /dev/null -w "%{http_code}" -X POST \
+      -H "Host: app-stage.clutchprotocol.io" -H "Content-Type: application/json" \
+      -d '{}' http://localhost/payment/api/v1/deposits || true)
+    case "$pcode" in
+      401|400|422) pok=1; echo "payment route reaches the orchestrator (HTTP $pcode)"; break ;;
+    esac
+    echo "waiting for the /payment/ route (got $pcode)..."
+    sleep 2
+  done
+  if [ -z "$pok" ]; then
+    echo "DEPLOY FAILED: /payment/ still returns $pcode after 30s"
+    echo "405/404 means the request never left nginx — it matched the SPA's static location"
+    echo "instead of the proxy rule. 502 means nginx proxied but the upstream is unreachable."
+    echo "Live config around the route:"
+    docker exec "$NGINX_C" grep -n -B2 -A8 'location /payment/' /etc/nginx/nginx.conf || \
+      echo "  (no /payment/ block in the running container's config)"
+    exit 1
+  fi
 fi
