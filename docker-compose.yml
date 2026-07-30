@@ -65,6 +65,9 @@ services:
       - SEQ_API_KEY=${SEQ_API_KEY:-}
       - APP_ALLOWED_ORIGINS=${ALLOWED_ORIGINS:-*}
       - APP_JWT_SECRET=${JWT_SECRET:-b93ee84f5c75b27cdcaa1ddbb2bd74bbf9b3ed7d2b1effb06ab0a71b61467caf}
+      # Faucet key is env-only — config/api/default.toml is committed, so a key written there is
+      # a published key. Empty leaves the faucet disabled rather than running on a known secret.
+      - APP_FAUCET_PRIVATE_KEY=${FAUCET_PRIVATE_KEY:-}
     env_file:
       - .env
     restart: unless-stopped
