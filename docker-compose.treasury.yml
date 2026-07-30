@@ -62,10 +62,7 @@ services:
 
   # PRIVATE ZONE. Deliberately has no `ports:` — adding one exposes the mint authority.
   treasury-service:
-    build:
-      context: ../clutch-treasury
-      dockerfile: Dockerfile
-    image: clutch-treasury:dev
+    image: ghcr.io/clutchprotocol/clutch-treasury:latest
     depends_on:
       treasury-postgres:
         condition: service_healthy
@@ -97,10 +94,7 @@ services:
   # PUBLIC ZONE. Holds no chain keys; the worst a compromise here can do is create intents the
   # treasury's verifier and breakers still have to agree to.
   payment-orchestrator:
-    build:
-      context: ../clutch-treasury
-      dockerfile: Dockerfile.orchestrator
-    image: clutch-orchestrator:dev
+    image: ghcr.io/clutchprotocol/clutch-orchestrator:latest
     depends_on:
       orchestrator-postgres:
         condition: service_healthy
