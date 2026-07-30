@@ -31,6 +31,9 @@ on:
       - "docker-compose.bitcart.yml"
       - "config/**"
       - ".github/workflows/deploy-stage.yml"
+      # The deploy logic itself lives here now. Without this, editing scripts/deploy-stage.sh
+      # changes what a deploy DOES but never triggers one — the fix sits in main looking merged.
+      - "scripts/**"
 
   repository_dispatch:
     types: [deploy-stage]
