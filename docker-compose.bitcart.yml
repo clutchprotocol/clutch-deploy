@@ -53,8 +53,8 @@ services:
     environment:
       # The daemon has no usable default Tron RPC and dies with a bare ConnectError without this.
       # Env prefix is the coin name: TRX_<SETTING> (daemons/base.py load_env).
-      TRX_SERVER: ${TRONGRID_URL:-https://api.shasta.trongrid.io}
-      TRX_NETWORK: ${TRX_NETWORK:-testnet}
+      TRX_SERVER: ${TRONGRID_URL:-https://nile.trongrid.io}
+      TRX_NETWORK: ${TRX_NETWORK:-nile}
       TRX_TRONGRID_API_KEY: ${TRONGRID_API_KEY:-}
       REDIS_HOST: bitcart-redis
     depends_on:
@@ -101,7 +101,7 @@ services:
       BITCART_ADMIN_PLUGINS_DIR: /tmp/bitcart-data/admin_plugins
       BITCART_STORE_PLUGINS_DIR: /tmp/bitcart-data/store_plugins
       BITCART_DOCKER_PLUGINS_DIR: /tmp/bitcart-data/docker_plugins
-      TRX_NETWORK: ${TRX_NETWORK:-testnet}
+      TRX_NETWORK: ${TRX_NETWORK:-nile}
     depends_on:
       bitcart-postgres:
         condition: service_healthy
@@ -139,7 +139,7 @@ services:
       # A bare hostname, NOT a URL: settings builds "redis://{HOST}:{PORT}/{DB}" itself, so a
       # "redis://" prefix here yields "redis://redis://bitcart-redis" and resolves host "redis".
       REDIS_HOST: bitcart-redis
-      TRX_NETWORK: ${TRX_NETWORK:-testnet}
+      TRX_NETWORK: ${TRX_NETWORK:-nile}
     depends_on:
       bitcart-backend:
         condition: service_started
