@@ -1,15 +1,14 @@
-# One-shot Bitcart provisioning for stage.
+# Provision Bitcart on stage: admin user, watch-only wallet, store, and the two .env values
+# payment-orchestrator needs to start.
 #
-# Exists to break a bootstrap deadlock: payment-orchestrator refuses to start without
-# BITCART_TOKEN and BITCART_STORE_ID, but those only exist once Bitcart is running and has a store.
-# Bitcart is deliberately unpublished on the VPS, so it can only be reached from the box itself —
-# which is exactly the access this workflow already has, via the same SSH secrets the deploy uses.
+# Breaks a bootstrap deadlock: the orchestrator refuses to start without BITCART_TOKEN and
+# BITCART_STORE_ID, but those only exist once Bitcart is running and has a store — and Bitcart is
+# deliberately unpublished on the VPS, so it is reachable only from the box itself.
 #
-# IDEMPOTENT. Re-running detects existing state and will not create a second user, wallet or store.
-#
-# NOTHING SECRET IS PRINTED. The API token and the generated Bitcart admin password go straight
-# into .env on the host; the log reports only the store id, the custody address, and whether each
-# step created or reused something.
+# The real work lives in scripts/provision-bitcart.sh. Keeping it in a file rather than inline is
+# deliberate: as an inline script it aborted silently with no trap output and took four rounds of
+# guesswork, because the SSH action's handling of a long multi-line script was itself a variable.
+# A file can be `bash -n` checked and shellchecked in CI, and run by hand on the box.
 name: Provision Bitcart (stage)
 
 on:
@@ -20,7 +19,7 @@ on:
         type: string
         required: true
       usdt_contract:
-        description: "TRC-20 USDT contract. Default is NILE testnet USDT; it does NOT exist on Shasta. Must name the same network as TRONGRID_URL, or the verifier queries a chain the contract is not on and no deposit ever matches."
+        description: "TRC-20 USDT contract. Default is NILE testnet USDT; it does NOT exist on Shasta. Must be on the same network as TRONGRID_URL, or the verifier queries a chain the contract is not on and no deposit ever matches."
         type: string
         required: false
         default: "TXLAQ63Xg1NAzckPwKHvzw7CSEmLMEqcdj"
@@ -30,7 +29,18 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      # Catch a broken script here, before it runs against the live host.
+      - run: bash -n scripts/provision-bitcart.sh
+      - uses: ludeeus/action-shellcheck@master
+        with:
+          scandir: ./scripts
+
   provision:
+    needs: lint
     runs-on: ubuntu-latest
     steps:
       - name: Provision via SSH
@@ -41,119 +51,7 @@ jobs:
           password: ${{ secrets.STAGE_SSH_PASSWORD }}
           script_stop: true
           script: |
-            # -E so the ERR trap also fires inside functions; without it a failure in setenv() or
-            # bc() aborts with the trap never running.
-            set -Eeuo pipefail
-            # Report WHERE a failure happened — `set -e` otherwise aborts silently and the log just
-            # stops, which cost several wrong guesses. Deliberately STDOUT, not stderr: the ssh
-            # action does not surface the remote command's stderr, so a trap writing to >&2 is
-            # invisible and looks like it never fired.
-            trap 'rc=$?; echo "ABORT: exit $rc at line ${LINENO} running: ${BASH_COMMAND:-?}"; exit $rc' ERR
-            echo "shell: ${BASH_VERSION:-not-bash} | user: $(id -un) | pwd: $(pwd)"
             cd "${{ secrets.STAGE_DEPLOY_PATH }}"
-            echo "env perms: $(ls -ld .env 2>/dev/null || echo 'no .env')"
-
-            # Bitcart is reached over the docker network, NOT a host port. On stage its 8092 is
-            # `ports: !reset []` — unpublished on purpose, because that port is the ADMIN API. So
-            # every call below runs curl in a throwaway container attached to the stack network and
-            # talks to the service by name on its INTERNAL port (8000), the same way the deploy
-            # health gate does. Output still lands on the host, so host-side python parses it.
-            NET="clutch-stage_clutch-network"
-            B="http://bitcart-backend:8000"
-            bc() { docker run --rm --network "$NET" curlimages/curl:8.10.1 -s "$@"; }
-            if ! docker run --rm --network "$NET" curlimages/curl:8.10.1 -sf -m 10 "$B/manage/policies" >/dev/null 2>&1; then
-              echo "ABORT: Bitcart is not answering on $B."
-              echo "It only runs as part of the treasury overlay. If this is the first treasury"
-              echo "deploy, temporarily remove the treasury secrets from .env, run the deploy to"
-              echo "bring Bitcart up, then run this workflow."
-              docker ps --filter name=bitcart --format '  {{.Names}}  {{.Status}}' || true
-              exit 1
-            fi
-            echo "bitcart: reachable"
-
-            # Replace-or-append KEY=VALUE in .env. Values are never echoed.
-            setenv() {
-              k="$1"; v="$2"
-              touch .env
-              grep -vE "^${k}=" .env > .env.tmp 2>/dev/null || true
-              printf '%s=%s\n' "$k" "$v" >> .env.tmp
-              mv .env.tmp .env
-              chmod 600 .env
-              echo "  .env: ${k} set"
-            }
-
-            EMAIL="admin@clutch-stage.example.com"
-            if grep -qE '^BITCART_ADMIN_PASSWORD=.+' .env 2>/dev/null; then
-              PW="$(grep -m1 -E "^BITCART_ADMIN_PASSWORD=" .env | cut -d= -f2-)"
-              echo "admin: reusing password from .env"
-            else
-              # Generated on the host and persisted, so it never appears in a log or an input.
-              # No `| head -c` here: it closes the pipe early, the upstream stage takes SIGPIPE,
-              # and `pipefail` turns that into a failed pipeline that `set -e` kills silently —
-              # which is exactly how this aborted with no message after "bitcart: reachable".
-              # Trim with shell parameter expansion instead, which cannot fail.
-              PW="$(od -An -tx1 -N24 /dev/urandom | tr -d '[:space:]')"
-              PW="${PW:0:32}"
-              setenv BITCART_ADMIN_PASSWORD "$PW"
-              echo "admin: generated a new password"
-            fi
-            setenv BITCART_ADMIN_EMAIL "$EMAIL"
-
-            # A 4xx here just means the user already exists — a valid re-run, not a failure.
-            bc -o /dev/null -X POST "$B/users" -H 'content-type: application/json' -d "{\"email\":\"$EMAIL\",\"password\":\"$PW\"}" || true
-
-            # Capture the response first and parse it separately. Parsing inline meant a non-JSON
-            # body (a 4xx error page, say) crashed python mid-pipeline and `set -e` killed the run
-            # with nothing printed — the response itself, the one thing worth seeing, was lost.
-            TOKRESP="$(bc -X POST "$B/token" -H 'content-type: application/json' -d "{\"email\":\"$EMAIL\",\"password\":\"$PW\",\"permissions\":[\"full_control\"]}" || true)"
-            TOK="$(printf '%s' "$TOKRESP" | python3 -c "import sys,re; m=re.search(r'\"access_token\"\s*:\s*\"([^\"]+)\"', sys.stdin.read()); print(m.group(1) if m else '')" || true)"
-            if [ -z "$TOK" ]; then
-              echo "ABORT: could not authenticate to Bitcart. Response was:"
-              echo "$TOKRESP"
-              echo ""
-              echo "If the admin user already exists under a different password, clear"
-              echo "BITCART_ADMIN_PASSWORD from .env and re-run."
-              exit 1
-            fi
-            echo "auth: ok"
-
-            CUSTODY="${{ inputs.custody_address }}"
-            echo "custody: $CUSTODY"
-            setenv CUSTODY_TRON_ADDRESS "$CUSTODY"
-
-            WID="$(bc "$B/wallets" -H "Authorization: Bearer $TOK" | python3 -c "import sys,json; d=json.load(sys.stdin).get('result',[]); print(next((w['id'] for w in d if w.get('name')=='clutch-custody-usdt'), ''))")"
-            if [ -z "$WID" ]; then
-              # `contract` is what denominates invoices in USDT. Without it Bitcart prices in native
-              # TRX at an exchange rate, which rounds away the amount discriminator — the only thing
-              # telling two payers apart on one shared custody address.
-              WID="$(bc -X POST "$B/wallets" -H "Authorization: Bearer $TOK" -H 'content-type: application/json' -d "{\"name\":\"clutch-custody-usdt\",\"xpub\":\"$CUSTODY\",\"currency\":\"trx\",\"contract\":\"${{ inputs.usdt_contract }}\"}" | python3 -c "import sys,json; print(json.load(sys.stdin).get('id',''))")"
-              if [ -z "$WID" ]; then
-                echo "ABORT: wallet creation failed. Check the address is valid base58check and that"
-                echo "the contract exists on the network TRX_SERVER points at."
-                exit 1
-              fi
-              echo "wallet: created"
-            else
-              echo "wallet: reusing existing"
-            fi
-
-            SID="$(bc "$B/stores" -H "Authorization: Bearer $TOK" | python3 -c "import sys,json; d=json.load(sys.stdin).get('result',[]); print(next((s['id'] for s in d if s.get('name')=='clutch-deposits'), ''))")"
-            if [ -z "$SID" ]; then
-              SID="$(bc -X POST "$B/stores" -H "Authorization: Bearer $TOK" -H 'content-type: application/json' -d "{\"name\":\"clutch-deposits\",\"wallets\":[\"$WID\"],\"default_currency\":\"USDT\"}" | python3 -c "import sys,json; print(json.load(sys.stdin).get('id',''))")"
-              if [ -z "$SID" ]; then
-                echo "ABORT: store creation failed"
-                exit 1
-              fi
-              echo "store: created"
-            else
-              echo "store: reusing existing"
-            fi
-
-            setenv BITCART_TOKEN "$TOK"
-            setenv BITCART_STORE_ID "$SID"
-            setenv BITCART_URL "http://bitcart-backend:8000"
-
-            echo ""
-            echo "provisioned. store_id=$SID custody=$CUSTODY"
-            echo "token written to .env, not printed"
-            echo "Next: run 'Deploy stage (VPS)' with reset_chain unticked."
+            git pull --ff-only || echo "Note: git pull failed — continuing with the checked-out copy"
+            chmod +x scripts/provision-bitcart.sh
+            bash scripts/provision-bitcart.sh '${{ inputs.custody_address }}' '${{ inputs.usdt_contract }}' clutch-stage
