@@ -158,8 +158,14 @@ jobs:
             # while nginx still 405'd it as a static path.
             #
             # nginx lives in its own compose project, hence the separate -p / -f here.
-            docker compose -p clutch-nginx -f docker-compose.stage.nginx.yml up -d --force-recreate nginx-stage \
-              || docker exec nginx-stage nginx -s reload
+            if ! docker compose -p clutch-nginx -f docker-compose.stage.nginx.yml up -d --force-recreate nginx-stage; then
+              # Do NOT swallow this quietly. A failed recreate previously fell through to a plain
+              # reload — which cannot pick up config changes — and the deploy still reported
+              # success, so the /payment/ route looked deployed while nginx served the old config.
+              echo "WARNING: nginx-stage recreate FAILED — falling back to reload, which does NOT"
+              echo "pick up config-file changes. Any nginx config edit in this deploy is NOT live."
+              docker exec nginx-stage nginx -s reload
+            fi
 
             # Health gate: fail the deploy loudly if the API is not reachable THROUGH nginx.
             ok=""
