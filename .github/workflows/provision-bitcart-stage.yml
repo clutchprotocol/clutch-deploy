@@ -1,0 +1,132 @@
+# One-shot Bitcart provisioning for stage.
+#
+# Exists to break a bootstrap deadlock: payment-orchestrator refuses to start without
+# BITCART_TOKEN and BITCART_STORE_ID, but those only exist once Bitcart is running and has a store.
+# Bitcart is deliberately unpublished on the VPS, so it can only be reached from the box itself —
+# which is exactly the access this workflow already has, via the same SSH secrets the deploy uses.
+#
+# IDEMPOTENT. Re-running detects existing state and will not create a second user, wallet or store.
+#
+# NOTHING SECRET IS PRINTED. The API token and the generated Bitcart admin password go straight
+# into .env on the host; the log reports only the store id, the custody address, and whether each
+# step created or reused something.
+name: Provision Bitcart (stage)
+
+on:
+  workflow_dispatch:
+    inputs:
+      custody_address:
+        description: "Tron address that receives deposits. Bitcart holds NO private key for it — it can watch and invoice, never spend. That is the property that makes co-hosting the processor acceptable."
+        type: string
+        required: true
+      usdt_contract:
+        description: "TRC-20 USDT contract. Default is NILE testnet USDT; it does NOT exist on Shasta. Must name the same network as TRONGRID_URL, or the verifier queries a chain the contract is not on and no deposit ever matches."
+        type: string
+        required: false
+        default: "TXLAQ63Xg1NAzckPwKHvzw7CSEmLMEqcdj"
+
+concurrency:
+  group: deploy-stage # shared with the deploy: never provision and deploy at the same time
+  cancel-in-progress: false
+
+jobs:
+  provision:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Provision via SSH
+        uses: appleboy/ssh-action@v1.2.0
+        with:
+          host: ${{ secrets.STAGE_HOST }}
+          username: ${{ secrets.STAGE_USER }}
+          password: ${{ secrets.STAGE_SSH_PASSWORD }}
+          script_stop: true
+          script: |
+            set -euo pipefail
+            cd "${{ secrets.STAGE_DEPLOY_PATH }}"
+
+            B="http://localhost:8092"
+            if ! curl -sf -m 10 "$B/manage/policies" >/dev/null 2>&1; then
+              echo "ABORT: Bitcart is not answering on $B."
+              echo "It only runs as part of the treasury overlay. If this is the first treasury"
+              echo "deploy, temporarily remove the treasury secrets from .env, run the deploy to"
+              echo "bring Bitcart up, then run this workflow."
+              docker ps --filter name=bitcart --format '  {{.Names}}  {{.Status}}' || true
+              exit 1
+            fi
+            echo "bitcart: reachable"
+
+            # Replace-or-append KEY=VALUE in .env. Values are never echoed.
+            setenv() {
+              k="$1"; v="$2"
+              touch .env
+              grep -vE "^${k}=" .env > .env.tmp 2>/dev/null || true
+              printf '%s=%s\n' "$k" "$v" >> .env.tmp
+              mv .env.tmp .env
+              chmod 600 .env
+              echo "  .env: ${k} set"
+            }
+
+            EMAIL="admin@clutch-stage.example.com"
+            if grep -qE '^BITCART_ADMIN_PASSWORD=.+' .env 2>/dev/null; then
+              PW="$(grep -E '^BITCART_ADMIN_PASSWORD=' .env | head -1 | cut -d= -f2-)"
+              echo "admin: reusing password from .env"
+            else
+              # Generated on the host and persisted, so it never appears in a log or an input.
+              PW="$(head -c 24 /dev/urandom | base64 | tr -d '/+=' | head -c 32)"
+              setenv BITCART_ADMIN_PASSWORD "$PW"
+              echo "admin: generated a new password"
+            fi
+            setenv BITCART_ADMIN_EMAIL "$EMAIL"
+
+            # A 4xx here just means the user already exists — a valid re-run, not a failure.
+            curl -s -o /dev/null -X POST "$B/users" -H 'content-type: application/json' -d "{\"email\":\"$EMAIL\",\"password\":\"$PW\"}" || true
+
+            TOK="$(curl -s -X POST "$B/token" -H 'content-type: application/json' -d "{\"email\":\"$EMAIL\",\"password\":\"$PW\",\"permissions\":[\"full_control\"]}" | python3 -c "import sys,json; print(json.load(sys.stdin).get('access_token',''))")"
+            if [ -z "$TOK" ]; then
+              echo "ABORT: could not authenticate to Bitcart."
+              echo "If the admin user was created earlier under a different password, clear"
+              echo "BITCART_ADMIN_PASSWORD from .env and re-run."
+              exit 1
+            fi
+            echo "auth: ok"
+
+            CUSTODY="${{ inputs.custody_address }}"
+            echo "custody: $CUSTODY"
+            setenv CUSTODY_TRON_ADDRESS "$CUSTODY"
+
+            WID="$(curl -s "$B/wallets" -H "Authorization: Bearer $TOK" | python3 -c "import sys,json; d=json.load(sys.stdin).get('result',[]); print(next((w['id'] for w in d if w.get('name')=='clutch-custody-usdt'), ''))")"
+            if [ -z "$WID" ]; then
+              # `contract` is what denominates invoices in USDT. Without it Bitcart prices in native
+              # TRX at an exchange rate, which rounds away the amount discriminator — the only thing
+              # telling two payers apart on one shared custody address.
+              WID="$(curl -s -X POST "$B/wallets" -H "Authorization: Bearer $TOK" -H 'content-type: application/json' -d "{\"name\":\"clutch-custody-usdt\",\"xpub\":\"$CUSTODY\",\"currency\":\"trx\",\"contract\":\"${{ inputs.usdt_contract }}\"}" | python3 -c "import sys,json; print(json.load(sys.stdin).get('id',''))")"
+              if [ -z "$WID" ]; then
+                echo "ABORT: wallet creation failed. Check the address is valid base58check and that"
+                echo "the contract exists on the network TRX_SERVER points at."
+                exit 1
+              fi
+              echo "wallet: created"
+            else
+              echo "wallet: reusing existing"
+            fi
+
+            SID="$(curl -s "$B/stores" -H "Authorization: Bearer $TOK" | python3 -c "import sys,json; d=json.load(sys.stdin).get('result',[]); print(next((s['id'] for s in d if s.get('name')=='clutch-deposits'), ''))")"
+            if [ -z "$SID" ]; then
+              SID="$(curl -s -X POST "$B/stores" -H "Authorization: Bearer $TOK" -H 'content-type: application/json' -d "{\"name\":\"clutch-deposits\",\"wallets\":[\"$WID\"],\"default_currency\":\"USDT\"}" | python3 -c "import sys,json; print(json.load(sys.stdin).get('id',''))")"
+              if [ -z "$SID" ]; then
+                echo "ABORT: store creation failed"
+                exit 1
+              fi
+              echo "store: created"
+            else
+              echo "store: reusing existing"
+            fi
+
+            setenv BITCART_TOKEN "$TOK"
+            setenv BITCART_STORE_ID "$SID"
+            setenv BITCART_URL "http://bitcart-backend:8000"
+
+            echo ""
+            echo "provisioned. store_id=$SID custody=$CUSTODY"
+            echo "token written to .env, not printed"
+            echo "Next: run 'Deploy stage (VPS)' with reset_chain unticked."
