@@ -86,6 +86,42 @@ echo "auth: ok"
 echo "custody: $CUSTODY"
 setenv CUSTODY_TRON_ADDRESS "$CUSTODY"
 
+# Refresh the TRX daemon against the CURRENT compose before validating a contract against it.
+#
+# Bitcart validates the wallet's contract by asking its daemon, and the daemon only knows the
+# network it was started with. Stage hit "Invalid contract" for exactly this reason: the running
+# daemon predated the fix that moved everything to Nile, so it was checking a Nile-only contract
+# against Shasta. Deploys could not correct it either — they were blocked on the very secrets this
+# script exists to produce.
+#
+# Safe to run unconditionally: recreating these two containers touches nothing else, and both
+# BITCART_* values use `:-` defaults in the compose, so a not-yet-provisioned .env still renders.
+COMPOSE_FILES=(-f docker-compose.yml -f docker-compose.treasury.yml -f docker-compose.bitcart.yml
+               -f docker-compose.stage.cloudflare-flex.yml -f docker-compose.stage.treasury.yml)
+echo "trx daemon: recreating against current compose (network must match the contract)"
+docker compose -p "$PROJECT" "${COMPOSE_FILES[@]}" up -d --force-recreate bitcart-trx bitcart-backend
+
+# The backend needs a moment to come back before it will answer, and the daemon needs to have
+# connected upstream before it can validate anything.
+for _ in $(seq 1 30); do
+  if docker run --rm --network "$NET" "$CURL_IMAGE" -sf -m 5 "$API/manage/policies" >/dev/null 2>&1; then
+    echo "trx daemon: backend back up"
+    break
+  fi
+  sleep 3
+done
+
+# The token was issued by the previous backend process; re-authenticate against the new one.
+TOKRESP="$(bc -X POST "$API/token" -H 'content-type: application/json' \
+  -d "{\"email\":\"$EMAIL\",\"password\":\"$PW\",\"permissions\":[\"full_control\"]}" || true)"
+TOK="$(printf '%s' "$TOKRESP" | json_get access_token)"
+if [ -z "$TOK" ]; then
+  echo "ABORT: lost authentication after recreating the backend. Response was:"
+  echo "$TOKRESP"
+  exit 1
+fi
+echo "auth: refreshed"
+
 # --- watch-only wallet --------------------------------------------------------------------
 WALLETS="$(bc "$API/wallets" -H "Authorization: Bearer $TOK" || true)"
 WID="$(printf '%s' "$WALLETS" | python3 -c "import sys,json
