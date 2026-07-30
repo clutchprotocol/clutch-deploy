@@ -146,26 +146,90 @@ jobs:
 
             docker compose -p clutch-stage $FILES up -d --force-recreate --remove-orphans
 
-            # RECREATE nginx-stage, don't reload it.
+            # ---------------------------------------------------------------------------
+            # nginx on this host is NOT ours.
             #
-            # Two things need to happen and only recreation does both. After --force-recreate the
-            # app containers have new IPs, so nginx must re-resolve its upstreams or it 502s —
-            # a reload covers that. But the config is bind-mounted as a SINGLE FILE
-            # (docker-compose.stage.nginx.yml), and Docker binds a single file by inode: `git pull`
-            # replaces the file with a new inode, so the container keeps serving the ORIGINAL
-            # config forever. `nginx -s reload` re-reads that same stale inode, and `docker
-            # restart` keeps the same binding too. That is why a /payment/ route sat in the repo
-            # while nginx still 405'd it as a static path.
+            # The container named `nginx-stage` belongs to compose project `v2ray` and mounts
+            # /home/v2ray-docker/config/nginx/nginx.stage.cloudflare-flex.conf — a hand-maintained
+            # SUPERSET carrying the clutch vhosts alongside the v2ray ones (de2, de.wenda.ir, 3x,
+            # sub, de-grpc). It owns :80.
             #
-            # nginx lives in its own compose project, hence the separate -p / -f here.
-            if ! docker compose -p clutch-nginx -f docker-compose.stage.nginx.yml up -d --force-recreate nginx-stage; then
-              # Do NOT swallow this quietly. A failed recreate previously fell through to a plain
-              # reload — which cannot pick up config changes — and the deploy still reported
-              # success, so the /payment/ route looked deployed while nginx served the old config.
-              echo "WARNING: nginx-stage recreate FAILED — falling back to reload, which does NOT"
-              echo "pick up config-file changes. Any nginx config edit in this deploy is NOT live."
-              docker exec nginx-stage nginx -s reload
+            # So `docker compose -p clutch-nginx -f docker-compose.stage.nginx.yml up` can never
+            # work here: it fails to bind :80, and the repo's config/nginx/*.conf is never on the
+            # live path. A `/payment/` location sat in this repo for a full deploy cycle while the
+            # live nginx 405'd it as a static path, and the recreate attempt left a dead
+            # `<hash>_nginx-stage` husk behind. Don't reintroduce that compose call.
+            #
+            # Instead: patch the config that is actually mounted, idempotently, every deploy — so
+            # it self-heals if the v2ray side ever replaces the file.
+            NGINX_C=$(docker ps --format '{{.Names}}' | grep -x 'nginx-stage' || true)
+            if [ -z "$NGINX_C" ]; then
+              echo "DEPLOY FAILED: no running container named nginx-stage — nothing is serving :80"
+              exit 1
             fi
+            # Read the path off the mount rather than hardcoding it; if v2ray moves the file this
+            # follows it instead of silently patching a path nobody reads.
+            NGINX_CONF=$(docker inspect "$NGINX_C" \
+              --format '{{range .Mounts}}{{if eq .Destination "/etc/nginx/nginx.conf"}}{{.Source}}{{end}}{{end}}')
+            echo "nginx: container=$NGINX_C conf=$NGINX_CONF"
+
+            if [ "$TREASURY" = "true" ] && [ -n "$NGINX_CONF" ] && [ -f "$NGINX_CONF" ]; then
+              if grep -q 'location /payment/' "$NGINX_CONF"; then
+                echo "nginx: /payment/ route already present"
+              else
+                echo "nginx: adding /payment/ route to the app-stage vhost"
+                cp "$NGINX_CONF" "$NGINX_CONF.clutch.bak"
+                # Anchored on server_name, not a line number: this file is edited by hand on the
+                # host and line numbers drift. Prefix locations match longest-first, so where the
+                # block lands inside the server is irrelevant.
+                awk '
+                  /^[[:space:]]*server_name[[:space:]]+app-stage\.clutchprotocol\.io;/ && !ins {
+                    print
+                    print ""
+                    print "        # Added by clutch-deploy. Browser route to the payment orchestrator,"
+                    print "        # which is deliberately not published on a host port."
+                    print "        location /payment/ {"
+                    print "            rewrite ^/payment(/api/.*)$ $1 break;"
+                    print "            proxy_pass http://payment-orchestrator:8091;"
+                    print "            proxy_http_version 1.1;"
+                    print "            proxy_set_header Host $host;"
+                    print "            proxy_set_header X-Real-IP $remote_addr;"
+                    print "            proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;"
+                    print "            proxy_set_header X-Forwarded-Proto https;"
+                    print "        }"
+                    ins = 1
+                    next
+                  }
+                  { print }
+                  END { if (!ins) exit 3 }
+                ' "$NGINX_CONF" > /tmp/nginx.clutch.patched || {
+                  echo "DEPLOY FAILED: app-stage server block not found in $NGINX_CONF — not touching it"
+                  exit 1
+                }
+                # cat, NOT mv. Docker bind-mounts a single file by INODE; mv gives the path a new
+                # inode and the container keeps serving the old one forever, with every check
+                # on the host showing the new content. Truncate-and-write keeps the inode.
+                cat /tmp/nginx.clutch.patched > "$NGINX_CONF"
+
+                if docker exec "$NGINX_C" nginx -t; then
+                  echo "nginx: config valid"
+                else
+                  echo "DEPLOY FAILED: patched nginx config is invalid — restoring backup"
+                  cat "$NGINX_CONF.clutch.bak" > "$NGINX_CONF"
+                  exit 1
+                fi
+              fi
+            fi
+
+            # Reload regardless: --force-recreate gave every app container a new IP, and these
+            # upstreams are resolved once at load time, so without this nginx 502s the whole stack.
+            docker exec "$NGINX_C" nginx -s reload
+
+            # Clear the corpse left by the old compose-nginx approach, if it is still around.
+            docker ps -a --format '{{.Names}}' | grep -E '^[0-9a-f]+_nginx-stage$' | while read -r husk; do
+              echo "removing dead husk container $husk"
+              docker rm -f "$husk" || true
+            done
 
             # Health gate: fail the deploy loudly if the API is not reachable THROUGH nginx.
             ok=""
@@ -196,4 +260,22 @@ jobs:
                 done
                 [ -n "$tok" ] || { echo "DEPLOY FAILED: ${name} not healthy"; docker logs "clutch-stage-${name}-1" 2>&1 | tail -30; exit 1; }
               done
+
+              # Prove the browser-facing /payment/ route reaches the ORCHESTRATOR, not the static
+              # site. Both previous checks passed while this was broken: the containers were
+              # healthy and nginx answered — with 405 from the SPA's static location, because the
+              # proxy rule was in a config file nothing mounted. "nginx is up" was never the
+              # question; "does this path leave nginx" was.
+              #
+              # 401 is the PASS here. Unauthenticated POST reaching the orchestrator is exactly
+              # what should happen; 405/404 means nginx handled it locally.
+              pcode=$(curl -s -o /dev/null -w "%{http_code}" -X POST \
+                -H "Host: app-stage.clutchprotocol.io" -H "Content-Type: application/json" \
+                -d '{}' http://localhost/payment/api/v1/deposits || true)
+              case "$pcode" in
+                401|400|422) echo "payment route reaches the orchestrator (HTTP $pcode)" ;;
+                *) echo "DEPLOY FAILED: /payment/ returned $pcode — nginx is not proxying it"
+                   echo "(405/404 means the request never left nginx; 502 means the upstream is unreachable)"
+                   exit 1 ;;
+              esac
             fi

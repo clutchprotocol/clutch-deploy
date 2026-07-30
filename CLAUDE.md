@@ -80,6 +80,10 @@ Always pass the full `-f` list and `-p` on every command — omitting them targe
 
 `.github/workflows/deploy-stage.yml` SSHes to the VPS (secrets `STAGE_HOST/USER/SSH_PASSWORD/DEPLOY_PATH`), does `git pull`, `compose pull`, `up -d --force-recreate --remove-orphans` — **no `--build`**; stage consumes GHCR images published by each repo's CI. Triggers: manual, push to `main` touching compose/config files, or `repository_dispatch` type `deploy-stage` (sent by sibling repos after image publish). VPS bootstrap steps: `docs/SSH-SERVER-SETUP.md`.
 
+**nginx on the stage VPS is not ours.** The `nginx-stage` container there belongs to the **`v2ray`** compose project and mounts `/home/v2ray-docker/config/nginx/nginx.stage.cloudflare-flex.conf` — a hand-maintained superset serving the clutch vhosts alongside v2ray's (`de2`, `de.wenda.ir`, `3x`, `sub`, `de-grpc`). It owns :80, so `docker-compose.stage.nginx.yml` cannot run there, and **editing `config/nginx/*.conf` in this repo does nothing on that host**. A `/payment/` route was added here, deployed, verified present on the server, and still 405'd for a full cycle before anyone checked which file was mounted. `deploy-stage.yml` now patches the mounted config in place each deploy (idempotent, `nginx -t` with rollback) and gates on `/payment/` returning 401 rather than 405.
+
+`.github/workflows/inspect-stage.yml` is a read-only probe (`nginx` / `containers` / `git`) for exactly this class of question — what is actually running and what is actually mounted. Reach for it before assuming the repo describes the host.
+
 ## Gotchas
 
 - **Sibling layout is load-bearing**: dev build contexts are `../clutch-node`, `../clutch-hub-api`, `../clutch-explorer/backend`; bind mounts reach `../clutch-hub-demo-app` and `../clutch-hub-sdk-js`. Cloning clutch-deploy alone breaks dev mode.

@@ -1,3 +1,19 @@
+# NOT USED ON THE CURRENT STAGE HOST — read this before trying to deploy it.
+#
+# That VPS already runs an nginx container named `nginx-stage` owned by the `v2ray` compose
+# project, mounting /home/v2ray-docker/config/nginx/nginx.stage.cloudflare-flex.conf: a
+# hand-maintained superset that serves the clutch vhosts next to the v2ray ones. It holds :80,
+# so bringing this file up there fails with "Bind for :::80 failed" and leaves a dead
+# `<hash>_nginx-stage` container behind.
+#
+# The cost of not knowing that: a /payment/ location was added to
+# config/nginx/nginx.stage.cloudflare-flex.conf below, deployed, and confirmed present on the
+# host — while the live nginx, mounting a different file entirely, kept returning 405. Editing
+# the config in this repo has NO EFFECT on that host.
+#
+# deploy-stage.yml therefore patches the mounted config in place instead. Keep this file for
+# hosts where nginx is actually ours; don't wire it into the stage deploy.
+#
 # Standalone nginx for stage (Cloudflare Flexible, origin HTTP :80).
 # Start the app stack first, then run nginx on the same host or another host.
 #
