@@ -26,13 +26,11 @@
 services:
   nginx-stage:
     image: nginx:alpine
-    # Named explicitly because a container called `nginx-stage` already exists on the host and
-    # holds port 80. Without this, compose derives `clutch-nginx-nginx-stage-1`, tries to start a
-    # SECOND nginx, and fails with "Bind for :::80 failed: port is already allocated" — leaving
-    # the original running with its stale config. Matching the real name lets
-    # `up -d --force-recreate` replace it in place, which is the only way a single-file config
-    # bind mount ever picks up a change (Docker binds those by inode; git pull swaps the inode).
-    container_name: nginx-stage
+    # No container_name on purpose. It briefly carried `container_name: nginx-stage` to make
+    # `up -d --force-recreate` adopt the container already holding :80 — before it was clear that
+    # container belongs to the `v2ray` project. Pinning the name here does not adopt it, it
+    # collides with it: compose renames the existing container and then fails to bind :80,
+    # which is how a dead `<hash>_nginx-stage` ended up on that host.
     ports:
       - "80:80"
     volumes:
