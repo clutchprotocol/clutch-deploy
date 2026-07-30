@@ -79,12 +79,15 @@ services:
       - APP_READONLY_TOKEN=${TREASURY_READONLY_TOKEN:?set TREASURY_READONLY_TOKEN in .env}
       # TronGrid: read-only deposit verification. Without a key TronGrid still answers, but
       # rate-limits hard — fine for local, set one for stage.
-      - APP_TRONGRID_URL=${TRONGRID_URL:-https://api.shasta.trongrid.io}
+      - APP_TRONGRID_URL=${TRONGRID_URL:-https://nile.trongrid.io}
       - APP_TRONGRID_API_KEY=${TRONGRID_API_KEY:-}
       - APP_CUSTODY_TRON_ADDRESS=${CUSTODY_TRON_ADDRESS:-}
       # MUST match the network APP_TRONGRID_URL points at. The crate's default is the MAINNET
       # USDT contract; this default is Shasta's, because a local/stage stack has no business
       # verifying against mainnet.
+      # NILE testnet USDT. Verified present on nile.trongrid.io and ABSENT on Shasta — the
+      # defaults previously paired a Shasta URL with this Nile contract, so nothing would ever
+      # have matched. Both must name the same network.
       - APP_USDT_CONTRACT=${USDT_CONTRACT:-TXLAQ63Xg1NAzckPwKHvzw7CSEmLMEqcdj}
     restart: unless-stopped
     networks:
