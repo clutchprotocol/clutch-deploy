@@ -54,3 +54,14 @@ services:
   clutch-explorer-postgres:
     ports: !reset []
     image: postgres:16-alpine
+
+  # Treasury stack (docker-compose.treasury.yml). treasury-service publishes nothing anywhere,
+  # so it needs no reset — but the orchestrator does, and on a public VPS that matters.
+  payment-orchestrator:
+    ports: !reset []
+
+  # Bitcart (docker-compose.bitcart.yml). Its 8092 is the ADMIN API — stores, wallets, tokens.
+  # Published locally for provisioning; on a public host it must never be reachable directly.
+  # Compose MERGES port lists, so without this reset adding the overlay would expose it.
+  bitcart-backend:
+    ports: !reset []
