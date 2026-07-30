@@ -18,7 +18,7 @@ on:
   workflow_dispatch:
     inputs:
       reset_chain:
-        description: "DESTRUCTIVE — `down -v` first. Wipes the stage chain, explorer DB, Grafana/Seq state and any treasury databases. Required when the genesis changes: a new ChainInit genesis cannot import onto old chain data."
+        description: "DESTRUCTIVE and rarely needed — leave UNTICKED for normal deploys. Runs `down -v`, wiping the chain, explorer DB, Grafana/Seq, the treasury and orchestrator databases, AND Bitcart's database. That last one invalidates BITCART_TOKEN/BITCART_STORE_ID in .env, so you must re-run 'Provision Bitcart (stage)' afterwards or the orchestrator will point at a store that no longer exists. Tick ONLY after changing consensus values in config/node/*.toml, since a new ChainInit genesis cannot import onto old chain data."
         type: boolean
         default: false
 
