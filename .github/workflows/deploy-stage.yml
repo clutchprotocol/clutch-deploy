@@ -21,10 +21,6 @@ on:
         description: "DESTRUCTIVE — `down -v` first. Wipes the stage chain, explorer DB, Grafana/Seq state and any treasury databases. Required when the genesis changes: a new ChainInit genesis cannot import onto old chain data."
         type: boolean
         default: false
-      include_treasury:
-        description: "Also deploy treasury-service, payment-orchestrator and Bitcart. Needs the treasury secrets present in .env on the VPS — the compose uses ${VAR:?} so a missing one fails the deploy loudly rather than starting half-configured."
-        type: boolean
-        default: false
 
   push:
     branches: [main]
@@ -59,29 +55,44 @@ jobs:
             cd "${{ secrets.STAGE_DEPLOY_PATH }}"
             git pull --ff-only || echo "Note: git pull failed or not a git repo — continuing"
 
-            # Whether the treasury stack is part of this deployment is STICKY, recorded on the
-            # host rather than read from the trigger.
+            # Is the treasury part of this deployment? DERIVED from the host's own .env, not from
+            # a workflow input.
             #
-            # `inputs` is only populated for workflow_dispatch — on `push` and on the
-            # repository_dispatch that sibling repos fire after publishing an image, every input
-            # is the empty string. Deriving the file list from inputs alone therefore built a
-            # CORE-ONLY list on those runs, and `up -d --remove-orphans` then saw
-            # treasury-service, payment-orchestrator and the four Bitcart containers as orphans
-            # and deleted them. A routine clutch-node image publish would have silently destroyed
-            # the treasury stack on stage.
+            # Two reasons it can't be an input. `inputs` is only populated for workflow_dispatch —
+            # on `push` and on the repository_dispatch a sibling repo fires after publishing an
+            # image, every input is the empty string. That built a CORE-ONLY file list on those
+            # runs, and `up -d --remove-orphans` then removed treasury-service,
+            # payment-orchestrator and the four Bitcart containers as orphans, reporting success
+            # while doing it. And a manual toggle is state that drifts from reality.
             #
-            # So: an explicit dispatch sets or clears the marker; any other trigger inherits it.
-            MARKER=".stage-treasury-enabled"
-            if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
-              if [ "${{ inputs.include_treasury }}" = "true" ]; then
-                touch "$MARKER"; echo "treasury: ENABLED for this host (marker written)"
-              else
-                rm -f "$MARKER"; echo "treasury: disabled for this host (marker cleared)"
-              fi
-            fi
+            # The secrets ARE the switch: the treasury cannot run without them, so their presence
+            # is the honest signal. Add them to .env to enable it, remove them to disable. Every
+            # trigger then behaves identically, with nothing to keep in sync.
+            TREASURY_VARS="TREASURY_POSTGRES_PASSWORD ORCHESTRATOR_POSTGRES_PASSWORD \
+                           MINT_AUTHORITY_SECRET TREASURY_INITIATOR_TOKEN \
+                           TREASURY_APPROVER_TOKEN TREASURY_READONLY_TOKEN"
+            present=0; missing=""
+            for v in $TREASURY_VARS; do
+              if grep -qE "^${v}=.+" .env 2>/dev/null; then present=$((present+1)); else missing="$missing $v"; fi
+            done
+
             TREASURY="false"
-            [ -f "$MARKER" ] && TREASURY="true"
-            echo "treasury included: $TREASURY (trigger: ${{ github.event_name }})"
+            if [ "$present" -eq 6 ]; then
+              TREASURY="true"
+              echo "treasury: ENABLED (all 6 secrets present in .env)"
+            elif [ "$present" -gt 0 ]; then
+              # Half-configured is a mistake, not an intention — refuse rather than quietly
+              # deploying core-only and orphaning whatever treasury containers are running.
+              echo "DEPLOY ABORTED — .env has $present of 6 treasury secrets. Missing:"
+              for v in $missing; do echo "  - $v"; done
+              echo ""
+              echo "Nothing was changed. Add the rest to enable the treasury, or remove all six"
+              echo "to deploy core-only. MINT_AUTHORITY_SECRET must be a key generated FOR STAGE,"
+              echo "never the publicly-committed node1 dev key used locally."
+              exit 1
+            else
+              echo "treasury: disabled (no treasury secrets in .env) — deploying core stack only"
+            fi
 
             # The stage overlay MUST stay last of the port-bearing files: compose MERGES port
             # lists, and its `ports: !reset []` entries are what keep the orchestrator (8091) and
@@ -99,32 +110,6 @@ jobs:
               FILES="$FILES -f docker-compose.stage.treasury.yml"
             fi
             echo "Compose files: $FILES"
-
-            # Preflight the treasury secrets BEFORE touching anything.
-            #
-            # Compose's ${VAR:?} fails on the FIRST missing variable, so without this you fix one,
-            # re-run, and hit the next — eight round trips. Worse, that failure lands partway
-            # through the script; with reset_chain=true it aborts at the teardown, which reads
-            # alarmingly like stage was half-destroyed (it isn't — compose validates the project
-            # before doing any work). Check them all up front and list every one that's missing.
-            if [ "$TREASURY" = "true" ]; then
-              missing=""
-              for v in TREASURY_POSTGRES_PASSWORD ORCHESTRATOR_POSTGRES_PASSWORD \
-                       MINT_AUTHORITY_SECRET TREASURY_INITIATOR_TOKEN TREASURY_APPROVER_TOKEN \
-                       TREASURY_READONLY_TOKEN; do
-                grep -qE "^${v}=.+" .env 2>/dev/null || missing="$missing $v"
-              done
-              if [ -n "$missing" ]; then
-                echo "DEPLOY ABORTED — treasury is enabled on this host but .env is missing:"
-                for v in $missing; do echo "  - $v"; done
-                echo ""
-                echo "Nothing was changed. Add them to $(pwd)/.env and re-run."
-                echo "MINT_AUTHORITY_SECRET must be a key generated FOR STAGE — never the"
-                echo "publicly-committed node1 dev key used locally."
-                exit 1
-              fi
-              echo "treasury secrets present"
-            fi
 
             # PULL BEFORE TEARDOWN. This ordering is the whole point.
             #
