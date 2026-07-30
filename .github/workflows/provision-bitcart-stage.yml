@@ -44,8 +44,15 @@ jobs:
             set -euo pipefail
             cd "${{ secrets.STAGE_DEPLOY_PATH }}"
 
-            B="http://localhost:8092"
-            if ! curl -sf -m 10 "$B/manage/policies" >/dev/null 2>&1; then
+            # Bitcart is reached over the docker network, NOT a host port. On stage its 8092 is
+            # `ports: !reset []` — unpublished on purpose, because that port is the ADMIN API. So
+            # every call below runs curl in a throwaway container attached to the stack network and
+            # talks to the service by name on its INTERNAL port (8000), the same way the deploy
+            # health gate does. Output still lands on the host, so host-side python parses it.
+            NET="clutch-stage_clutch-network"
+            B="http://bitcart-backend:8000"
+            bc() { docker run --rm --network "$NET" curlimages/curl:8.10.1 -s "$@"; }
+            if ! docker run --rm --network "$NET" curlimages/curl:8.10.1 -sf -m 10 "$B/manage/policies" >/dev/null 2>&1; then
               echo "ABORT: Bitcart is not answering on $B."
               echo "It only runs as part of the treasury overlay. If this is the first treasury"
               echo "deploy, temporarily remove the treasury secrets from .env, run the deploy to"
@@ -79,9 +86,9 @@ jobs:
             setenv BITCART_ADMIN_EMAIL "$EMAIL"
 
             # A 4xx here just means the user already exists — a valid re-run, not a failure.
-            curl -s -o /dev/null -X POST "$B/users" -H 'content-type: application/json' -d "{\"email\":\"$EMAIL\",\"password\":\"$PW\"}" || true
+            bc -o /dev/null -X POST "$B/users" -H 'content-type: application/json' -d "{\"email\":\"$EMAIL\",\"password\":\"$PW\"}" || true
 
-            TOK="$(curl -s -X POST "$B/token" -H 'content-type: application/json' -d "{\"email\":\"$EMAIL\",\"password\":\"$PW\",\"permissions\":[\"full_control\"]}" | python3 -c "import sys,json; print(json.load(sys.stdin).get('access_token',''))")"
+            TOK="$(bc -X POST "$B/token" -H 'content-type: application/json' -d "{\"email\":\"$EMAIL\",\"password\":\"$PW\",\"permissions\":[\"full_control\"]}" | python3 -c "import sys,json; print(json.load(sys.stdin).get('access_token',''))")"
             if [ -z "$TOK" ]; then
               echo "ABORT: could not authenticate to Bitcart."
               echo "If the admin user was created earlier under a different password, clear"
@@ -94,12 +101,12 @@ jobs:
             echo "custody: $CUSTODY"
             setenv CUSTODY_TRON_ADDRESS "$CUSTODY"
 
-            WID="$(curl -s "$B/wallets" -H "Authorization: Bearer $TOK" | python3 -c "import sys,json; d=json.load(sys.stdin).get('result',[]); print(next((w['id'] for w in d if w.get('name')=='clutch-custody-usdt'), ''))")"
+            WID="$(bc "$B/wallets" -H "Authorization: Bearer $TOK" | python3 -c "import sys,json; d=json.load(sys.stdin).get('result',[]); print(next((w['id'] for w in d if w.get('name')=='clutch-custody-usdt'), ''))")"
             if [ -z "$WID" ]; then
               # `contract` is what denominates invoices in USDT. Without it Bitcart prices in native
               # TRX at an exchange rate, which rounds away the amount discriminator — the only thing
               # telling two payers apart on one shared custody address.
-              WID="$(curl -s -X POST "$B/wallets" -H "Authorization: Bearer $TOK" -H 'content-type: application/json' -d "{\"name\":\"clutch-custody-usdt\",\"xpub\":\"$CUSTODY\",\"currency\":\"trx\",\"contract\":\"${{ inputs.usdt_contract }}\"}" | python3 -c "import sys,json; print(json.load(sys.stdin).get('id',''))")"
+              WID="$(bc -X POST "$B/wallets" -H "Authorization: Bearer $TOK" -H 'content-type: application/json' -d "{\"name\":\"clutch-custody-usdt\",\"xpub\":\"$CUSTODY\",\"currency\":\"trx\",\"contract\":\"${{ inputs.usdt_contract }}\"}" | python3 -c "import sys,json; print(json.load(sys.stdin).get('id',''))")"
               if [ -z "$WID" ]; then
                 echo "ABORT: wallet creation failed. Check the address is valid base58check and that"
                 echo "the contract exists on the network TRX_SERVER points at."
@@ -110,9 +117,9 @@ jobs:
               echo "wallet: reusing existing"
             fi
 
-            SID="$(curl -s "$B/stores" -H "Authorization: Bearer $TOK" | python3 -c "import sys,json; d=json.load(sys.stdin).get('result',[]); print(next((s['id'] for s in d if s.get('name')=='clutch-deposits'), ''))")"
+            SID="$(bc "$B/stores" -H "Authorization: Bearer $TOK" | python3 -c "import sys,json; d=json.load(sys.stdin).get('result',[]); print(next((s['id'] for s in d if s.get('name')=='clutch-deposits'), ''))")"
             if [ -z "$SID" ]; then
-              SID="$(curl -s -X POST "$B/stores" -H "Authorization: Bearer $TOK" -H 'content-type: application/json' -d "{\"name\":\"clutch-deposits\",\"wallets\":[\"$WID\"],\"default_currency\":\"USDT\"}" | python3 -c "import sys,json; print(json.load(sys.stdin).get('id',''))")"
+              SID="$(bc -X POST "$B/stores" -H "Authorization: Bearer $TOK" -H 'content-type: application/json' -d "{\"name\":\"clutch-deposits\",\"wallets\":[\"$WID\"],\"default_currency\":\"USDT\"}" | python3 -c "import sys,json; print(json.load(sys.stdin).get('id',''))")"
               if [ -z "$SID" ]; then
                 echo "ABORT: store creation failed"
                 exit 1
