@@ -41,11 +41,14 @@ jobs:
           password: ${{ secrets.STAGE_SSH_PASSWORD }}
           script_stop: true
           script: |
-            set -euo pipefail
-            # Report WHERE a failure happened. Without this, `set -e` aborts silently and the log
-            # just stops — which cost two wrong guesses at the cause already. $BASH_COMMAND is
-            # bash-only and simply expands empty elsewhere, so this is safe either way.
-            trap 'rc=$?; echo "ABORT: exit $rc at line ${LINENO} running: ${BASH_COMMAND:-?}" >&2; exit $rc' ERR
+            # -E so the ERR trap also fires inside functions; without it a failure in setenv() or
+            # bc() aborts with the trap never running.
+            set -Eeuo pipefail
+            # Report WHERE a failure happened — `set -e` otherwise aborts silently and the log just
+            # stops, which cost several wrong guesses. Deliberately STDOUT, not stderr: the ssh
+            # action does not surface the remote command's stderr, so a trap writing to >&2 is
+            # invisible and looks like it never fired.
+            trap 'rc=$?; echo "ABORT: exit $rc at line ${LINENO} running: ${BASH_COMMAND:-?}"; exit $rc' ERR
             echo "shell: ${BASH_VERSION:-not-bash} | user: $(id -un) | pwd: $(pwd)"
             cd "${{ secrets.STAGE_DEPLOY_PATH }}"
             echo "env perms: $(ls -ld .env 2>/dev/null || echo 'no .env')"
@@ -99,10 +102,16 @@ jobs:
             # A 4xx here just means the user already exists — a valid re-run, not a failure.
             bc -o /dev/null -X POST "$B/users" -H 'content-type: application/json' -d "{\"email\":\"$EMAIL\",\"password\":\"$PW\"}" || true
 
-            TOK="$(bc -X POST "$B/token" -H 'content-type: application/json' -d "{\"email\":\"$EMAIL\",\"password\":\"$PW\",\"permissions\":[\"full_control\"]}" | python3 -c "import sys,json; print(json.load(sys.stdin).get('access_token',''))")"
+            # Capture the response first and parse it separately. Parsing inline meant a non-JSON
+            # body (a 4xx error page, say) crashed python mid-pipeline and `set -e` killed the run
+            # with nothing printed — the response itself, the one thing worth seeing, was lost.
+            TOKRESP="$(bc -X POST "$B/token" -H 'content-type: application/json' -d "{\"email\":\"$EMAIL\",\"password\":\"$PW\",\"permissions\":[\"full_control\"]}" || true)"
+            TOK="$(printf '%s' "$TOKRESP" | python3 -c "import sys,re; m=re.search(r'\"access_token\"\s*:\s*\"([^\"]+)\"', sys.stdin.read()); print(m.group(1) if m else '')" || true)"
             if [ -z "$TOK" ]; then
-              echo "ABORT: could not authenticate to Bitcart."
-              echo "If the admin user was created earlier under a different password, clear"
+              echo "ABORT: could not authenticate to Bitcart. Response was:"
+              echo "$TOKRESP"
+              echo ""
+              echo "If the admin user already exists under a different password, clear"
               echo "BITCART_ADMIN_PASSWORD from .env and re-run."
               exit 1
             fi
