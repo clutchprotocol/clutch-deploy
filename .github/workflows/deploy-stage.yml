@@ -67,6 +67,13 @@ jobs:
               FILES="$FILES -f docker-compose.treasury.yml -f docker-compose.bitcart.yml"
             fi
             FILES="$FILES -f docker-compose.stage.cloudflare-flex.yml"
+            # Treasury port resets live in their own file: a service key carrying only
+            # `ports: !reset []` still DECLARES that service, so keeping these in the main stage
+            # overlay made a core-only deploy fail with "bitcart-backend has neither an image nor
+            # a build context". Applied last so the resets win the port-list merge.
+            if [ "${{ inputs.include_treasury }}" = "true" ]; then
+              FILES="$FILES -f docker-compose.stage.treasury.yml"
+            fi
             echo "Compose files: $FILES"
 
             # Opt-in, never a default. A plain deploy must never destroy stage data; this exists
