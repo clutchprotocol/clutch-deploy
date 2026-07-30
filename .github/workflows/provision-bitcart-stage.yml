@@ -75,11 +75,16 @@ jobs:
 
             EMAIL="admin@clutch-stage.example.com"
             if grep -qE '^BITCART_ADMIN_PASSWORD=.+' .env 2>/dev/null; then
-              PW="$(grep -E '^BITCART_ADMIN_PASSWORD=' .env | head -1 | cut -d= -f2-)"
+              PW="$(grep -m1 -E "^BITCART_ADMIN_PASSWORD=" .env | cut -d= -f2-)"
               echo "admin: reusing password from .env"
             else
               # Generated on the host and persisted, so it never appears in a log or an input.
-              PW="$(head -c 24 /dev/urandom | base64 | tr -d '/+=' | head -c 32)"
+              # No `| head -c` here: it closes the pipe early, the upstream stage takes SIGPIPE,
+              # and `pipefail` turns that into a failed pipeline that `set -e` kills silently —
+              # which is exactly how this aborted with no message after "bitcart: reachable".
+              # Trim with shell parameter expansion instead, which cannot fail.
+              PW="$(od -An -tx1 -N24 /dev/urandom | tr -d '[:space:]')"
+              PW="${PW:0:32}"
               setenv BITCART_ADMIN_PASSWORD "$PW"
               echo "admin: generated a new password"
             fi
