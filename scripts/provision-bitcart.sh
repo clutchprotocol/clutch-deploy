@@ -12,6 +12,7 @@
 # IDEMPOTENT: an existing user, wallet or store is detected and reused.
 # NOTHING SECRET IS PRINTED: the API token and generated admin password go straight into .env.
 set -Eeuo pipefail
+# shellcheck disable=SC2154  # `rc` is assigned in this very trap, before it is read
 trap 'rc=$?; echo "ABORT: exit $rc at line ${LINENO}: ${BASH_COMMAND}"; exit $rc' ERR
 
 CUSTODY="${1:?usage: provision-bitcart.sh <custody_address> [usdt_contract] [compose_project]}"
