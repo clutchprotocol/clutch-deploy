@@ -68,27 +68,44 @@ jobs:
             # The secrets ARE the switch: the treasury cannot run without them, so their presence
             # is the honest signal. Add them to .env to enable it, remove them to disable. Every
             # trigger then behaves identically, with nothing to keep in sync.
+            # BITCART_TOKEN and BITCART_STORE_ID are in this list because the ORCHESTRATOR requires
+            # them too — it panics on an empty APP_BITCART_TOKEN. Leaving them out meant the deploy
+            # "succeeded" into a container crash-looping for four minutes before the health gate
+            # gave up, instead of stopping immediately with a legible reason.
+            #
+            # They come LAST in the bootstrap order, which is worth knowing: Bitcart has to be
+            # running before a store and API token exist to put here. First deploy brings Bitcart
+            # up and stops at this check; provision Bitcart, add the two values, deploy again.
             TREASURY_VARS="TREASURY_POSTGRES_PASSWORD ORCHESTRATOR_POSTGRES_PASSWORD \
                            MINT_AUTHORITY_SECRET TREASURY_INITIATOR_TOKEN \
-                           TREASURY_APPROVER_TOKEN TREASURY_READONLY_TOKEN"
+                           TREASURY_APPROVER_TOKEN TREASURY_READONLY_TOKEN \
+                           BITCART_TOKEN BITCART_STORE_ID"
+            TREASURY_VAR_COUNT=8
             present=0; missing=""
             for v in $TREASURY_VARS; do
               if grep -qE "^${v}=.+" .env 2>/dev/null; then present=$((present+1)); else missing="$missing $v"; fi
             done
 
             TREASURY="false"
-            if [ "$present" -eq 6 ]; then
+            if [ "$present" -eq "$TREASURY_VAR_COUNT" ]; then
               TREASURY="true"
-              echo "treasury: ENABLED (all 6 secrets present in .env)"
+              echo "treasury: ENABLED (all $TREASURY_VAR_COUNT secrets present in .env)"
             elif [ "$present" -gt 0 ]; then
               # Half-configured is a mistake, not an intention — refuse rather than quietly
               # deploying core-only and orphaning whatever treasury containers are running.
-              echo "DEPLOY ABORTED — .env has $present of 6 treasury secrets. Missing:"
+              echo "DEPLOY ABORTED — .env has $present of $TREASURY_VAR_COUNT treasury secrets. Missing:"
               for v in $missing; do echo "  - $v"; done
               echo ""
-              echo "Nothing was changed. Add the rest to enable the treasury, or remove all six"
-              echo "to deploy core-only. MINT_AUTHORITY_SECRET must be a key generated FOR STAGE,"
-              echo "never the publicly-committed node1 dev key used locally."
+              echo "Nothing was changed. Add the rest to enable the treasury, or remove them all"
+              echo "to deploy core-only."
+              echo ""
+              echo "BITCART_TOKEN / BITCART_STORE_ID come last: Bitcart must already be running to"
+              echo "create a store and issue a token. If this is the first treasury deploy, remove"
+              echo "the other six for now, deploy to get Bitcart up, provision it, then add all"
+              echo "eight and deploy again."
+              echo ""
+              echo "MINT_AUTHORITY_SECRET must be a key generated FOR STAGE, never the"
+              echo "publicly-committed node1 dev key used locally."
               exit 1
             else
               echo "treasury: disabled (no treasury secrets in .env) — deploying core stack only"
