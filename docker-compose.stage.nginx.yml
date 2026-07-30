@@ -10,6 +10,13 @@
 services:
   nginx-stage:
     image: nginx:alpine
+    # Named explicitly because a container called `nginx-stage` already exists on the host and
+    # holds port 80. Without this, compose derives `clutch-nginx-nginx-stage-1`, tries to start a
+    # SECOND nginx, and fails with "Bind for :::80 failed: port is already allocated" — leaving
+    # the original running with its stale config. Matching the real name lets
+    # `up -d --force-recreate` replace it in place, which is the only way a single-file config
+    # bind mount ever picks up a change (Docker binds those by inode; git pull swaps the inode).
+    container_name: nginx-stage
     ports:
       - "80:80"
     volumes:
