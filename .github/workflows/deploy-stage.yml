@@ -176,62 +176,10 @@ jobs:
               echo "DEPLOY FAILED: no running container named nginx-stage — nothing is serving :80"
               exit 1
             fi
-            # Read the path off the mount rather than hardcoding it; if v2ray moves the file this
-            # follows it instead of silently patching a path nobody reads.
-            NGINX_CONF=$(docker inspect "$NGINX_C" \
-              --format '{{range .Mounts}}{{if eq .Destination "/etc/nginx/nginx.conf"}}{{.Source}}{{end}}{{end}}')
-            echo "nginx: container=$NGINX_C conf=$NGINX_CONF"
 
-            # Say which of these is false. Skipping the patch quietly is precisely how a missing
-            # /payment/ route survived a deploy that reported success.
-            echo "nginx: treasury=$TREASURY conf_set=$([ -n "$NGINX_CONF" ] && echo yes || echo no) conf_readable=$([ -r "$NGINX_CONF" ] && echo yes || echo no)"
-            if [ "$TREASURY" = "true" ] && [ -n "$NGINX_CONF" ] && [ -f "$NGINX_CONF" ]; then
-              if grep -q 'location /payment/' "$NGINX_CONF"; then
-                echo "nginx: /payment/ route already present"
-              else
-                echo "nginx: adding /payment/ route to the app-stage vhost"
-                cp "$NGINX_CONF" "$NGINX_CONF.clutch.bak"
-                # Anchored on server_name, not a line number: this file is edited by hand on the
-                # host and line numbers drift. Prefix locations match longest-first, so where the
-                # block lands inside the server is irrelevant.
-                awk '
-                  /^[[:space:]]*server_name[[:space:]]+app-stage\.clutchprotocol\.io;/ && !ins {
-                    print
-                    print ""
-                    print "        # Added by clutch-deploy. Browser route to the payment orchestrator,"
-                    print "        # which is deliberately not published on a host port."
-                    print "        location /payment/ {"
-                    print "            rewrite ^/payment(/api/.*)$ $1 break;"
-                    print "            proxy_pass http://payment-orchestrator:8091;"
-                    print "            proxy_http_version 1.1;"
-                    print "            proxy_set_header Host $host;"
-                    print "            proxy_set_header X-Real-IP $remote_addr;"
-                    print "            proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;"
-                    print "            proxy_set_header X-Forwarded-Proto https;"
-                    print "        }"
-                    ins = 1
-                    next
-                  }
-                  { print }
-                  END { if (!ins) exit 3 }
-                ' "$NGINX_CONF" > /tmp/nginx.clutch.patched || {
-                  echo "DEPLOY FAILED: app-stage server block not found in $NGINX_CONF — not touching it"
-                  exit 1
-                }
-                # cat, NOT mv. Docker bind-mounts a single file by INODE; mv gives the path a new
-                # inode and the container keeps serving the old one forever, with every check
-                # on the host showing the new content. Truncate-and-write keeps the inode.
-                cat /tmp/nginx.clutch.patched > "$NGINX_CONF"
-
-                if docker exec "$NGINX_C" nginx -t; then
-                  echo "nginx: config valid"
-                else
-                  echo "DEPLOY FAILED: patched nginx config is invalid — restoring backup"
-                  cat "$NGINX_CONF.clutch.bak" > "$NGINX_CONF"
-                  exit 1
-                fi
-              fi
-            fi
+            # The /payment/ route is patched in LATER, after the orchestrator health gate — a
+            # static proxy_pass host is resolved when the config loads, so `nginx -t` fails if
+            # the orchestrator is not up yet.
 
             # Reload regardless: --force-recreate gave every app container a new IP, and these
             # upstreams are resolved once at load time, so without this nginx 502s the whole stack.
@@ -276,6 +224,22 @@ jobs:
                 done
                 [ -n "$tok" ] || { echo "DEPLOY FAILED: ${name} not healthy"; docker logs "clutch-stage-${name}-1" 2>&1 | tail -30; exit 1; }
               done
+
+              # Only now that the orchestrator is confirmed healthy: make sure nginx routes
+              # /payment/ to it. Deliberately after the health gate — `nginx -t` resolves a
+              # static proxy_pass host at config-load time, so running this against a
+              # not-yet-started orchestrator fails the deploy for the wrong reason.
+              #
+              # In a script, NOT inline here. As an inline block with a multi-line single-quoted
+              # awk program it failed twice with exit 1, no message, and no ERR trap firing — the
+              # shell took neither branch of a plain `if`, which a working bash cannot do.
+              # Something between YAML, the ssh-action and the remote shell was mangling it. One
+              # `bash script.sh` has no such layers, and the script is testable locally.
+              #
+              # Invoked via `bash`, not by relying on the exec bit: `chmod +x` on a tracked file
+              # shows up as a local modification and silently blocks `git pull --ff-only` on this
+              # host, which once kept four fixes off the server for an hour.
+              bash scripts/ensure-nginx-payment-route.sh "$NGINX_C"
 
               # Prove the browser-facing /payment/ route reaches the ORCHESTRATOR, not the static
               # site. Both previous checks passed while this was broken: the containers were
