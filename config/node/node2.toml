@@ -14,9 +14,17 @@ authorities = [
     "0xc4f3f661a43e099aedb8e396d9de1a831a1b4adc",
 ]
 block_authoring_enabled = true
-block_reward_amount = 50
-ride_request_referrer_fee_percent = 2
-ride_offer_referrer_fee_percent = 2
+# Consensus params — committed to state by the genesis ChainInit tx. These MUST be
+# byte-identical across node1/node2/node3: the genesis hash covers them and peers
+# compare it at handshake, so a divergent value makes this node unable to peer.
+chain_id = 2077
+is_testnet = true
+tx_fee = 1000
+mint_authority = "0x9b6e8afff8329743cac73dbef83ca3cbf9a74c20"
+faucet_address = "0xdeb4cfb63db134698e1879ea24904df074726cc0"
+faucet_allocation = 1000000000000000
+ride_request_referrer_fee_bps = 200
+ride_offer_referrer_fee_bps = 200
 sync_enabled = true
 serve_metric_enabled = true
 serve_metric_addr = "0.0.0.0:3002"
