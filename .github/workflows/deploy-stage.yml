@@ -52,6 +52,15 @@ jobs:
           script_stop: true
           script: |
             set -euo pipefail
+            # -E so the ERR trap survives into functions, subshells and command substitutions;
+            # without it the trap is silently not inherited and you get the bare exit again.
+            set -E
+            # This script has now died twice with exit 1 and NO message — once mid-nginx-patch,
+            # once earlier — leaving nothing to debug but the last successful echo. `set -e` exits
+            # wherever it likes and says nothing about where. Report the line and the command,
+            # to stdout (a previous version of this trap wrote to stderr and the message never
+            # surfaced in the Actions log).
+            trap 'rc=$?; echo "SCRIPT FAILED rc=$rc at line $LINENO: $BASH_COMMAND"; exit $rc' ERR
             cd "${{ secrets.STAGE_DEPLOY_PATH }}"
             git pull --ff-only || echo "Note: git pull failed or not a git repo — continuing"
 
@@ -173,6 +182,9 @@ jobs:
               --format '{{range .Mounts}}{{if eq .Destination "/etc/nginx/nginx.conf"}}{{.Source}}{{end}}{{end}}')
             echo "nginx: container=$NGINX_C conf=$NGINX_CONF"
 
+            # Say which of these is false. Skipping the patch quietly is precisely how a missing
+            # /payment/ route survived a deploy that reported success.
+            echo "nginx: treasury=$TREASURY conf_set=$([ -n "$NGINX_CONF" ] && echo yes || echo no) conf_readable=$([ -r "$NGINX_CONF" ] && echo yes || echo no)"
             if [ "$TREASURY" = "true" ] && [ -n "$NGINX_CONF" ] && [ -f "$NGINX_CONF" ]; then
               if grep -q 'location /payment/' "$NGINX_CONF"; then
                 echo "nginx: /payment/ route already present"
@@ -226,7 +238,11 @@ jobs:
             docker exec "$NGINX_C" nginx -s reload
 
             # Clear the corpse left by the old compose-nginx approach, if it is still around.
-            docker ps -a --format '{{.Names}}' | grep -E '^[0-9a-f]+_nginx-stage$' | while read -r husk; do
+            # `|| true` on the grep is load-bearing under `set -o pipefail`: no husk means grep
+            # exits 1, the pipeline inherits it, and `set -e` kills an otherwise-successful deploy
+            # at the very last step.
+            HUSKS=$(docker ps -a --format '{{.Names}}' | grep -E '^[0-9a-f]+_nginx-stage$' || true)
+            for husk in $HUSKS; do
               echo "removing dead husk container $husk"
               docker rm -f "$husk" || true
             done
