@@ -91,6 +91,30 @@ else
   echo "treasury: disabled (no treasury secrets in .env) — deploying core stack only"
 fi
 
+# .env overrides the compose default, so fixing the default is not enough on a host that pins it.
+#
+# TXLAQ63Xg1NAzckPwKHvzw7CSEmLMEqcdj exists on Nile and reports symbol "USDT", which is why it was
+# picked — but the nileex.io faucet dispenses a DIFFERENT token, so nobody can obtain it and no
+# deposit can ever be funded. Worse, it fails silently: tron_verifier queries TronGrid filtered by
+# contract_address, so a transfer of any other token is absent from the response rather than
+# mismatched. The intent finds no evidence, stays Transient, and ages into manual review with
+# nothing naming the cause.
+#
+# Abort rather than warn. A stage that looks deployed and cannot process a deposit is the exact
+# failure shape that has cost the most time here.
+if [ "$TREASURY" = "true" ] && grep -q '^USDT_CONTRACT=TXLAQ63Xg1NAzckPwKHvzw7CSEmLMEqcdj' .env 2>/dev/null; then
+  echo "DEPLOY ABORTED — .env pins a retired USDT contract:"
+  echo "    USDT_CONTRACT=TXLAQ63Xg1NAzckPwKHvzw7CSEmLMEqcdj"
+  echo ""
+  echo "Nothing was changed. Replace that line with the faucet-dispensed Nile token:"
+  echo "    USDT_CONTRACT=TXYZopYRdj2D9XRtbG411XZZ3kM5VkAeBf"
+  echo "(or delete the line and let docker-compose.treasury.yml's default apply)."
+  echo ""
+  echo "Then RE-RUN 'Provision Bitcart (stage)': the Bitcart wallet is created with the contract"
+  echo "baked in, so it keeps watching the old token until a new wallet is provisioned."
+  exit 1
+fi
+
 # The stage overlay MUST stay last of the port-bearing files: compose MERGES port
 # lists, and its `ports: !reset []` entries are what keep the orchestrator (8091) and
 # Bitcart's admin API (8092) off this box's public interface.

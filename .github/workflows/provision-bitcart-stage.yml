@@ -22,7 +22,7 @@ on:
         description: "TRC-20 USDT contract. Default is NILE testnet USDT; it does NOT exist on Shasta. Must be on the same network as TRONGRID_URL, or the verifier queries a chain the contract is not on and no deposit ever matches."
         type: string
         required: false
-        default: "TXLAQ63Xg1NAzckPwKHvzw7CSEmLMEqcdj"
+        default: "TXYZopYRdj2D9XRtbG411XZZ3kM5VkAeBf"
 
 concurrency:
   group: deploy-stage # shared with the deploy: never provision and deploy at the same time

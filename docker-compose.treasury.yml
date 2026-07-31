@@ -83,12 +83,29 @@ services:
       - APP_TRONGRID_API_KEY=${TRONGRID_API_KEY:-}
       - APP_CUSTODY_TRON_ADDRESS=${CUSTODY_TRON_ADDRESS:-}
       # MUST match the network APP_TRONGRID_URL points at. The crate's default is the MAINNET
-      # USDT contract; this default is Shasta's, because a local/stage stack has no business
+      # USDT contract; this default is a testnet one, because a local/stage stack has no business
       # verifying against mainnet.
-      # NILE testnet USDT. Verified present on nile.trongrid.io and ABSENT on Shasta — the
-      # defaults previously paired a Shasta URL with this Nile contract, so nothing would ever
-      # have matched. Both must name the same network.
-      - APP_USDT_CONTRACT=${USDT_CONTRACT:-TXLAQ63Xg1NAzckPwKHvzw7CSEmLMEqcdj}
+      #
+      # NILE testnet USDT — the token the official Nile faucet (nileex.io) actually dispenses.
+      #
+      # This was TXLAQ63Xg1NAzckPwKHvzw7CSEmLMEqcdj, chosen because it exists on Nile and reports
+      # symbol "USDT". Both true, and both useless: Nile carries at least two tokens claiming that
+      # symbol, and the faucet hands out the OTHER one. Nobody could obtain the configured token,
+      # which made the entire stage deposit flow untestable by construction.
+      #
+      # It would also have failed silently rather than loudly. tron_verifier queries TronGrid with
+      # `contract_address=<this>`, so a transfer of any other token is not a mismatch — it is
+      # absent from the response. The intent finds no evidence, stays Transient, and ages into
+      # manual review with nothing naming the cause.
+      #
+      # This one is also the faithful mainnet analogue: contract name `TetherToken`, matching
+      # mainnet USDT (TR7NHqjeKQxGTCi8q8ZY4pL8otSzgjLj6t). The old one was named plain `USDT`.
+      # Both are 6 decimals, so no micro-unit maths changes.
+      #
+      # Bitcart's TRX daemon decides independently what it watches — the orchestrator never sends
+      # a contract, only a price — so if deposits are detected but never verify, check that side
+      # too before assuming this value is wrong.
+      - APP_USDT_CONTRACT=${USDT_CONTRACT:-TXYZopYRdj2D9XRtbG411XZZ3kM5VkAeBf}
     restart: unless-stopped
     networks:
       - treasury-network   # its own Postgres

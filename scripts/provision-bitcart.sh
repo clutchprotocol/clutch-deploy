@@ -16,7 +16,11 @@ set -Eeuo pipefail
 trap 'rc=$?; echo "ABORT: exit $rc at line ${LINENO}: ${BASH_COMMAND}"; exit $rc' ERR
 
 CUSTODY="${1:?usage: provision-bitcart.sh <custody_address> [usdt_contract] [compose_project]}"
-CONTRACT="${2:-TXLAQ63Xg1NAzckPwKHvzw7CSEmLMEqcdj}"  # NILE testnet USDT
+# NILE testnet USDT — the token the nileex.io faucet dispenses (contract name
+# `TetherToken`, same as mainnet USDT). NOT TXLAQ63Xg1NAzckPwKHvzw7CSEmLMEqcdj,
+# which also reports symbol "USDT" on Nile but is not faucet-dispensed, so no one
+# could ever fund a test deposit against it.
+CONTRACT="${2:-TXYZopYRdj2D9XRtbG411XZZ3kM5VkAeBf}"
 PROJECT="${3:-clutch-stage}"
 
 NET="${PROJECT}_clutch-network"
