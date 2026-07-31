@@ -156,10 +156,49 @@ jobs:
               docker logs --tail 30 clutch-stage-treasury-service-1 2>&1 | tail -30 || true
 
               echo ""
+              echo "=== is a TronGrid API key wired to the trx daemon? (unkeyed TronGrid rate-limits hard) ==="
+              if docker exec clutch-stage-bitcart-trx-1 printenv TRX_TRONGRID_API_KEY 2>/dev/null | grep -q .; then
+                echo "  TRX_TRONGRID_API_KEY=<set>"
+              else
+                echo "  TRX_TRONGRID_API_KEY EMPTY — TronGrid will throttle this daemon"
+              fi
+
+              echo ""
               echo "=== deposit intents ==="
-              docker exec clutch-stage-orchestrator-postgres-1 psql -U postgres -d orchestrator \
-                -c "select id, status, amount_usdt, pay_amount_usdt, deposit_tx_id, created_at from deposit_intents order by created_at desc limit 8;" 2>/dev/null \
+              # -U orchestrator, not postgres: POSTGRES_USER is 'orchestrator' (see
+              # docker-compose.treasury.yml), and the wrong user just prints "could not query".
+              docker exec clutch-stage-orchestrator-postgres-1 psql -U orchestrator -d orchestrator \
+                -c "select id, status, pay_amount_usdt, deposit_tx_id, invoice_id, created_at from deposit_intents order by created_at desc limit 8;" 2>&1 | tail -14 \
                 || echo "(could not query orchestrator db)"
+
+              echo ""
+              echo "=== Bitcart's OWN view of the newest invoice ==="
+              # Uses BITCART_TOKEN from .env but never echoes it. Prints only the fields the
+              # adapter reads, so the log stays safe to share.
+              BT="$(grep -E '^BITCART_TOKEN=' .env | cut -d= -f2- || true)"
+              INV="$(docker exec clutch-stage-orchestrator-postgres-1 psql -U orchestrator -d orchestrator \
+                     -tAc "select invoice_id from deposit_intents order by created_at desc limit 1;" 2>/dev/null | tr -d '[:space:]')"
+              echo "  newest invoice_id: ${INV:-<none>}"
+              if [ -n "$BT" ] && [ -n "$INV" ]; then
+                docker run --rm --network clutch-stage_clutch-network curlimages/curl:8.10.1 \
+                  -s -m 15 -H "Authorization: Bearer $BT" "http://bitcart-backend:8000/invoices/$INV" \
+                  | python3 -c "
+import sys,json
+try: d=json.load(sys.stdin)
+except Exception: print('  (unparseable response)'); raise SystemExit
+print('  status          ', d.get('status'))
+print('  exception_status', repr(d.get('exception_status')))
+print('  price           ', d.get('price'), d.get('currency'))
+print('  paid_currency   ', d.get('paid_currency'))
+print('  tx_hashes       ', d.get('tx_hashes'))
+for p in (d.get('payments') or []):
+    print('  payment: amount=', p.get('amount'), 'address=', p.get('payment_address'), 'confirmations=', p.get('confirmations'))
+if not (d.get('payments') or []):
+    print('  payments: NONE — bitcart has not seen a payment for this invoice')
+" 2>/dev/null || echo "  (invoice fetch failed)"
+              else
+                echo "  (missing BITCART_TOKEN or invoice id — skipped)"
+              fi
             fi
 
             if [ "$PROBE" = "git" ]; then
