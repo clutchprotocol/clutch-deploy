@@ -118,7 +118,7 @@ jobs:
                          APP_DEPOSIT_TTL_MINUTES APP_DEPOSIT_MATCH_WINDOW_HOURS \
                          APP_BITCART_URL APP_INVOICE_CURRENCY; do
                   v=$(docker exec "clutch-stage-${c}-1" printenv "$k" 2>/dev/null || true)
-                  [ -n "$v" ] && echo "    $k=$v"
+                  if [ -n "$v" ]; then echo "    $k=$v"; fi
                 done
                 # Presence, never the value.
                 for k in APP_TRONGRID_API_KEY APP_BITCART_TOKEN APP_MINT_AUTHORITY_SECRET; do
@@ -157,10 +157,12 @@ jobs:
 
               echo ""
               echo "=== is a TronGrid API key wired to the trx daemon? (unkeyed TronGrid rate-limits hard) ==="
-              if docker exec clutch-stage-bitcart-trx-1 printenv TRX_TRONGRID_API_KEY 2>/dev/null | grep -q .; then
+              KEYSET=$(docker exec clutch-stage-bitcart-trx-1 printenv TRX_TRONGRID_API_KEY 2>/dev/null || true)
+              if [ -n "$KEYSET" ]; then
                 echo "  TRX_TRONGRID_API_KEY=<set>"
               else
-                echo "  TRX_TRONGRID_API_KEY EMPTY — TronGrid will throttle this daemon"
+                echo "  TRX_TRONGRID_API_KEY EMPTY — TronGrid throttles unkeyed clients, which looks"
+                echo "  exactly like a daemon that is not scanning"
               fi
 
               echo ""
