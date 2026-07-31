@@ -25,6 +25,7 @@ on:
           - containers
           - git
           - treasury
+          - bitcart
 
 concurrency:
   group: inspect-stage
@@ -131,6 +132,33 @@ jobs:
               echo "=== deposit intents so far ==="
               docker exec clutch-stage-orchestrator-postgres-1 psql -U postgres -d orchestrator \
                 -c "select status, count(*) from deposit_intents group by status order by 2 desc;" 2>/dev/null \
+                || echo "(could not query orchestrator db)"
+            fi
+
+            if [ "$PROBE" = "bitcart" ]; then
+              echo "=== bitcart containers ==="
+              docker ps -a --format '{{.Names}}\t{{.Status}}' | grep bitcart || echo "(none)"
+
+              echo ""
+              echo "=== bitcart-trx daemon log (does it see the custody address / sync at all?) ==="
+              docker logs --tail 60 clutch-stage-bitcart-trx-1 2>&1 | tail -60 || true
+
+              echo ""
+              echo "=== bitcart-worker log (invoice/payment processing) ==="
+              docker logs --tail 40 clutch-stage-bitcart-worker-1 2>&1 | tail -40 || true
+
+              echo ""
+              echo "=== orchestrator log (webhook + poller) ==="
+              docker logs --tail 40 clutch-stage-payment-orchestrator-1 2>&1 | tail -40 || true
+
+              echo ""
+              echo "=== treasury-service log (verifier) ==="
+              docker logs --tail 30 clutch-stage-treasury-service-1 2>&1 | tail -30 || true
+
+              echo ""
+              echo "=== deposit intents ==="
+              docker exec clutch-stage-orchestrator-postgres-1 psql -U postgres -d orchestrator \
+                -c "select id, status, amount_usdt, pay_amount_usdt, deposit_tx_id, created_at from deposit_intents order by created_at desc limit 8;" 2>/dev/null \
                 || echo "(could not query orchestrator db)"
             fi
 
