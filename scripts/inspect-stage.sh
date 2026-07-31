@@ -147,7 +147,6 @@ if [ "$PROBE" = "bitcart" ]; then
   echo "=== recent alerts (the unattributed-payment reporter writes here) ==="
   docker exec clutch-stage-orchestrator-postgres-1 psql -U orchestrator -d orchestrator     -c "select severity, source, left(message,100) message from alerts order by created_at desc limit 8;" 2>&1 | tail -12     || echo "(could not query alerts)"
 fi
-fi
 
 if [ "$PROBE" = "git" ]; then
   echo "=== checkout state (a dirty tree blocks git pull --ff-only, silently) ==="
