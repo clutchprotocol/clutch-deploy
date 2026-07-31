@@ -98,7 +98,7 @@ awk -v vhost="$VHOST" -v upstream="$UPSTREAM" '
   }
   { print }
   END { if (!ins) exit 3 }
-' "$CONF" > "$TMP" || die "awk could not find the $vhost anchor — config untouched"
+' "$CONF" > "$TMP" || die "awk could not find the $VHOST anchor — config untouched"
 
 if [ -n "${DRY_RUN:-}" ]; then
   log "DRY_RUN — patched result:"

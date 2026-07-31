@@ -33,6 +33,7 @@ set -E
 # wherever it likes and says nothing about where. Report the line and the command,
 # to stdout (a previous version of this trap wrote to stderr and the message never
 # surfaced in the Actions log).
+# shellcheck disable=SC2154  # rc is assigned by the trap body itself, at fire time.
 trap 'rc=$?; echo "SCRIPT FAILED rc=$rc at line $LINENO: $BASH_COMMAND"; exit $rc' ERR
 
 # Is the treasury part of this deployment? DERIVED from the host's own .env, not from
@@ -118,19 +119,19 @@ fi
 # The stage overlay MUST stay last of the port-bearing files: compose MERGES port
 # lists, and its `ports: !reset []` entries are what keep the orchestrator (8091) and
 # Bitcart's admin API (8092) off this box's public interface.
-FILES="-f docker-compose.yml"
+FILES=(-f docker-compose.yml)
 if [ "$TREASURY" = "true" ]; then
-  FILES="$FILES -f docker-compose.treasury.yml -f docker-compose.bitcart.yml"
+  FILES+=(-f docker-compose.treasury.yml -f docker-compose.bitcart.yml)
 fi
-FILES="$FILES -f docker-compose.stage.cloudflare-flex.yml"
+FILES+=(-f docker-compose.stage.cloudflare-flex.yml)
 # Treasury port resets live in their own file: a service key carrying only
 # `ports: !reset []` still DECLARES that service, so keeping these in the main stage
 # overlay made a core-only deploy fail with "bitcart-backend has neither an image nor
 # a build context". Applied last so the resets win the port-list merge.
 if [ "$TREASURY" = "true" ]; then
-  FILES="$FILES -f docker-compose.stage.treasury.yml"
+  FILES+=(-f docker-compose.stage.treasury.yml)
 fi
-echo "Compose files: $FILES"
+echo "Compose files: ${FILES[*]}"
 
 # PULL BEFORE TEARDOWN. This ordering is the whole point.
 #
@@ -138,17 +139,17 @@ echo "Compose files: $FILES"
 # offline: the teardown succeeded, `pull` failed with "repository does not exist", and
 # `script_stop` aborted before anything came back up. Pulling first means an image
 # problem fails while the old stack is still serving.
-docker compose -p clutch-stage $FILES pull
+docker compose -p clutch-stage "${FILES[@]}" pull
 
 # Opt-in, never a default. A plain deploy must never destroy stage data; this exists
 # for the one case that genuinely needs it — a genesis change, where the new ChainInit
 # genesis cannot import onto the old chain and every node would refuse to start.
 if [ "${RESET_CHAIN:-false}" = "true" ]; then
   echo "reset_chain=true — tearing down WITH VOLUMES (chain, explorer DB, monitoring, treasury DBs)"
-  docker compose -p clutch-stage $FILES down -v --remove-orphans
+  docker compose -p clutch-stage "${FILES[@]}" down -v --remove-orphans
 fi
 
-docker compose -p clutch-stage $FILES up -d --force-recreate --remove-orphans
+docker compose -p clutch-stage "${FILES[@]}" up -d --force-recreate --remove-orphans
 
 # ---------------------------------------------------------------------------
 # nginx on this host is NOT ours.
@@ -192,7 +193,7 @@ done
 
 # Health gate: fail the deploy loudly if the API is not reachable THROUGH nginx.
 ok=""
-for i in $(seq 1 30); do
+for _ in $(seq 1 30); do
   code=$(curl -s -o /dev/null -w "%{http_code}" -H "Host: api-stage.clutchprotocol.io" http://localhost/health || true)
   if [ "$code" = "200" ]; then ok=1; echo "api healthy via nginx"; break; fi
   echo "waiting for api (got $code)..."; sleep 2
@@ -210,7 +211,7 @@ if [ "$TREASURY" = "true" ]; then
   for svc in payment-orchestrator:8091 treasury-service:8090; do
     name="${svc%%:*}"; port="${svc##*:}"
     tok=""
-    for i in $(seq 1 30); do
+    for _ in $(seq 1 30); do
       if docker run --rm --network clutch-stage_clutch-network curlimages/curl:8.10.1 \
            -sf -m 5 "http://${name}:${port}/health" >/dev/null 2>&1; then
         tok=1; echo "${name} healthy"; break
@@ -251,7 +252,7 @@ if [ "$TREASURY" = "true" ]; then
   # is in fact live — which is exactly what happened on run 30583006089, where the config was
   # confirmed patched and reloaded and the gate still failed.
   pok=""; pcode=""
-  for i in $(seq 1 15); do
+  for _ in $(seq 1 15); do
     pcode=$(curl -s -o /dev/null -w "%{http_code}" -X POST \
       -H "Host: app-stage.clutchprotocol.io" -H "Content-Type: application/json" \
       -d '{}' http://localhost/payment/api/v1/deposits || true)
