@@ -56,6 +56,12 @@ services:
       TRX_SERVER: ${TRONGRID_URL:-https://nile.trongrid.io}
       TRX_NETWORK: ${TRX_NETWORK:-nile}
       TRX_TRONGRID_API_KEY: ${TRONGRID_API_KEY:-}
+      # Verbose while deposit detection is unproven. The daemon is otherwise almost silent: a
+      # confirmed on-chain transfer, to a loaded wallet, on a daemon synced to Nile's head, went
+      # undetected and the log said nothing at all — leaving only inference from the image's
+      # source. `daemons/base.py` reads this as VERBOSE via env("DEBUG"), i.e. TRX_DEBUG.
+      # Flip to false (BITCART_TRX_DEBUG=false in .env) once the deposit path is proven.
+      TRX_DEBUG: ${BITCART_TRX_DEBUG:-true}
       REDIS_HOST: bitcart-redis
     depends_on:
       bitcart-redis:
