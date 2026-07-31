@@ -182,20 +182,7 @@ jobs:
               if [ -n "$BT" ] && [ -n "$INV" ]; then
                 docker run --rm --network clutch-stage_clutch-network curlimages/curl:8.10.1 \
                   -s -m 15 -H "Authorization: Bearer $BT" "http://bitcart-backend:8000/invoices/$INV" \
-                  | python3 -c "
-import sys,json
-try: d=json.load(sys.stdin)
-except Exception: print('  (unparseable response)'); raise SystemExit
-print('  status          ', d.get('status'))
-print('  exception_status', repr(d.get('exception_status')))
-print('  price           ', d.get('price'), d.get('currency'))
-print('  paid_currency   ', d.get('paid_currency'))
-print('  tx_hashes       ', d.get('tx_hashes'))
-for p in (d.get('payments') or []):
-    print('  payment: amount=', p.get('amount'), 'address=', p.get('payment_address'), 'confirmations=', p.get('confirmations'))
-if not (d.get('payments') or []):
-    print('  payments: NONE — bitcart has not seen a payment for this invoice')
-" 2>/dev/null || echo "  (invoice fetch failed)"
+                  | bash scripts/show-bitcart-invoice.sh || echo "  (invoice fetch failed)"
               else
                 echo "  (missing BITCART_TOKEN or invoice id — skipped)"
               fi
