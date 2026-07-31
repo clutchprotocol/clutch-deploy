@@ -128,12 +128,16 @@ echo "auth: refreshed"
 
 # --- watch-only wallet --------------------------------------------------------------------
 WALLETS="$(bc "$API/wallets" -H "Authorization: Bearer $TOK" || true)"
-WID="$(printf '%s' "$WALLETS" | python3 -c "import sys,json
+WINFO="$(printf '%s' "$WALLETS" | python3 -c "import sys,json
 try:
     d = json.load(sys.stdin).get('result', [])
 except Exception:
     d = []
-print(next((w['id'] for w in d if w.get('name') == 'clutch-custody-usdt'), ''))")"
+w = next((w for w in d if w.get('name') == 'clutch-custody-usdt'), None)
+print((w.get('id') or '') if w else '')
+print((w.get('contract') or '') if w else '')")"
+WID="$(printf '%s' "$WINFO" | sed -n 1p)"
+WCONTRACT="$(printf '%s' "$WINFO" | sed -n 2p)"
 
 if [ -z "$WID" ]; then
   # `contract` is what denominates invoices in USDT. Without it Bitcart prices in native TRX at an
@@ -150,9 +154,30 @@ if [ -z "$WID" ]; then
     echo "TRX_SERVER points at (they must be the SAME network)."
     exit 1
   fi
-  echo "wallet: created"
+  echo "wallet: created (contract $CONTRACT)"
+elif [ "$WCONTRACT" != "$CONTRACT" ]; then
+  # Matching on NAME alone is not idempotency, it is a stale read. The contract is baked into the
+  # wallet at creation and decides which TRC-20 token Bitcart watches; without this branch,
+  # re-running after a contract change reported "reusing existing" and left Bitcart watching the
+  # old token, while treasury-service verified against the new one. Deposits would then be seen
+  # by neither, or by only one of the two, with nothing in any log naming the cause.
+  echo "wallet: contract changed ('$WCONTRACT' -> '$CONTRACT') — updating"
+  PRESP="$(bc -X PATCH "$API/wallets/$WID" -H "Authorization: Bearer $TOK" -H 'content-type: application/json' \
+    -d "{\"name\":\"clutch-custody-usdt\",\"xpub\":\"$CUSTODY\",\"currency\":\"trx\",\"contract\":\"$CONTRACT\"}" || true)"
+  NEWC="$(printf '%s' "$PRESP" | python3 -c "import sys,json
+try: print(json.load(sys.stdin).get('contract') or '')
+except Exception: print('')")"
+  if [ "$NEWC" != "$CONTRACT" ]; then
+    echo "ABORT: could not update the wallet contract. Response was:"
+    echo "$PRESP"
+    echo ""
+    echo "Delete the 'clutch-custody-usdt' wallet in Bitcart and re-run, or Bitcart will keep"
+    echo "watching $WCONTRACT while treasury-service verifies against $CONTRACT."
+    exit 1
+  fi
+  echo "wallet: contract updated"
 else
-  echo "wallet: reusing existing"
+  echo "wallet: reusing existing (contract $WCONTRACT)"
 fi
 
 # --- store ----------------------------------------------------------------------------------
