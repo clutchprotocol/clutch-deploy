@@ -140,7 +140,7 @@ if [ "$PROBE" = "bitcart" ]; then
   # -U orchestrator, not postgres: POSTGRES_USER is 'orchestrator' (see
   # docker-compose.treasury.yml), and the wrong user just prints "could not query".
   docker exec clutch-stage-orchestrator-postgres-1 psql -U orchestrator -d orchestrator \
-    -c "select id, status, pay_amount_usdt, deposit_tx_id, invoice_id, created_at from deposit_intents order by created_at desc limit 8;" 2>&1 | tail -14 \
+    -c "select column_name from information_schema.columns where table_name = 'deposit_intents' order by ordinal_position;" 2>&1 | tail -14 \
     || echo "(could not query orchestrator db)"
 
   echo ""
