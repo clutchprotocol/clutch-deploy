@@ -140,24 +140,13 @@ if [ "$PROBE" = "bitcart" ]; then
   # -U orchestrator, not postgres: POSTGRES_USER is 'orchestrator' (see
   # docker-compose.treasury.yml), and the wrong user just prints "could not query".
   docker exec clutch-stage-orchestrator-postgres-1 psql -U orchestrator -d orchestrator \
-    -c "select column_name from information_schema.columns where table_name = 'deposit_intents' order by ordinal_position;" 2>&1 | tail -14 \
+    -c "select left(id::text,8) id, status, pay_amount_usdt, left(coalesce(tron_tx_id,'-'),12) tx, payment_window_closed pwc from deposit_intents order by created_at desc limit 10;" 2>&1 | tail -14 \
     || echo "(could not query orchestrator db)"
 
   echo ""
-  echo "=== Bitcart's OWN view of the newest invoice ==="
-  # Uses BITCART_TOKEN from .env but never echoes it. Prints only the fields the
-  # adapter reads, so the log stays safe to share.
-  BT="$(grep -E '^BITCART_TOKEN=' .env | cut -d= -f2- || true)"
-  INV="$(docker exec clutch-stage-orchestrator-postgres-1 psql -U orchestrator -d orchestrator \
-         -tAc "select invoice_id from deposit_intents order by created_at desc limit 1;" 2>/dev/null | tr -d '[:space:]')"
-  echo "  newest invoice_id: ${INV:-<none>}"
-  if [ -n "$BT" ] && [ -n "$INV" ]; then
-    docker run --rm --network clutch-stage_clutch-network curlimages/curl:8.10.1 \
-      -s -m 15 -H "Authorization: Bearer $BT" "http://bitcart-backend:8000/invoices/$INV" \
-      | bash scripts/show-bitcart-invoice.sh || echo "  (invoice fetch failed)"
-  else
-    echo "  (missing BITCART_TOKEN or invoice id — skipped)"
-  fi
+  echo "=== recent alerts (the unattributed-payment reporter writes here) ==="
+  docker exec clutch-stage-orchestrator-postgres-1 psql -U orchestrator -d orchestrator     -c "select severity, source, left(message,100) message from alerts order by created_at desc limit 8;" 2>&1 | tail -12     || echo "(could not query alerts)"
+fi
 fi
 
 if [ "$PROBE" = "git" ]; then
