@@ -20,7 +20,7 @@ Docker Compose orchestration for the full Clutch Protocol stack. Workspace overv
 
 | Service | Image / dev build context | Notes |
 |---------|---------------------------|-------|
-| `node1`..`node3` | `clutch-node` / `../clutch-node` | Validators. Each mounts `./config:/app/config:ro`, started with `--env nodeN` → reads `config/node/nodeN.toml`. WS-RPC 808N, P2P 400N, metrics 300N. node2/3 `depends_on: node1` (bootstrap peer `/dns4/node1/tcp/4001`). |
+| `node1`..`node3` | `clutch-node` / `../clutch-node` | Validators. Each mounts `./config:/app/config:ro` **and `nodeN-data:/app/data`** with `DB_PATH=/app/data`, started with `--env nodeN` → reads `config/node/nodeN.toml`. WS-RPC 808N, P2P 400N, metrics 300N. node2/3 `depends_on: node1` (bootstrap peer `/dns4/node1/tcp/4001`). |
 | `clutch-hub-api` | `clutch-hub-api` / `../clutch-hub-api` | :3000. `CLUTCH_NODE_WS_URL=ws://node1:8081/ws`, config at `config/api/default.toml` (faucet key, JWT, referrers). Healthcheck: `curl /health`. |
 | `clutch-hub-demo-app` | GHCR nginx image / **dev: raw `node:20-alpine`** | :5173→80. Dev runs Vite from bind-mounted source (see below). |
 | `clutch-explorer-backend` | `clutch-explorer-backend` / `../clutch-explorer/backend` | :8088 REST API. `APP_*` env overrides `config/explorer/default.toml`. Healthcheck on `/health`. |
@@ -30,6 +30,8 @@ Docker Compose orchestration for the full Clutch Protocol stack. Workspace overv
 | `prometheus` / `grafana` / `seq` | stock images | No dev overrides (declared `{}` in dev overlay). Grafana on non-default port 3030 via `GF_SERVER_HTTP_PORT`. |
 
 `depends_on` is ordering-only (no `condition: service_healthy`) — services must tolerate node1/postgres not being ready yet.
+
+**Chain state is on a volume, and only recently.** The node's DB path is `{DB_PATH or cwd}/{blockchain_name}.db`; with no `DB_PATH` that is the container's writable layer, so `up -d --force-recreate` — every deploy — silently destroyed the chain. Stage restarted from genesis on each deploy (block index observed going 72 → 13 across one), which for a redeemable token means minted CLT vanishing while the backing USDT stays at custody. `/app/data` must be created **in clutch-node's Dockerfile owned by `clutch`**, because Docker creates a mount path absent from the image as root-owned and the node runs as uid 999. This is also what finally makes `reset_chain` mean something: a plain deploy no longer resets the chain, so `down -v` is the only thing that does.
 
 ## Dev overlay specifics (`docker-compose.dev.yml`)
 

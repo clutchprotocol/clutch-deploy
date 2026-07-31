@@ -7,6 +7,11 @@ services:
   node1:
     image: ghcr.io/clutchprotocol/clutch-node:latest
     stop_grace_period: 30s
+    # DB_PATH keeps RocksDB on the volume below. Without it the node writes to its working
+    # directory — the container's WRITABLE LAYER — and `up -d --force-recreate`, which every
+    # deploy runs, discarded the whole chain. Stage restarted from genesis on every deploy.
+    environment:
+      - DB_PATH=/app/data
     networks:
       - clutch-network
     ports:
@@ -15,12 +20,19 @@ services:
       - "3001:3001"
     volumes:
       - ./config:/app/config:ro
+      # One volume per node: each has its own blockchain_name/DB and they must not share state.
+      - node1-data:/app/data
     command: ["--env", "node1"]
     restart: unless-stopped
 
   node2:
     image: ghcr.io/clutchprotocol/clutch-node:latest
     stop_grace_period: 30s
+    # DB_PATH keeps RocksDB on the volume below. Without it the node writes to its working
+    # directory — the container's WRITABLE LAYER — and `up -d --force-recreate`, which every
+    # deploy runs, discarded the whole chain. Stage restarted from genesis on every deploy.
+    environment:
+      - DB_PATH=/app/data
     depends_on:
       - node1
     networks:
@@ -31,12 +43,19 @@ services:
       - "3002:3002"
     volumes:
       - ./config:/app/config:ro
+      # One volume per node: each has its own blockchain_name/DB and they must not share state.
+      - node2-data:/app/data
     command: ["--env", "node2"]
     restart: unless-stopped
 
   node3:
     image: ghcr.io/clutchprotocol/clutch-node:latest
     stop_grace_period: 30s
+    # DB_PATH keeps RocksDB on the volume below. Without it the node writes to its working
+    # directory — the container's WRITABLE LAYER — and `up -d --force-recreate`, which every
+    # deploy runs, discarded the whole chain. Stage restarted from genesis on every deploy.
+    environment:
+      - DB_PATH=/app/data
     depends_on:
       - node1
     networks:
@@ -47,6 +66,8 @@ services:
       - "3003:3003"
     volumes:
       - ./config:/app/config:ro
+      # One volume per node: each has its own blockchain_name/DB and they must not share state.
+      - node3-data:/app/data
     command: ["--env", "node3"]
     restart: unless-stopped
 
@@ -249,6 +270,14 @@ networks:
     driver: bridge
 
 volumes:
+  # Chain state. `down -v` wipes these, which is what clutch-deploy's reset_chain flag is for —
+  # and now actually means something, since a plain deploy no longer resets the chain.
+  node1-data:
+    driver: local
+  node2-data:
+    driver: local
+  node3-data:
+    driver: local
   seq-data:
     driver: local
   grafana-data:
