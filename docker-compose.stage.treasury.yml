@@ -1,16 +1,15 @@
-# Stage port resets for the treasury overlays. SEPARATE from
+# Stage port reset for the treasury overlay. SEPARATE from
 # docker-compose.stage.cloudflare-flex.yml on purpose: a service key that carries only
-# `ports: !reset []` still declares that service, so putting these in the main stage overlay made
-# a core-only deploy fail with "bitcart-backend has neither an image nor a build context".
+# `ports: !reset []` still DECLARES that service, so putting this in the main stage overlay makes a
+# core-only deploy fail with "has neither an image nor a build context".
 #
-# Include this ONLY alongside docker-compose.treasury.yml + docker-compose.bitcart.yml, and keep
-# it LAST in the -f order — compose merges port lists, so these resets must be applied after the
-# files that publish the ports.
+# Include this ONLY alongside docker-compose.treasury.yml, and keep it LAST in the -f order —
+# compose merges port lists, so the reset must be applied after the file that publishes the port.
+#
+# This file briefly got deleted along with the Bitcart overlays it also served. That would have
+# PUBLISHED the orchestrator on the VPS's public interface: 8091 is the deposit API, and stage
+# reaches it same-origin through nginx's /payment/ route, so it has no business being directly
+# reachable. Keep the file even though it now resets exactly one port.
 services:
   payment-orchestrator:
-    ports: !reset []
-
-  # 8092 is Bitcart's ADMIN API — stores, wallets, API tokens. Published locally for provisioning;
-  # on a public VPS it must never be directly reachable. nginx fronts what needs to be public.
-  bitcart-backend:
     ports: !reset []

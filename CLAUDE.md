@@ -94,3 +94,26 @@ Always pass the full `-f` list and `-p` on every command — omitting them targe
 - Seq first-run admin credentials only apply to a fresh `seq-data` volume; changing them later in `.env` has no effect.
 - The stage overlay uses YAML `!reset` (Compose v2.24+) to unpublish ports — older docker compose versions error on it.
 - `package-lock.json` at the repo root is an artifact; there is no npm project here.
+
+## Deposit detection (no Bitcart)
+
+Bitcart was removed from the deposit path. Its TRX daemon attributes a payment by the **sender's**
+address (`tx.from_addr in request_addresses`, populated only by `set_request_address`), so a request
+is detectable only once the payer's Tron address is registered against it in advance. Our model is
+one shared static custody address, payers unknown until they pay, and the amount discriminator as
+the identity — nothing configurable reconciles those, and per-invoice addresses are not available
+for Tron either (`TRX_ACCOUNT_PATH` is a fixed single-address derivation path). Verified by running
+the daemon in isolation against Nile: synced, correct balance, `new_block` events past the relevant
+block, zero payment events.
+
+`payment-orchestrator` now watches the custody address itself via TronGrid and matches on the exact
+discriminated amount (`crates/payment-orchestrator/src/custody.rs`). One list fetch per poll pass,
+because unkeyed TronGrid throttles and a throttled watcher is indistinguishable from "nobody paid".
+
+Gone with it: `docker-compose.bitcart.yml`, `provision-bitcart-stage.yml`,
+`scripts/provision-bitcart.sh`, the `webhook_events` table, the unauthenticated `/webhooks/bitcart`
+route, and `BITCART_TOKEN`/`BITCART_STORE_ID` (now inert if still present in `.env`).
+
+`docker-compose.stage.treasury.yml` survives even though it now resets a single port: a service key
+carrying only `ports: !reset []` still declares that service, which breaks a core-only deploy — and
+without it the deposit API is published on the VPS's public interface.

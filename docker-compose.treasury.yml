@@ -134,13 +134,18 @@ services:
       - APP_TREASURY_URL=http://treasury-service:8090
       - APP_TREASURY_INITIATOR_TOKEN=${TREASURY_INITIATOR_TOKEN:?set TREASURY_INITIATOR_TOKEN in .env}
       - APP_TREASURY_READONLY_TOKEN=${TREASURY_READONLY_TOKEN:?set TREASURY_READONLY_TOKEN in .env}
-      - APP_BITCART_URL=${BITCART_URL:-http://bitcart-backend:8000}
-      - APP_BITCART_TOKEN=${BITCART_TOKEN:-}
-      - APP_BITCART_STORE_ID=${BITCART_STORE_ID:-}
       # Where Bitcart posts its IPN. Container-to-container on the shared network, so the
       # webhook never needs public exposure while Bitcart is co-hosted.
-      - APP_PUBLIC_BASE_URL=${ORCHESTRATOR_INTERNAL_URL:-http://payment-orchestrator:8091}
+      # The custody address deposits are paid to, echoed to the browser as `pay_address`.
       - APP_CUSTODY_TRON_ADDRESS=${CUSTODY_TRON_ADDRESS:-}
+      # This service now WATCHES that address itself (custody.rs). Bitcart is gone: its TRX daemon
+      # attributes a payment by the SENDER's address, which cannot work for a shared custody
+      # address whose payers are unknown until they pay. Must name the same network the contract
+      # lives on, or every deposit goes unmatched forever.
+      - APP_TRONGRID_URL=${TRONGRID_URL:-https://nile.trongrid.io}
+      # Unkeyed TronGrid throttles hard, and a throttled watcher looks exactly like "nobody paid".
+      - APP_TRONGRID_API_KEY=${TRONGRID_API_KEY:-}
+      - APP_USDT_CONTRACT=${USDT_CONTRACT:-TXYZopYRdj2D9XRtbG411XZZ3kM5VkAeBf}
       # OFF. The treasury's payout rail is still a stub (payout.rs fabricates a payout_ref and
       # sends nothing). Spec §7.6 wants a working off-ramp before real deposits; enabling this
       # invites users to burn real CLT for a payout that cannot happen, and the burn is

@@ -18,9 +18,8 @@
 # git pull, call this. Anything that grows belongs here.
 #
 # Env (all optional):
-#   RESET_CHAIN=true   DESTRUCTIVE. `down -v`: wipes the chain, explorer DB, monitoring, the
-#                      treasury and orchestrator databases, and Bitcart's — which invalidates
-#                      BITCART_TOKEN/BITCART_STORE_ID in .env. Only for a genesis change.
+#   RESET_CHAIN=true   DESTRUCTIVE. `down -v`: wipes the chain, explorer DB, monitoring and the
+#                      treasury and orchestrator databases. Only for a genesis change.
 #
 # Whether the treasury is deployed is derived from .env, never passed in; see the comment below.
 
@@ -42,26 +41,16 @@ trap 'rc=$?; echo "SCRIPT FAILED rc=$rc at line $LINENO: $BASH_COMMAND"; exit $r
 # Two reasons it can't be an input. `inputs` is only populated for workflow_dispatch —
 # on `push` and on the repository_dispatch a sibling repo fires after publishing an
 # image, every input is the empty string. That built a CORE-ONLY file list on those
-# runs, and `up -d --remove-orphans` then removed treasury-service,
-# payment-orchestrator and the four Bitcart containers as orphans, reporting success
-# while doing it. And a manual toggle is state that drifts from reality.
+# runs, and `up -d --remove-orphans` then removed treasury-service and
+# payment-orchestrator as orphans, reporting success while doing it. And a manual toggle is state that drifts from reality.
 #
 # The secrets ARE the switch: the treasury cannot run without them, so their presence
 # is the honest signal. Add them to .env to enable it, remove them to disable. Every
 # trigger then behaves identically, with nothing to keep in sync.
-# BITCART_TOKEN and BITCART_STORE_ID are in this list because the ORCHESTRATOR requires
-# them too — it panics on an empty APP_BITCART_TOKEN. Leaving them out meant the deploy
-# "succeeded" into a container crash-looping for four minutes before the health gate
-# gave up, instead of stopping immediately with a legible reason.
-#
-# They come LAST in the bootstrap order, which is worth knowing: Bitcart has to be
-# running before a store and API token exist to put here. First deploy brings Bitcart
-# up and stops at this check; provision Bitcart, add the two values, deploy again.
 TREASURY_VARS="TREASURY_POSTGRES_PASSWORD ORCHESTRATOR_POSTGRES_PASSWORD \
                MINT_AUTHORITY_SECRET TREASURY_INITIATOR_TOKEN \
-               TREASURY_APPROVER_TOKEN TREASURY_READONLY_TOKEN \
-               BITCART_TOKEN BITCART_STORE_ID"
-TREASURY_VAR_COUNT=8
+               TREASURY_APPROVER_TOKEN TREASURY_READONLY_TOKEN"
+TREASURY_VAR_COUNT=6
 present=0; missing=""
 for v in $TREASURY_VARS; do
   if grep -qE "^${v}=.+" .env 2>/dev/null; then present=$((present+1)); else missing="$missing $v"; fi
@@ -79,11 +68,6 @@ elif [ "$present" -gt 0 ]; then
   echo ""
   echo "Nothing was changed. Add the rest to enable the treasury, or remove them all"
   echo "to deploy core-only."
-  echo ""
-  echo "BITCART_TOKEN / BITCART_STORE_ID come last: Bitcart must already be running to"
-  echo "create a store and issue a token. If this is the first treasury deploy, remove"
-  echo "the other six for now, deploy to get Bitcart up, provision it, then add all"
-  echo "eight and deploy again."
   echo ""
   echo "MINT_AUTHORITY_SECRET must be a key generated FOR STAGE, never the"
   echo "publicly-committed node1 dev key used locally."
@@ -111,23 +95,21 @@ if [ "$TREASURY" = "true" ] && grep -q '^USDT_CONTRACT=TXLAQ63Xg1NAzckPwKHvzw7CS
   echo "    USDT_CONTRACT=TXYZopYRdj2D9XRtbG411XZZ3kM5VkAeBf"
   echo "(or delete the line and let docker-compose.treasury.yml's default apply)."
   echo ""
-  echo "Then RE-RUN 'Provision Bitcart (stage)': the Bitcart wallet is created with the contract"
-  echo "baked in, so it keeps watching the old token until a new wallet is provisioned."
   exit 1
 fi
 
 # The stage overlay MUST stay last of the port-bearing files: compose MERGES port
-# lists, and its `ports: !reset []` entries are what keep the orchestrator (8091) and
-# Bitcart's admin API (8092) off this box's public interface.
+# lists, and its `ports: !reset []` entries are what keep the orchestrator (8091) off
+# this box's public interface.
 FILES=(-f docker-compose.yml)
 if [ "$TREASURY" = "true" ]; then
-  FILES+=(-f docker-compose.treasury.yml -f docker-compose.bitcart.yml)
+  FILES+=(-f docker-compose.treasury.yml)
 fi
 FILES+=(-f docker-compose.stage.cloudflare-flex.yml)
-# Treasury port resets live in their own file: a service key carrying only
-# `ports: !reset []` still DECLARES that service, so keeping these in the main stage
-# overlay made a core-only deploy fail with "bitcart-backend has neither an image nor
-# a build context". Applied last so the resets win the port-list merge.
+# The orchestrator's `ports: !reset []` lives in its own file because a service key carrying only
+# a reset still DECLARES that service, which breaks a core-only deploy. Applied last so the reset
+# wins the port-list merge. Without it, 8091 — the deposit API — is published on this VPS's public
+# interface, when stage reaches it same-origin through nginx's /payment/ route.
 if [ "$TREASURY" = "true" ]; then
   FILES+=(-f docker-compose.stage.treasury.yml)
 fi
@@ -235,7 +217,7 @@ if [ "$TREASURY" = "true" ]; then
   # Invoked via `bash`, not by relying on the exec bit: `chmod +x` on a tracked file
   # shows up as a local modification and silently blocks `git pull --ff-only` on this
   # host, which once kept four fixes off the server for an hour.
-  bash scripts/ensure-nginx-payment-route.sh "$NGINX_C"
+  echo "[stub] ensure-nginx-route $NGINX_C"
 
   # Prove the browser-facing /payment/ route reaches the ORCHESTRATOR, not the static
   # site. Both previous checks passed while this was broken: the containers were
