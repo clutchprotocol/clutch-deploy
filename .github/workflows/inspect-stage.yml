@@ -24,6 +24,7 @@ on:
           - nginx
           - containers
           - git
+          - treasury
 
 concurrency:
   group: inspect-stage
@@ -101,6 +102,36 @@ jobs:
               echo "=== disk ==="
               df -h / | tail -2 || true
               docker system df || true
+            fi
+
+            if [ "$PROBE" = "treasury" ]; then
+              # An explicit allow-list of NON-SECRET keys. Never `docker inspect ... .Config.Env`
+              # or `env` wholesale here: that environment also carries MINT_AUTHORITY_SECRET, the
+              # four-eyes tokens, BITCART_TOKEN and both Postgres passwords, and this log is
+              # readable by anyone with repo access.
+              echo "=== treasury / orchestrator settings (non-secret keys only) ==="
+              for c in treasury-service payment-orchestrator; do
+                echo "--- clutch-stage-${c}-1"
+                for k in APP_TRONGRID_URL APP_CUSTODY_TRON_ADDRESS APP_USDT_CONTRACT \
+                         APP_REDEMPTIONS_ENABLED APP_MIN_DEPOSIT_USDT APP_MAX_DEPOSIT_USDT \
+                         APP_DEPOSIT_TTL_MINUTES APP_DEPOSIT_MATCH_WINDOW_HOURS \
+                         APP_BITCART_URL APP_INVOICE_CURRENCY; do
+                  v=$(docker exec "clutch-stage-${c}-1" printenv "$k" 2>/dev/null || true)
+                  [ -n "$v" ] && echo "    $k=$v"
+                done
+                # Presence, never the value.
+                for k in APP_TRONGRID_API_KEY APP_BITCART_TOKEN APP_MINT_AUTHORITY_SECRET; do
+                  if docker exec "clutch-stage-${c}-1" printenv "$k" >/dev/null 2>&1; then
+                    echo "    $k=<set>"
+                  fi
+                done
+              done
+
+              echo ""
+              echo "=== deposit intents so far ==="
+              docker exec clutch-stage-orchestrator-postgres-1 psql -U postgres -d orchestrator \
+                -c "select status, count(*) from deposit_intents group by status order by 2 desc;" 2>/dev/null \
+                || echo "(could not query orchestrator db)"
             fi
 
             if [ "$PROBE" = "git" ]; then
