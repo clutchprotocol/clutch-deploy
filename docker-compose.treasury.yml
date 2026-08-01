@@ -12,9 +12,15 @@
 #   treasury-service      PRIVATE. Holds the chain mint key. NO published ports, ever. Reachable
 #                         only from other containers. It joins clutch-network solely to read
 #                         node1's WebSocket RPC.
-#   payment-orchestrator  PUBLIC. Holds no chain keys. Published on 8091 because real users and
-#                         Bitcart's IPN have to reach it. Joins treasury-network as well so it
-#                         can call the treasury's internal API.
+#   payment-orchestrator  PUBLIC. Holds no chain keys and no spending keys — only the deposit
+#                         wallet's xpub, which can derive receive addresses and nothing else.
+#                         Published on 8091 because real users reach it. Joins treasury-network
+#                         as well so it can call the treasury's internal API.
+#   tron-signer           PRIVATE, and the most sensitive service here: it holds the deposit
+#                         MNEMONIC and can spend every derived address. No published ports. Its
+#                         protection is the API shape as much as the network — /internal/sweep
+#                         takes an index and the destination is its own config, so reaching it
+#                         does not let anyone choose where funds go.
 #   treasury-network      internal: true — containers on it cannot reach, or be reached from,
 #                         the outside world except via another network they also sit on. This is
 #                         what keeps both Postgres instances unreachable from the host.
@@ -106,10 +112,52 @@ services:
       # a contract, only a price — so if deposits are detected but never verify, check that side
       # too before assuming this value is wrong.
       - APP_USDT_CONTRACT=${USDT_CONTRACT:-TXYZopYRdj2D9XRtbG411XZZ3kM5VkAeBf}
+      # Sweeps: this service decides WHEN, tron-signer knows HOW and owns the keys.
+      - APP_SIGNER_URL=http://tron-signer:8093
+      - APP_SIGNER_TOKEN=${SIGNER_TOKEN:?set SIGNER_TOKEN in .env}
+      # Threshold, because a sweep costs TRX for energy and per-deposit sweeping can exceed what it
+      # moves at the $1 minimum. The max age stops sub-threshold balances sitting forever and
+      # fragmenting the reserve across addresses nobody revisits.
+      - APP_SWEEP_THRESHOLD_USDT=${SWEEP_THRESHOLD_USDT:-100000000}
+      - APP_SWEEP_MAX_AGE_HOURS=${SWEEP_MAX_AGE_HOURS:-168}
     restart: unless-stopped
     networks:
       - treasury-network   # its own Postgres
       - clutch-network     # node1's WebSocket RPC only
+
+  # PRIVATE ZONE, and the most sensitive thing in the stack: this holds the deposit-wallet
+  # MNEMONIC, which can spend every derived deposit address.
+  #
+  # No `ports:`, ever. Reachable only from treasury-service over treasury-network.
+  #
+  # It sits on clutch-network too, and that is not an oversight: building and broadcasting a sweep
+  # needs TronGrid, and `internal: true` means no outbound route at all. Same posture as
+  # treasury-service, which holds the chain mint key under the identical trade-off — unpublished,
+  # but not air-gapped, because it has work to do on the internet.
+  #
+  # What keeps that acceptable is the API shape rather than the network: /internal/sweep takes an
+  # INDEX and nothing else, and the destination comes from APP_TREASURY_ADDRESS below. Reaching this
+  # service does not let anyone choose where funds go.
+  tron-signer:
+    image: ghcr.io/clutchprotocol/clutch-tron-signer:latest
+    environment:
+      - RUST_LOG=${SIGNER_LOG_LEVEL:-info}
+      # No default and no TOML fallback. A placeholder here would be a valid but DIFFERENT wallet,
+      # and the first symptom is deposits arriving at addresses nothing can sweep.
+      - APP_DEPOSIT_MNEMONIC=${DEPOSIT_MNEMONIC:?set DEPOSIT_MNEMONIC in .env}
+      - APP_DEPOSIT_PASSPHRASE=${DEPOSIT_PASSPHRASE:-}
+      - APP_SIGNER_TOKEN=${SIGNER_TOKEN:?set SIGNER_TOKEN in .env}
+      # Where every sweep goes. NOT a request parameter — this line is the reason a compromised
+      # caller cannot redirect funds.
+      - APP_TREASURY_ADDRESS=${CUSTODY_TRON_ADDRESS:?set CUSTODY_TRON_ADDRESS in .env}
+      - APP_TRONGRID_URL=${TRONGRID_URL:-https://nile.trongrid.io}
+      - APP_TRONGRID_API_KEY=${TRONGRID_API_KEY:-}
+      - APP_USDT_CONTRACT=${USDT_CONTRACT:-TXYZopYRdj2D9XRtbG411XZZ3kM5VkAeBf}
+      - APP_HTTP_ADDR=0.0.0.0:8093
+    restart: unless-stopped
+    networks:
+      - treasury-network   # treasury-service reaches it here
+      - clutch-network     # TronGrid egress only
 
   # PUBLIC ZONE. Holds no chain keys; the worst a compromise here can do is create intents the
   # treasury's verifier and breakers still have to agree to.

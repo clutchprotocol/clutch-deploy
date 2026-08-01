@@ -49,8 +49,9 @@ trap 'rc=$?; echo "SCRIPT FAILED rc=$rc at line $LINENO: $BASH_COMMAND"; exit $r
 # trigger then behaves identically, with nothing to keep in sync.
 TREASURY_VARS="TREASURY_POSTGRES_PASSWORD ORCHESTRATOR_POSTGRES_PASSWORD \
                MINT_AUTHORITY_SECRET TREASURY_INITIATOR_TOKEN \
-               TREASURY_APPROVER_TOKEN TREASURY_READONLY_TOKEN"
-TREASURY_VAR_COUNT=6
+               TREASURY_APPROVER_TOKEN TREASURY_READONLY_TOKEN \
+               DEPOSIT_MNEMONIC DEPOSIT_ACCOUNT_XPUB SIGNER_TOKEN"
+TREASURY_VAR_COUNT=9
 present=0; missing=""
 for v in $TREASURY_VARS; do
   if grep -qE "^${v}=.+" .env 2>/dev/null; then present=$((present+1)); else missing="$missing $v"; fi
@@ -71,6 +72,11 @@ elif [ "$present" -gt 0 ]; then
   echo ""
   echo "MINT_AUTHORITY_SECRET must be a key generated FOR STAGE, never the"
   echo "publicly-committed node1 dev key used locally."
+  echo ""
+  echo "DEPOSIT_MNEMONIC and DEPOSIT_ACCOUNT_XPUB are two halves of ONE wallet and must match."
+  echo "Read the xpub off the signer (GET /internal/xpub) rather than transcribing it: a mistyped"
+  echo "xpub means every deposit address belongs to a wallet nothing can sweep, and the first"
+  echo "symptom is a user paying into an address no key exists for."
   exit 1
 else
   echo "treasury: disabled (no treasury secrets in .env) — deploying core stack only"
