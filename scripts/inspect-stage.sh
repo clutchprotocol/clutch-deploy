@@ -103,6 +103,41 @@ if [ "$PROBE" = "treasury" ]; then
   docker exec clutch-stage-orchestrator-postgres-1 psql -U postgres -d orchestrator \
     -c "select status, count(*) from deposit_intents group by status order by 2 desc;" 2>/dev/null \
     || echo "(could not query orchestrator db)"
+
+  # The TRX float. A derived deposit address holds no TRX -- receiving tokens does not create a
+  # balance -- so it cannot pay for its own sweep. tron-signer funds it from the wallet's fee
+  # account at <account>/1/0, and that account is the one thing here an operator must top up by
+  # hand. An empty one stalls every sweep, which shows up as a growing set of unswept addresses
+  # rather than as an error.
+  echo ""
+  echo "=== TRX float (fee account) ==="
+  # The token is expanded INSIDE the container and never printed. The response is public material:
+  # an account xpub and an address. Both are safe in a log that repo access can read.
+  FEE_JSON=$(docker exec clutch-stage-tron-signer-1 sh -c \
+    'curl -fsS -H "Authorization: Bearer $APP_SIGNER_TOKEN" http://localhost:8093/internal/xpub' \
+    2>/dev/null || true)
+  FEE_ADDR=$(printf '%s' "$FEE_JSON" | sed -n 's/.*"fee_address"[ ]*:[ ]*"\([^"]*\)".*/\1/p')
+  if [ -z "$FEE_ADDR" ]; then
+    echo "    (could not read fee_address from tron-signer -- is the service up?)"
+  else
+    echo "    fee_address=$FEE_ADDR"
+    # Queried from inside the signer, using the network the signer itself talks to, so this reads
+    # the same chain the sweeps run against rather than whichever one the host would reach.
+    BAL_JSON=$(docker exec clutch-stage-tron-signer-1 sh -c \
+      "curl -fsS \"\$APP_TRONGRID_URL/v1/accounts/$FEE_ADDR\"" 2>/dev/null || true)
+    BAL=$(printf '%s' "$BAL_JSON" | sed -n 's/.*"balance"[ ]*:[ ]*\([0-9]*\).*/\1/p' | head -1)
+    if [ -z "$BAL" ]; then
+      echo "    balance=0 sun (no account on chain yet -- never funded)"
+      echo "    ACTION: send TRX to the address above, or no deposit can ever be swept."
+    else
+      echo "    balance=$BAL sun ($((BAL / 1000000)) TRX)"
+      # 31 TRX is one funding transfer plus its own bandwidth reserve; under that, the next sweep
+      # reports fee_account_dry and stops the pass.
+      if [ "$BAL" -lt 31000000 ]; then
+        echo "    ACTION: below one sweep's worth (31 TRX). Top up, or sweeps stall."
+      fi
+    fi
+  fi
 fi
 
 if [ "$PROBE" = "bitcart" ]; then

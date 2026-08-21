@@ -97,22 +97,52 @@ Always pass the full `-f` list and `-p` on every command — omitting them targe
 
 ## Deposit detection (no Bitcart)
 
-Bitcart was removed from the deposit path. Its TRX daemon attributes a payment by the **sender's**
-address (`tx.from_addr in request_addresses`, populated only by `set_request_address`), so a request
-is detectable only once the payer's Tron address is registered against it in advance. Our model is
-one shared static custody address, payers unknown until they pay, and the amount discriminator as
-the identity — nothing configurable reconciles those, and per-invoice addresses are not available
-for Tron either (`TRX_ACCOUNT_PATH` is a fixed single-address derivation path). Verified by running
-the daemon in isolation against Nile: synced, correct balance, `new_block` events past the relevant
-block, zero payment events.
+**Every deposit intent gets its own freshly derived TRON address.** They come from one HD wallet at
+`m/44'/195'/0'/0/i`, one unique index per intent. `payment-orchestrator` holds only the account
+**xpub** — enough to derive addresses, not to spend from them — and watches for USDT `Transfer`
+events by DESTINATION address (`crates/payment-orchestrator/src/custody.rs`). One batched fetch per
+poll pass, because unkeyed TronGrid throttles and a throttled watcher is indistinguishable from
+"nobody paid".
 
-`payment-orchestrator` now watches the custody address itself via TronGrid and matches on the exact
-discriminated amount (`crates/payment-orchestrator/src/custody.rs`). One list fetch per poll pass,
-because unkeyed TronGrid throttles and a throttled watcher is indistinguishable from "nobody paid".
+The mnemonic lives only in `tron-signer`, which is why the amount discriminator, slot allocation and
+amount-based matching are all gone: identity is the address, so the amount carries no meaning beyond
+being at least what was asked.
+
+Bitcart was removed from this path. Its TRX daemon attributes a payment by the **sender's** address
+(`tx.from_addr in request_addresses`, populated only by `set_request_address`), so a request is
+detectable only once the payer's Tron address is registered against it in advance — unreconcilable
+with payers who are anonymous until they pay. Per-invoice addresses are not available for Tron there
+either (`TRX_ACCOUNT_PATH` is a fixed single-address derivation path). Verified by running the daemon
+in isolation against Nile: synced, correct balance, `new_block` events past the relevant block, zero
+payment events.
 
 Gone with it: `docker-compose.bitcart.yml`, `provision-bitcart-stage.yml`,
 `scripts/provision-bitcart.sh`, the `webhook_events` table, the unauthenticated `/webhooks/bitcart`
 route, and `BITCART_TOKEN`/`BITCART_STORE_ID` (now inert if still present in `.env`).
+
+### The TRX float needs a manual top-up
+
+After a deposit is credited, `treasury-service`'s sweeper moves the USDT from the derived address to
+the main treasury. A TRC-20 transfer costs energy, and **a freshly derived address holds no TRX** —
+receiving tokens does not create a balance — so it cannot pay for its own sweep.
+
+`tron-signer` funds it first, from the wallet's own fee account at `<account>/1/0`. A different
+change level from deposit addresses (`0/i`) deliberately: nothing at `1/0` can ever collide with an
+address a depositor was told to pay into. No extra key material and no second mnemonic — which is
+why funding needs **no new env var**.
+
+That account is the one thing in this stack an operator must top up by hand. Empty, every sweep
+answers `fee_account_dry` and the pass stops; deposits are still credited and the reserve total is
+still correct (`get_reserve_balance` sums unswept addresses plus the treasury), but nothing
+consolidates. Find the address and its balance with:
+
+```
+PROBE=treasury  →  "=== TRX float (fee account) ==="
+```
+
+via `.github/workflows/inspect-stage.yml`, or read `fee_address` off the signer's `/internal/xpub`.
+Funding is two-pass by design: the TRX transfer has to confirm before the sweep can spend it, so an
+address reports `funded` on one pass and is swept on a later one.
 
 `docker-compose.stage.treasury.yml` survives even though it now resets a single port: a service key
 carrying only `ports: !reset []` still declares that service, which breaks a core-only deploy — and
