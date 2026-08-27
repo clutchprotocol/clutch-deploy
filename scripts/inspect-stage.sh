@@ -2,7 +2,7 @@
 #
 # Read-only inspection of the stage VPS. Run ON the host, from the clutch-deploy checkout.
 #
-#   PROBE=nginx|containers|git|treasury|sweeper|bitcart bash scripts/inspect-stage.sh
+#   PROBE=nginx|containers|git|treasury|sweeper|chain|bitcart bash scripts/inspect-stage.sh
 #
 # A file, not an inline `script:` block, for the same reason deploy-stage.sh is: as inline YAML
 # this probe broke three times — once making the whole workflow unparseable (column-0 Python
@@ -220,6 +220,38 @@ if [ "$PROBE" = "sweeper" ]; then
      "select status, amount_clt, expected_amount_usdt, deposit_address, swept_at is not null as swept,
              created_at
       from mint_intents order by created_at desc limit 10;"
+fi
+
+if [ "$PROBE" = "chain" ]; then
+  # Chain height went 72778 -> 1309 -> 1105 across deploys: it is being wiped and restarted, not
+  # merely resynced. Every reset destroys minted CLT while the backing USDT stays in the treasury,
+  # which for a redeemable token is the worst direction for an error to run.
+  #
+  # DB_PATH and the nodeN-data volumes are set correctly in compose, so the question is whether the
+  # node can actually WRITE there. Docker creates a mount path absent from the image as root-owned,
+  # and the node runs as uid 999.
+  echo "=== node data directory, from inside each node ==="
+  for n in 1 2 3; do
+    c="clutch-stage-node${n}-1"
+    echo "--- $c"
+    echo "    DB_PATH=$(docker exec "$c" printenv DB_PATH 2>/dev/null || echo '(unset)')"
+    echo "    whoami:  $(docker exec "$c" id 2>/dev/null || echo '(could not run id)')"
+    docker exec "$c" ls -la /app/data 2>&1 | sed 's/^/    /' | head -8
+  done
+
+  echo ""
+  echo "=== is the volume actually mounted where the node writes? ==="
+  docker inspect clutch-stage-node1-1 --format '{{range .Mounts}}    {{.Type}} {{.Name}}{{.Source}} -> {{.Destination}}{{"BREAK"}}{{end}}' 2>/dev/null | tr 'BREAK' '\n' | grep -v '^$' || true
+
+  echo ""
+  echo "=== node1 startup log: which DB path did it open, and did it complain? ==="
+  docker logs clutch-stage-node1-1 2>&1 | head -40 | sed 's/^/    /'
+
+  echo ""
+  echo "=== current height per node (a fresh genesis reads as a low number) ==="
+  for n in 1 2 3; do
+    echo "    node${n}: started $(docker inspect -f '{{.State.StartedAt}}' "clutch-stage-node${n}-1" 2>/dev/null || echo '?')"
+  done
 fi
 
 if [ "$PROBE" = "bitcart" ]; then
