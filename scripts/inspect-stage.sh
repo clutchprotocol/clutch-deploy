@@ -159,6 +159,12 @@ if [ "$PROBE" = "sweeper" ]; then
     | tail -25 \
     || echo "(no sweeper lines in the last 4000 log lines)"
 
+  # The signer's own log. treasury-service only ever reports "signer returned 500" -- the actual
+  # reason lives here, and without it a failing sweep is unattributable.
+  echo ""
+  echo "=== tron-signer log ==="
+  docker logs --tail 40 clutch-stage-tron-signer-1 2>&1 | tail -40 || echo "(no tron-signer container)"
+
   echo ""
   echo "=== is the worker alive? ==="
   # A count, not a sample. But read it correctly: the sweeper logs its heartbeat once per pass and
