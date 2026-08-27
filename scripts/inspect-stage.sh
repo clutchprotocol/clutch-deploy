@@ -91,9 +91,18 @@ if [ "$PROBE" = "treasury" ]; then
       if [ -n "$v" ]; then echo "    $k=$v"; fi
     done
     # Presence, never the value.
+    #
+    # Tested for CONTENT, not exit status. Compose writes `APP_X=${X:-}` for optional settings, so
+    # an unset X still defines APP_X as empty and `printenv` exits 0 -- which reported an unkeyed
+    # TronGrid as `<set>` on this very probe. The distinction matters most for exactly that key:
+    # unkeyed TronGrid throttles hard, and a throttled watcher is indistinguishable from "nobody
+    # paid".
     for k in APP_TRONGRID_API_KEY APP_BITCART_TOKEN APP_MINT_AUTHORITY_SECRET; do
-      if docker exec "clutch-stage-${c}-1" printenv "$k" >/dev/null 2>&1; then
-        echo "    $k=<set>"
+      v=$(docker exec "clutch-stage-${c}-1" printenv "$k" 2>/dev/null || true)
+      if [ -n "$v" ]; then
+        echo "    $k=<set, ${#v} chars>"
+      elif docker exec "clutch-stage-${c}-1" printenv "$k" >/dev/null 2>&1; then
+        echo "    $k=<EMPTY -- defined but not configured>"
       fi
     done
   done
