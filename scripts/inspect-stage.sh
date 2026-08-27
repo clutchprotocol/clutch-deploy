@@ -195,8 +195,17 @@ if [ "$PROBE" = "sweeper" ]; then
      "select count(*) as swept, max(swept_at) as most_recent from mint_intents where swept_at is not null;"
 
   tq "open alerts" \
-     "select severity, source, left(message, 90) as message, created_at
-      from alerts order by created_at desc limit 10;"
+     "select severity, source, left(message, 300) as message, created_at
+      from alerts order by created_at desc limit 6;"
+
+  # Whether minting is halted is the single most consequential piece of state in this service,
+  # and reconciliation sets it without anything else surfacing it.
+  tq "breaker" "select minting_halted, halt_reason, updated_at from breaker_state;"
+
+  tq "last reconciliation runs" \
+     "select status, ledger_liability, custody_reported, detail->>'trongrid_balance' as trongrid,
+             created_at
+      from reconciliation_runs order by created_at desc limit 5;"
 fi
 
 if [ "$PROBE" = "bitcart" ]; then
