@@ -160,33 +160,37 @@ if [ "$PROBE" = "sweeper" ]; then
     || echo "(no sweeper lines in the last 4000 log lines)"
 
   echo ""
-  echo "=== is the worker alive at all? (its first pass logs on startup) ==="
-  # A count, not a sample: zero here means the worker never ran, which is invisible in a tail.
+  echo "=== is the worker alive? ==="
+  # A count, not a sample. But read it correctly: the sweeper logs its heartbeat once per pass and
+  # the interval is an hour, so 0 on a freshly recreated container means "no pass has come round
+  # yet", NOT "dead". Only 0 on a container that has been up longer than the interval is a fault.
   N=$(docker logs clutch-stage-treasury-service-1 2>&1 | grep -aciE "sweeper" || true)
   echo "    lines mentioning the sweeper since container start: ${N:-0}"
+  echo "    container up since: $(docker inspect -f '{{.State.StartedAt}}' clutch-stage-treasury-service-1 2>/dev/null || echo '?')"
+  echo "    (sweep interval is 1h — expect the first heartbeat within that of startup)"
 
-  echo ""
-  echo "=== addresses waiting to be swept ==="
+  # stderr is SHOWN, not swallowed. `2>/dev/null || echo "(could not query)"` makes a renamed table
+  # and a stopped container produce identical output, and every misread probe today did exactly
+  # that.
+  tq() {
+    echo ""
+    echo "=== $1 ==="
+    docker exec clutch-stage-treasury-postgres-1 psql -U treasury -d treasury -c "$2" 2>&1 | sed 's/^/    /'
+  }
+
   # deposit_address IS NOT NULL skips discriminator-era rows, which have no address to sweep.
-  docker exec clutch-stage-treasury-postgres-1 psql -U treasury -d treasury \
-    -c "select status, count(*), min(created_at)::date as oldest
-        from mint_intents
-        where deposit_address is not null and swept_at is null
-        group by status order by 2 desc;" 2>/dev/null \
-    || echo "(could not query treasury db)"
+  tq "addresses waiting to be swept" \
+     "select status, count(*), min(created_at)::date as oldest
+      from mint_intents
+      where deposit_address is not null and swept_at is null
+      group by status order by 2 desc;"
 
-  echo ""
-  echo "=== already swept ==="
-  docker exec clutch-stage-treasury-postgres-1 psql -U treasury -d treasury \
-    -c "select count(*) as swept, max(swept_at) as most_recent from mint_intents where swept_at is not null;" 2>/dev/null \
-    || echo "(could not query treasury db)"
+  tq "already swept" \
+     "select count(*) as swept, max(swept_at) as most_recent from mint_intents where swept_at is not null;"
 
-  echo ""
-  echo "=== open alerts ==="
-  docker exec clutch-stage-treasury-postgres-1 psql -U treasury -d treasury \
-    -c "select severity, source, left(message, 90) as message, created_at
-        from alerts order by created_at desc limit 10;" 2>/dev/null \
-    || echo "(could not query treasury db)"
+  tq "open alerts" \
+     "select severity, source, left(message, 90) as message, created_at
+      from alerts order by created_at desc limit 10;"
 fi
 
 if [ "$PROBE" = "bitcart" ]; then
