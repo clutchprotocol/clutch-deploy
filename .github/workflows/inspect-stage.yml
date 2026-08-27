@@ -25,6 +25,7 @@ on:
           - containers
           - git
           - treasury
+          - sweeper
           - bitcart
           - bitcart-daemon
 
