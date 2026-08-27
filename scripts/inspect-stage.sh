@@ -100,9 +100,9 @@ if [ "$PROBE" = "treasury" ]; then
 
   echo ""
   echo "=== deposit intents so far ==="
-  docker exec clutch-stage-orchestrator-postgres-1 psql -U postgres -d orchestrator \
+  docker exec clutch-stage-orchestrator-postgres-1 psql -U orchestrator -d orchestrator \
     -c "select status, count(*) from deposit_intents group by status order by 2 desc;" 2>/dev/null \
-    || echo "(could not query orchestrator db)"
+    || echo "(could not query orchestrator db -- container down, or the user/db names changed)"
 
   # The TRX float. A derived deposit address holds no TRX -- receiving tokens does not create a
   # balance -- so it cannot pay for its own sweep. tron-signer funds it from the wallet's fee
@@ -176,7 +176,7 @@ if [ "$PROBE" = "bitcart" ]; then
   # docker-compose.treasury.yml), and the wrong user just prints "could not query".
   docker exec clutch-stage-orchestrator-postgres-1 psql -U orchestrator -d orchestrator \
     -c "select left(id::text,8) id, status, pay_amount_usdt, left(coalesce(tron_tx_id,'-'),12) tx, payment_window_closed pwc from deposit_intents order by created_at desc limit 10;" 2>&1 | tail -14 \
-    || echo "(could not query orchestrator db)"
+    || echo "(could not query orchestrator db -- container down, or the user/db names changed)"
 
   echo ""
   echo "=== recent alerts (the unattributed-payment reporter writes here) ==="
