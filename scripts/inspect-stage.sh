@@ -264,15 +264,25 @@ if [ "$PROBE" = "chain" ]; then
   done
 
   echo ""
-  echo "=== each node's own view of its height ==="
-  # Read from the node's OWN log, not from treasury-service: if node1 is merely resyncing from its
-  # peers, node2 and node3 still hold the long chain and will report a much higher number.
+  echo "=== each node's own height, ASKED not inferred ==="
+  # Previously this grepped block numbers out of the logs, which was wrong in a way that sent an
+  # investigation sideways: a node serving blocks to a syncing peer logs THAT peer's block numbers,
+  # so node3 appeared to drop from 117,573 to 17,463 when it was simply feeding node1. Ask each
+  # node over its own JSON-RPC instead. The node serves HTTP on the same port as its WebSocket.
   for n in 1 2 3; do
-    echo "--- node${n}"
-    docker logs --tail 3000 "clutch-stage-node${n}-1" 2>&1 \
-      | grep -aoE "(block|Block)[^0-9]{0,20}(index|height|number)[^0-9]{0,5}[0-9]+" \
-      | tail -2 | sed 's/^/    /' || echo "    (no height lines matched)"
-    echo "    started: $(docker inspect -f '{{.State.StartedAt}}' "clutch-stage-node${n}-1" 2>/dev/null || echo '?')"
+    port=$((8080 + n))
+    resp=$(docker exec clutch-stage-tron-signer-1 sh -c \
+      "curl -fsS --max-time 8 -X POST http://node${n}:${port} -H 'Content-Type: application/json' \
+       -d '{\"jsonrpc\":\"2.0\",\"method\":\"get_chain_info\",\"params\":null,\"id\":\"probe\"}'" \
+      2>/dev/null || true)
+    if [ -z "$resp" ]; then
+      echo "    node${n}: (no answer on :${port})"
+    else
+      h=$(printf '%s' "$resp" | sed -n 's/.*"latest_block_index":[ ]*\([0-9]*\).*/\1/p')
+      s=$(printf '%s' "$resp" | sed -n 's/.*"total_supply":"\([0-9]*\)".*/\1/p')
+      echo "    node${n}: height=${h:-?} total_supply=${s:-?}"
+    fi
+    echo "            started $(docker inspect -f '{{.State.StartedAt}}' "clutch-stage-node${n}-1" 2>/dev/null || echo '?')"
   done
 
   echo ""
