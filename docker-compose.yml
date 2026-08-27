@@ -81,7 +81,12 @@ services:
       - "3000:3000"
     environment:
       - RUST_LOG=info
-      - CLUTCH_NODE_WS_URL=ws://node1:8081/ws
+      # Pointed at node2, not node1. node1 is the p2p bootstrap and fell ~115,000 blocks behind;
+      # it answers get_chain_info cheerfully with a stale supply, so every service reading it saw a
+      # chain frozen near genesis while the real one was at 117,573. node2 and node3 hold the full
+      # chain. Move this back to node1 once it has caught up -- being the bootstrap is a p2p role
+      # and says nothing about which node is the best one to read.
+      - CLUTCH_NODE_WS_URL=ws://node2:8082/ws
       - SEQ_URL=http://seq:80
       - SEQ_API_KEY=${SEQ_API_KEY:-}
       - APP_ALLOWED_ORIGINS=${ALLOWED_ORIGINS:-*}
@@ -189,7 +194,12 @@ services:
       - APP_LOG_LEVEL=info
       - APP_DATA_SOURCE=postgres
       - APP_DATABASE_URL=postgres://${EXPLORER_POSTGRES_USER:-postgres}:${EXPLORER_POSTGRES_PASSWORD:-postgres}@clutch-explorer-postgres:5432/${EXPLORER_POSTGRES_DB:-clutch_explorer}
-      - APP_CLUTCH_NODE_API_URL=http://node1:8081
+      # Pointed at node2, not node1. node1 is the p2p bootstrap and fell ~115,000 blocks behind;
+      # it answers get_chain_info cheerfully with a stale supply, so every service reading it saw a
+      # chain frozen near genesis while the real one was at 117,573. node2 and node3 hold the full
+      # chain. Move this back to node1 once it has caught up -- being the bootstrap is a p2p role
+      # and says nothing about which node is the best one to read.
+      - APP_CLUTCH_NODE_API_URL=http://node2:8082
       - APP_STRICT_MODE=true
       - APP_DEVELOPER_MODE=${EXPLORER_DEVELOPER_MODE:-false}
       - APP_CLEANUP_ON_START=${EXPLORER_CLEANUP_ON_START:-false}
@@ -223,7 +233,12 @@ services:
       - APP_DATA_SOURCE=postgres
       - APP_DATABASE_URL=postgres://${EXPLORER_POSTGRES_USER:-postgres}:${EXPLORER_POSTGRES_PASSWORD:-postgres}@clutch-explorer-postgres:5432/${EXPLORER_POSTGRES_DB:-clutch_explorer}
       - APP_NODE_METRICS_URL=http://node1:3001/metrics
-      - APP_NODE_WS_URL=ws://node1:8081/ws
+      # Pointed at node2, not node1. node1 is the p2p bootstrap and fell ~115,000 blocks behind;
+      # it answers get_chain_info cheerfully with a stale supply, so every service reading it saw a
+      # chain frozen near genesis while the real one was at 117,573. node2 and node3 hold the full
+      # chain. Move this back to node1 once it has caught up -- being the bootstrap is a p2p role
+      # and says nothing about which node is the best one to read.
+      - APP_NODE_WS_URL=ws://node2:8082/ws
       - APP_DEVELOPER_MODE=${EXPLORER_DEVELOPER_MODE:-false}
       - APP_CLEANUP_ON_START=${EXPLORER_CLEANUP_ON_START:-false}
       - APP_INDEXER_POLL_INTERVAL_MS=4000

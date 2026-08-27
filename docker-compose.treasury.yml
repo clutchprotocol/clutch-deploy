@@ -75,7 +75,16 @@ services:
     environment:
       - RUST_LOG=${TREASURY_LOG_LEVEL:-info}
       - APP_DATABASE_URL=postgres://treasury:${TREASURY_POSTGRES_PASSWORD}@treasury-postgres:5432/treasury
-      - APP_NODE_WS_URL=ws://node1:8081/ws
+      # Pointed at node2, not node1. node1 is the p2p bootstrap and fell ~115,000 blocks behind;
+      # it answers get_chain_info cheerfully with a stale supply, so every service reading it saw a
+      # chain frozen near genesis while the real one was at 117,573. node2 and node3 hold the full
+      # chain. Move this back to node1 once it has caught up -- being the bootstrap is a p2p role
+      # and says nothing about which node is the best one to read.
+      - APP_NODE_WS_URL=ws://node2:8082/ws
+      # Peers for the staleness guard: heights are compared across these and this service
+      # refuses to mint or judge when its primary is behind the highest. Reading one node and
+      # trusting it is what let a 115,000-block lag go unnoticed for a full day.
+      - APP_NODE_PEER_WS_URLS=ws://node1:8081/ws,ws://node3:8083/ws
       - APP_CHAIN_ID=${CHAIN_ID:-2077}
       # No default: the node refuses to mint without the authority key, and a placeholder here
       # would turn "misconfigured" into "silently signing with the wrong key".
