@@ -44,6 +44,21 @@ fi
 # boot failure several steps removed from its cause.
 has() { grep -qE "^$1=.+" .env; }
 
+# Read values with sed, never by sourcing .env -- the mnemonic contains spaces and `. ./.env`
+# would try to run its words as commands.
+val() { sed -n "s/^$1=//p" .env | head -1; }
+
+# Write a NON-SECRET setting if absent, and say what it is. Printing the value is the point here:
+# which chain and which contract stage is pointed at should be legible in the log.
+pin() {
+  if has "$1"; then
+    echo "    $1: already pinned to $(val "$1")"
+  else
+    echo "$1=$2" >> .env
+    echo "    $1: pinned to $2"
+  fi
+}
+
 # The one value this script cannot invent. It is the sweep destination -- a wallet somebody must
 # already control -- and generating one here would send every swept deposit to an address whose
 # keys exist nowhere.
@@ -56,6 +71,23 @@ fi
 
 cp -a .env ".env.bak.$(date +%Y%m%d-%H%M%S)"
 echo "=== backed up .env ==="
+
+# These two decide WHICH CHAIN and WHICH TOKEN stage is operating on. They have been coming from
+# docker-compose.treasury.yml's defaults, so editing that file would move a running stage to a
+# different network or a different contract on the next deploy -- no diff on this host, nothing in
+# the deploy log, and the first symptom is deposits that are never matched because the watcher is
+# looking at the wrong chain.
+#
+# The values below are exactly the defaults stage is already running, so pinning them changes
+# nothing today. That is what makes it worth doing now rather than during an incident.
+echo ""
+echo "=== pinned settings (chain and token) ==="
+pin TRONGRID_URL "https://nile.trongrid.io"
+# Nile has TWO tokens reporting the symbol USDT. This is the one the faucet actually dispenses
+# (contract name TetherToken, matching mainnet USDT). The other, TXLAQ63Xg1NAzckPwKHvzw7CSEmLMEqcdj,
+# exists and answers "USDT" but nobody can obtain it -- deploy-stage.sh aborts if .env names it,
+# because a stage pinned to it is untestable by construction.
+pin USDT_CONTRACT "TXYZopYRdj2D9XRtbG411XZZ3kM5VkAeBf"
 
 echo ""
 echo "=== generated secrets ==="
@@ -100,10 +132,6 @@ trap cleanup EXIT
 
 cleanup
 docker pull -q "$SIGNER_IMAGE" >/dev/null
-
-# Read values with sed, never by sourcing .env -- the mnemonic contains spaces and `. ./.env`
-# would try to run its words as commands.
-val() { sed -n "s/^$1=//p" .env | head -1; }
 
 # Same defaults docker-compose.treasury.yml applies, so the probe derives from the same wallet
 # the real signer will. Neither is used by /internal/xpub -- derivation touches no network --
