@@ -206,6 +206,20 @@ if [ "$PROBE" = "sweeper" ]; then
      "select status, ledger_liability, custody_reported, detail->>'trongrid_balance' as trongrid,
              run_at
       from reconciliation_runs order by run_at desc limit 5;"
+
+  # Why a mint has not landed on chain. `submitted` in mint_intents means the outbox accepted
+  # it, NOT that the chain has it -- the two are easy to confuse and the difference is whether
+  # a depositor holds CLT.
+  tq "mint outbox" \
+     "select o.status, o.attempts, o.next_attempt_at, left(o.last_error, 120) as last_error,
+             i.amount_clt, i.status as intent_status
+      from chain_outbox o join mint_intents i on i.id = o.intent_id
+      order by o.id desc limit 10;"
+
+  tq "mint intents" \
+     "select status, amount_clt, expected_amount_usdt, deposit_address, swept_at is not null as swept,
+             created_at
+      from mint_intents order by created_at desc limit 10;"
 fi
 
 if [ "$PROBE" = "bitcart" ]; then
