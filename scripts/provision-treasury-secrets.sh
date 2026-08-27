@@ -89,6 +89,31 @@ pin TRONGRID_URL "https://nile.trongrid.io"
 # because a stage pinned to it is untestable by construction.
 pin USDT_CONTRACT "TXYZopYRdj2D9XRtbG411XZZ3kM5VkAeBf"
 
+# The TronGrid API key, if one was passed in.
+#
+# Not generated and not defaulted -- it is issued by trongrid.io against an account, so it can only
+# come from outside. It arrives as an environment variable forwarded from a repository secret, NOT
+# as a workflow input: dispatch inputs are shown in plain text in the run UI, while secrets are
+# masked in the log.
+#
+# Optional, and the stack runs without it. But unkeyed TronGrid throttles hard, and a throttled
+# watcher is indistinguishable from "nobody paid" -- a deposit that is never detected looks exactly
+# like a deposit that was never made.
+echo ""
+echo "=== TronGrid API key ==="
+if has TRONGRID_API_KEY; then
+  echo "    TRONGRID_API_KEY: already set, left alone"
+elif [ -n "${TRONGRID_API_KEY:-}" ]; then
+  # Length only. The value is a credential and this log is readable by anyone with repo access.
+  echo "TRONGRID_API_KEY=$TRONGRID_API_KEY" >> .env
+  echo "    TRONGRID_API_KEY: written (${#TRONGRID_API_KEY} chars)"
+else
+  echo "    TRONGRID_API_KEY: not provided -- stage keeps polling TronGrid unkeyed."
+  echo "      Unkeyed means rate-limited, and a throttled watcher looks exactly like nobody paid."
+  echo "      Set the repo secret, then re-run this workflow:"
+  echo "        gh secret set TRONGRID_API_KEY --repo clutchprotocol/clutch-deploy"
+fi
+
 echo ""
 echo "=== generated secrets ==="
 for v in $GENERATED; do
