@@ -204,8 +204,8 @@ if [ "$PROBE" = "sweeper" ]; then
 
   tq "last reconciliation runs" \
      "select status, ledger_liability, custody_reported, detail->>'trongrid_balance' as trongrid,
-             created_at
-      from reconciliation_runs order by created_at desc limit 5;"
+             run_at
+      from reconciliation_runs order by run_at desc limit 5;"
 fi
 
 if [ "$PROBE" = "bitcart" ]; then
