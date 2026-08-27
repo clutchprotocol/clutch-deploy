@@ -182,14 +182,20 @@ services:
       - APP_TREASURY_URL=http://treasury-service:8090
       - APP_TREASURY_INITIATOR_TOKEN=${TREASURY_INITIATOR_TOKEN:?set TREASURY_INITIATOR_TOKEN in .env}
       - APP_TREASURY_READONLY_TOKEN=${TREASURY_READONLY_TOKEN:?set TREASURY_READONLY_TOKEN in .env}
-      # Where Bitcart posts its IPN. Container-to-container on the shared network, so the
-      # webhook never needs public exposure while Bitcart is co-hosted.
-      # The custody address deposits are paid to, echoed to the browser as `pay_address`.
+      # NOT where users pay -- each intent gets its own derived address now. This is the sweep
+      # destination, where the signer consolidates deposits after they are credited.
       - APP_CUSTODY_TRON_ADDRESS=${CUSTODY_TRON_ADDRESS:-}
-      # This service now WATCHES that address itself (custody.rs). Bitcart is gone: its TRX daemon
-      # attributes a payment by the SENDER's address, which cannot work for a shared custody
-      # address whose payers are unknown until they pay. Must name the same network the contract
-      # lives on, or every deposit goes unmatched forever.
+      # The wallet this service derives deposit addresses from. PUBLIC material by design: an
+      # account-level xpub can derive receive addresses and nothing else, so a full compromise of
+      # this container yields no ability to spend. The matching mnemonic lives only in tron-signer.
+      #
+      # Hard-fails rather than defaulting. There is no safe default -- a placeholder would derive
+      # addresses from a wallet nobody holds the keys to, and every deposit paid into one would be
+      # unrecoverable. Read the value off the signer's /internal/xpub so it cannot be mistyped.
+      - APP_DEPOSIT_ACCOUNT_XPUB=${DEPOSIT_ACCOUNT_XPUB:?set DEPOSIT_ACCOUNT_XPUB in .env}
+      # This service watches the derived addresses itself (custody.rs), matching USDT transfers by
+      # DESTINATION. Must name the same network the contract lives on, or every deposit goes
+      # unmatched forever.
       - APP_TRONGRID_URL=${TRONGRID_URL:-https://nile.trongrid.io}
       # Unkeyed TronGrid throttles hard, and a throttled watcher looks exactly like "nobody paid".
       - APP_TRONGRID_API_KEY=${TRONGRID_API_KEY:-}
