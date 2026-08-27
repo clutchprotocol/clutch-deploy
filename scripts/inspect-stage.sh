@@ -248,9 +248,40 @@ if [ "$PROBE" = "chain" ]; then
   docker logs clutch-stage-node1-1 2>&1 | head -40 | sed 's/^/    /'
 
   echo ""
-  echo "=== current height per node (a fresh genesis reads as a low number) ==="
+  echo "=== volume creation time — the decisive one ==="
+  # If a volume's CreatedAt is recent, it was DESTROYED and remade; the chain did not "reset", the
+  # storage went away. If it is old and the chain is still short, the node is wiping its own data.
   for n in 1 2 3; do
-    echo "    node${n}: started $(docker inspect -f '{{.State.StartedAt}}' "clutch-stage-node${n}-1" 2>/dev/null || echo '?')"
+    echo "    clutch-stage_node${n}-data: $(docker volume inspect "clutch-stage_node${n}-data" --format '{{.CreatedAt}}' 2>/dev/null || echo '(no such volume)')"
+  done
+
+  echo ""
+  echo "=== on-disk size of each chain DB ==="
+  # A 72k-block chain and a 900-block chain are not the same size. This distinguishes "node1 is
+  # behind and resyncing" from "every node restarted from genesis".
+  for n in 1 2 3; do
+    echo "    node${n}: $(docker exec "clutch-stage-node${n}-1" du -sh /app/data 2>/dev/null || echo '?')"
+  done
+
+  echo ""
+  echo "=== each node's own view of its height ==="
+  # Read from the node's OWN log, not from treasury-service: if node1 is merely resyncing from its
+  # peers, node2 and node3 still hold the long chain and will report a much higher number.
+  for n in 1 2 3; do
+    echo "--- node${n}"
+    docker logs --tail 3000 "clutch-stage-node${n}-1" 2>&1 \
+      | grep -aoE "(block|Block)[^0-9]{0,20}(index|height|number)[^0-9]{0,5}[0-9]+" \
+      | tail -2 | sed 's/^/    /' || echo "    (no height lines matched)"
+    echo "    started: $(docker inspect -f '{{.State.StartedAt}}' "clutch-stage-node${n}-1" 2>/dev/null || echo '?')"
+  done
+
+  echo ""
+  echo "=== did any node wipe or re-create its chain at startup? ==="
+  for n in 1 2 3; do
+    echo "--- node${n}"
+    docker logs "clutch-stage-node${n}-1" 2>&1 \
+      | grep -aiE "genesis|wipe|reset|cleanup|creating database|chain params|mismatch|import" \
+      | head -6 | sed 's/^/    /' || echo "    (nothing matched)"
   done
 fi
 
