@@ -155,7 +155,7 @@ if [ "$PROBE" = "sweeper" ]; then
   # lines of the same poll and nothing else. Grep for what actually matters instead.
   echo "=== sweeper / signer activity (filtered out of the 2s chain poll) ==="
   docker logs --tail 4000 clutch-stage-treasury-service-1 2>&1 \
-    | grep -aiE "sweep|swept|funded|fee_account|signer|alert" \
+    | grep -aiE "sweep|swept|funded|fee_account|signer|alert|authority|outbox" \
     | tail -25 \
     || echo "(no sweeper lines in the last 4000 log lines)"
 
