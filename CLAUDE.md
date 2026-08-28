@@ -21,7 +21,7 @@ Docker Compose orchestration for the full Clutch Protocol stack. Workspace overv
 | Service | Image / dev build context | Notes |
 |---------|---------------------------|-------|
 | `node1`..`node3` | `clutch-node` / `../clutch-node` | Validators. Each mounts `./config:/app/config:ro` **and `nodeN-data:/app/data`** with `DB_PATH=/app/data`, started with `--env nodeN` → reads `config/node/nodeN.toml`. WS-RPC 808N, P2P 400N, metrics 300N. node2/3 `depends_on: node1` (bootstrap peer `/dns4/node1/tcp/4001`). |
-| `clutch-hub-api` | `clutch-hub-api` / `../clutch-hub-api` | :3000. `CLUTCH_NODE_WS_URL=ws://node1:8081/ws`, config at `config/api/default.toml` (faucet key, JWT, referrers). Healthcheck: `curl /health`. |
+| `clutch-hub-api` | `clutch-hub-api` / `../clutch-hub-api` | :3000. `CLUTCH_NODE_WS_URL=ws://node3:8083/ws` (node1 and node2 fell behind; being the p2p bootstrap says nothing about which node is best to read), config at `config/api/default.toml` (faucet key, JWT, referrers). Healthcheck: `curl /health`. |
 | `clutch-hub-demo-app` | GHCR nginx image / **dev: raw `node:20-alpine`** | :5173→80. Dev runs Vite from bind-mounted source (see below). |
 | `clutch-explorer-backend` | `clutch-explorer-backend` / `../clutch-explorer/backend` | :8088 REST API. `APP_*` env overrides `config/explorer/default.toml`. Healthcheck on `/health`. |
 | `clutch-explorer-indexer` | **same image as backend** | Entrypoint override `/usr/local/bin/indexer --env default`. Polls node every 4s (`APP_INDEXER_POLL_INTERVAL_MS`), writes to Postgres. |
@@ -31,7 +31,15 @@ Docker Compose orchestration for the full Clutch Protocol stack. Workspace overv
 
 `depends_on` is ordering-only (no `condition: service_healthy`) — services must tolerate node1/postgres not being ready yet.
 
-**Chain state is on a volume, and only recently.** The node's DB path is `{DB_PATH or cwd}/{blockchain_name}.db`; with no `DB_PATH` that is the container's writable layer, so `up -d --force-recreate` — every deploy — silently destroyed the chain. Stage restarted from genesis on each deploy (block index observed going 72 → 13 across one), which for a redeemable token means minted CLT vanishing while the backing USDT stays at custody. `/app/data` must be created **in clutch-node's Dockerfile owned by `clutch`**, because Docker creates a mount path absent from the image as root-owned and the node runs as uid 999. This is also what finally makes `reset_chain` mean something: a plain deploy no longer resets the chain, so `down -v` is the only thing that does.
+**Chain state was destroyed on every deploy, for TWO separate reasons.** Both are fixed; the first one was fixed months before the second was even found, which is why "the volume fix" appeared not to work.
+
+1. **No volume.** The node's DB path is `{DB_PATH or cwd}/{blockchain_name}.db`; with no `DB_PATH` that is the container's writable layer, so `up -d --force-recreate` discarded the chain. Fixed with `DB_PATH=/app/data` and per-node volumes. `/app/data` must be created **in clutch-node's Dockerfile owned by `clutch`**, because Docker creates a mount path absent from the image as root-owned and the node runs as uid 999.
+
+2. **`developer_mode = true`, which makes the node delete its own database on shutdown** (`blockchain.rs` `shutdown_blockchain` → `cleanup_db` → `delete_database`). All three stage configs had it. Every deploy erased the chain of whichever node completed its graceful stop inside the 30s grace period; the ones SIGKILLed first kept theirs, so the loss moved between nodes and looked like anything but a config flag. Observed: node3 went 44M/height 117573 → 15M → 212K/height 100 across restarts while node1 and node2 sat at 24554.
+
+The second one cost a long investigation that blamed the volumes, then resyncing, then the deploy script — the volumes were intact from 2026-07-31 throughout and nothing in the deploy path ever removed them. **`developer_mode` must stay false anywhere the chain matters.** clutch-node now also refuses to delete when `DB_PATH` is set, so the flag cannot silently erase a mounted volume.
+
+For a redeemable token this class of bug means minted CLT vanishing while the backing USDT stays at custody — and downstream it is why the treasury read a supply frozen near genesis, judged its reserve against it, and submitted mints into it. `reset_chain` now means something too: a plain deploy no longer resets the chain, so `down -v` is the only thing that does.
 
 ## Dev overlay specifics (`docker-compose.dev.yml`)
 
@@ -84,7 +92,14 @@ Always pass the full `-f` list and `-p` on every command — omitting them targe
 
 **nginx on the stage VPS is not ours.** The `nginx-stage` container there belongs to the **`v2ray`** compose project and mounts `/home/v2ray-docker/config/nginx/nginx.stage.cloudflare-flex.conf` — a hand-maintained superset serving the clutch vhosts alongside v2ray's (`de2`, `de.wenda.ir`, `3x`, `sub`, `de-grpc`). It owns :80, so `docker-compose.stage.nginx.yml` cannot run there, and **editing `config/nginx/*.conf` in this repo does nothing on that host**. A `/payment/` route was added here, deployed, verified present on the server, and still 405'd for a full cycle before anyone checked which file was mounted. `deploy-stage.yml` now patches the mounted config in place each deploy (idempotent, `nginx -t` with rollback) and gates on `/payment/` returning 401 rather than 405.
 
-`.github/workflows/inspect-stage.yml` is a read-only probe (`nginx` / `containers` / `git`) for exactly this class of question — what is actually running and what is actually mounted. Reach for it before assuming the repo describes the host.
+`.github/workflows/inspect-stage.yml` is a read-only probe for exactly this class of question — what is actually running and what is actually mounted. Reach for it before assuming the repo describes the host. Probes: `nginx`, `containers`, `git`, `treasury`, `sweeper`, `chain`, `bitcart`.
+
+**Read node heights from `chain`, and trust nothing else.** Two earlier ways of getting that number were wrong in ways that misdirected an investigation: grepping node logs returns the block numbers a node is SERVING to a syncing peer (node3 appeared to fall from 117,573 to 17,463 while it was feeding node1), and the JSON-RPC ports speak WebSocket only, so curling them returns nothing at all. The probe scrapes `latest_block_index` from the Prometheus endpoint on 3001-3003.
+
+Three write workflows exist alongside it, each requiring a typed confirmation:
+`provision-treasury-secrets.yml` (fills missing `.env` values, never overwrites),
+`resume-minting.yml` (clears the breaker, refuses while reconciliation is still a mismatch), and
+`mint-intent-create.yml` / `mint-intent-approve.yml` (the four-eyes manual mint, deliberately two dispatches so one run cannot be both roles).
 
 ## Gotchas
 
