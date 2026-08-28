@@ -4,7 +4,13 @@ libp2p_topic_name = "test-net"
 blockchain_name = "clutch-node-test-3"
 author_public_key = "0xc4f3f661a43e099aedb8e396d9de1a831a1b4adc"
 author_secret_key = "2d75bdfabbbaa65d7a182968e579adf2566fbb6931411752dd834c56bbf092c9"
-developer_mode = true
+# MUST stay false anywhere the chain matters. On shutdown, developer_mode makes the node
+# DELETE its own RocksDB (blockchain.rs shutdown_blockchain -> cleanup_db -> delete_database).
+# On stage that meant every deploy destroyed the chain of whichever node finished its
+# graceful stop inside the 30s grace period; the ones SIGKILLed first kept theirs, so the
+# loss looked random and was blamed on volumes, on resyncing, and on the deploy script in
+# turn. The volumes were fine the whole time -- the node was erasing itself.
+developer_mode = false
 websocket_addr = "0.0.0.0:8083"
 listen_addrs = ["/ip4/0.0.0.0/tcp/4003"]
 bootstrap_nodes = ["/dns4/node1/tcp/4001"]
