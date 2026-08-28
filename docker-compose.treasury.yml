@@ -127,6 +127,20 @@ services:
       # Threshold, because a sweep costs TRX for energy and per-deposit sweeping can exceed what it
       # moves at the $1 minimum. The max age stops sub-threshold balances sitting forever and
       # fragmenting the reserve across addresses nobody revisits.
+      # Mint caps, surfaced with TODAY'S values as the defaults -- this changes nothing on its own.
+      #
+      # They were reachable only by editing default.toml and rebuilding the image, which is a poor
+      # place for a spending limit: the $990 correction for an overpaid deposit was refused by the
+      # per-transaction cap ("amount 990000000 exceeds per-transaction cap 50000000 — escalate to
+      # multisig"), and the only ways out were a code change or splitting the payment to get under
+      # the limit. Now it is one line in .env.
+      #
+      # These are pilot figures: $50 per transaction, $500 per day. Note they now gate ORDINARY
+      # deposits too, not just manual corrections -- overpayments credit what actually arrived, so
+      # any deposit over the per-transaction cap parks for a human. Worth choosing deliberately
+      # rather than inheriting.
+      - APP_PER_TX_MINT_CAP_CLT=${PER_TX_MINT_CAP_CLT:-50000000}
+      - APP_DAILY_MINT_CAP_CLT=${DAILY_MINT_CAP_CLT:-500000000}
       - APP_SWEEP_THRESHOLD_USDT=${SWEEP_THRESHOLD_USDT:-100000000}
       - APP_SWEEP_MAX_AGE_HOURS=${SWEEP_MAX_AGE_HOURS:-168}
     restart: unless-stopped
