@@ -67,11 +67,15 @@ if [ "$ACTION" = "create" ]; then
   # Initiator token, read inside the container and never printed. No deposit fields: this is a
   # manual mint with no new on-chain transfer to verify, so an Approver must judge it rather than
   # the verifier auto-approving on evidence.
-  RESP=$(docker exec "$SVC" sh -c \
-    "curl -fsS -X POST -H 'Authorization: Bearer \$APP_INITIATOR_TOKEN' \
-     -H 'Content-Type: application/json' \
-     -d '{\"beneficiary\":\"$BENEFICIARY\",\"amount_clt\":$AMOUNT_CLT}' \
-     http://127.0.0.1:8090/internal/mint-intents" 2>&1 || true)
+  # The payload is built here and handed over with `docker exec -e`, and the token is expanded
+  # INSIDE the container. Getting this backwards is what made the first attempt 401: the header sat
+  # in single quotes within the sh -c string, so the container never expanded the variable and curl
+  # sent the literal text "$APP_INITIATOR_TOKEN" as the bearer token.
+  PAYLOAD=$(printf '{"beneficiary":"%s","amount_clt":%s}' "$BENEFICIARY" "$AMOUNT_CLT")
+  RESP=$(docker exec -e PAYLOAD="$PAYLOAD" "$SVC" sh -c \
+    'curl -fsS -X POST -H "Authorization: Bearer $APP_INITIATOR_TOKEN" \
+     -H "Content-Type: application/json" -d "$PAYLOAD" \
+     http://127.0.0.1:8090/internal/mint-intents' 2>&1 || true)
 
   echo "    response: $RESP"
   ID=$(printf '%s' "$RESP" | sed -n 's/.*"id":"\([0-9a-f-]*\)".*/\1/p')
@@ -110,9 +114,10 @@ if [ "$ACTION" = "approve" ]; then
 
   echo ""
   echo "=== approving ==="
-  RESP=$(docker exec "$SVC" sh -c \
-    "curl -fsS -X POST -H 'Authorization: Bearer \$APP_APPROVER_TOKEN' \
-     http://127.0.0.1:8090/internal/mint-intents/$INTENT_ID/approve" 2>&1 || true)
+  # Same shape as create: the id travels via -e, the token expands inside the container.
+  RESP=$(docker exec -e IID="$INTENT_ID" "$SVC" sh -c \
+    'curl -fsS -X POST -H "Authorization: Bearer $APP_APPROVER_TOKEN" \
+     "http://127.0.0.1:8090/internal/mint-intents/$IID/approve"' 2>&1 || true)
   echo "    response: $RESP"
 
   echo ""
