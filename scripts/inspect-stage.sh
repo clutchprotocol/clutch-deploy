@@ -202,6 +202,13 @@ if [ "$PROBE" = "sweeper" ]; then
   # and reconciliation sets it without anything else surfacing it.
   tq "breaker" "select minting_halted, halt_reason, updated_at from breaker_state;"
 
+  # Did the received_usdt migration actually land? The overpayment fix depends on this column
+  # existing; without it every deposit credit falls back to the requested amount silently.
+  echo ""
+  echo "=== orchestrator: received_usdt column ==="
+  docker exec clutch-stage-orchestrator-postgres-1 psql -U orchestrator -d orchestrator     -c "select column_name, data_type from information_schema.columns
+        where table_name = 'deposit_intents' and column_name = 'received_usdt';" 2>&1 | sed 's/^/    /'
+
   tq "last reconciliation runs" \
      "select status, ledger_liability, custody_reported, detail->>'trongrid_balance' as trongrid,
              run_at
