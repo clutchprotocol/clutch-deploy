@@ -73,7 +73,7 @@ if [ "$ACTION" = "create" ]; then
   # sent the literal text "$APP_INITIATOR_TOKEN" as the bearer token.
   PAYLOAD=$(printf '{"beneficiary":"%s","amount_clt":%s}' "$BENEFICIARY" "$AMOUNT_CLT")
   RESP=$(docker exec -e PAYLOAD="$PAYLOAD" "$SVC" sh -c \
-    'curl -fsS -X POST -H "Authorization: Bearer $APP_INITIATOR_TOKEN" \
+    'curl -sS --fail-with-body -X POST -H "Authorization: Bearer $APP_INITIATOR_TOKEN" \
      -H "Content-Type: application/json" -d "$PAYLOAD" \
      http://127.0.0.1:8090/internal/mint-intents' 2>&1 || true)
 
@@ -116,7 +116,7 @@ if [ "$ACTION" = "approve" ]; then
   echo "=== approving ==="
   # Same shape as create: the id travels via -e, the token expands inside the container.
   RESP=$(docker exec -e IID="$INTENT_ID" "$SVC" sh -c \
-    'curl -fsS -X POST -H "Authorization: Bearer $APP_APPROVER_TOKEN" \
+    'curl -sS --fail-with-body -X POST -H "Authorization: Bearer $APP_APPROVER_TOKEN" \
      "http://127.0.0.1:8090/internal/mint-intents/$IID/approve"' 2>&1 || true)
   echo "    response: $RESP"
 
