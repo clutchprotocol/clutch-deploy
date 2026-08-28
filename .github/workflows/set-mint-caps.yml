@@ -1,0 +1,74 @@
+# Set the treasury's mint caps on stage.
+#
+# These are SAFETY LIMITS. This workflow exists so that changing one is a deliberate, attributed act
+# with a reason in the log — not an edit someone makes on the host and forgets. Put them back
+# afterwards: a cap raised "temporarily" and left is a cap that no longer exists.
+#
+# Both caps matter. check_mint tests the per-transaction limit AND the rolling daily total, so a
+# payment over the daily figure is refused even when the per-transaction one would allow it.
+#
+# The caps also gate ORDINARY deposits, not just manual corrections: overpayments credit what
+# actually arrived, so any deposit above the per-transaction cap parks for a human.
+
+name: Set mint caps (stage)
+
+on:
+  workflow_dispatch:
+    inputs:
+      per_tx:
+        description: "Per-transaction cap in micro-dollars (pilot default: 50000000 = $50)"
+        required: true
+        default: "50000000"
+      daily:
+        description: "Daily cap in micro-dollars (pilot default: 500000000 = $500)"
+        required: true
+        default: "500000000"
+      reason:
+        description: "Why the limits are changing. Recorded in this log and nowhere else."
+        required: true
+      confirm:
+        description: 'Type "set" to confirm changing a safety limit'
+        required: true
+        default: ""
+
+concurrency:
+  group: mint-caps
+  cancel-in-progress: false
+
+jobs:
+  set:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check the confirmation
+        run: |
+          if [ "${{ inputs.confirm }}" != "set" ]; then
+            echo "Refusing: confirm was '${{ inputs.confirm }}', expected 'set'."
+            exit 1
+          fi
+
+      # Through env, never interpolated into the script body: a reason containing backticks or
+      # $(...) would otherwise execute as shell.
+      - name: Record who and why
+        env:
+          ACTOR: ${{ github.actor }}
+          REASON: ${{ inputs.reason }}
+        run: |
+          echo "dispatched by $ACTOR"
+          echo "reason: $REASON"
+
+      - name: Apply via SSH
+        uses: appleboy/ssh-action@v1.2.0
+        env:
+          PER_TX: ${{ inputs.per_tx }}
+          DAILY: ${{ inputs.daily }}
+        with:
+          envs: PER_TX,DAILY
+          host: ${{ secrets.STAGE_HOST }}
+          username: ${{ secrets.STAGE_USER }}
+          password: ${{ secrets.STAGE_SSH_PASSWORD }}
+          script_stop: true
+          script: |
+            set -euo pipefail
+            cd "${{ secrets.STAGE_DEPLOY_PATH }}"
+            git pull --ff-only
+            bash scripts/set-mint-caps.sh
