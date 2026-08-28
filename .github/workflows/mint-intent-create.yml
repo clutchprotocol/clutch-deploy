@@ -1,0 +1,75 @@
+# Create a mint intent on stage. Half of the four-eyes flow — this one MINTS NOTHING.
+#
+# A mint intent created here sits at `created` until a DIFFERENT person runs "Approve mint intent".
+# The treasury derives `created_by` and `approved_by` from the authenticated role and a DB CHECK
+# refuses a row where they are equal, so the role separation is enforced in the database.
+#
+# What is NOT enforced: that two different people ran the two workflows. Both tokens live in the
+# same host `.env`, so anyone who can dispatch this can dispatch the approval too. The Actions log
+# is the audit trail for who actually did what — the database only records the role strings.
+#
+# This is for manual corrections (an overpaid deposit owed more CLT, a credit that has to be made
+# good). Ordinary deposits do not come through here: the orchestrator creates those intents and the
+# verifier approves them on independent on-chain evidence.
+
+name: Create mint intent (stage)
+
+on:
+  workflow_dispatch:
+    inputs:
+      beneficiary:
+        description: "Address to credit"
+        required: true
+      amount_clt:
+        description: "Amount in micro-dollars (1 USD = 1000000, so $990 = 990000000)"
+        required: true
+      reason:
+        description: "Why money is being created. Recorded in this log and nowhere else."
+        required: true
+      confirm:
+        description: 'Type "create" to confirm'
+        required: true
+        default: ""
+
+concurrency:
+  group: mint-intent
+  cancel-in-progress: false
+
+jobs:
+  create:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check the confirmation
+        run: |
+          if [ "${{ inputs.confirm }}" != "create" ]; then
+            echo "Refusing: confirm was '${{ inputs.confirm }}', expected 'create'."
+            exit 1
+          fi
+
+      # Through env, never interpolated into the script body. A reason containing backticks or
+      # $(...) would otherwise execute as shell in a workflow whose other half creates money.
+      - name: Record who asked
+        env:
+          ACTOR: ${{ github.actor }}
+          REASON: ${{ inputs.reason }}
+        run: |
+          echo "dispatched by $ACTOR"
+          echo "reason: $REASON"
+
+      - name: Create via SSH
+        uses: appleboy/ssh-action@v1.2.0
+        env:
+          BENEFICIARY: ${{ inputs.beneficiary }}
+          AMOUNT_CLT: ${{ inputs.amount_clt }}
+          REASON: ${{ inputs.reason }}
+        with:
+          envs: BENEFICIARY,AMOUNT_CLT,REASON
+          host: ${{ secrets.STAGE_HOST }}
+          username: ${{ secrets.STAGE_USER }}
+          password: ${{ secrets.STAGE_SSH_PASSWORD }}
+          script_stop: true
+          script: |
+            set -euo pipefail
+            cd "${{ secrets.STAGE_DEPLOY_PATH }}"
+            git pull --ff-only
+            ACTION=create bash scripts/mint-intent.sh

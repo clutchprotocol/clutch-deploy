@@ -1,0 +1,60 @@
+# Approve a mint intent on stage. The other half of the four-eyes flow — THIS ONE CREATES MONEY.
+#
+# Run by someone OTHER than whoever created the intent. The treasury enforces that `created_by` and
+# `approved_by` differ, but it knows only role strings; that two different people were involved is
+# procedural, and the Actions log is where it is recorded.
+#
+# Approval is not authorisation to mint. The outbox re-checks the per-transaction and daily caps and
+# the node's sync state immediately before submitting, and refuses on any of them.
+
+name: Approve mint intent (stage)
+
+on:
+  workflow_dispatch:
+    inputs:
+      intent_id:
+        description: "Mint intent id (uuid) from the create run"
+        required: true
+      confirm:
+        description: 'Type "approve" to confirm creating money'
+        required: true
+        default: ""
+
+concurrency:
+  group: mint-intent
+  cancel-in-progress: false
+
+jobs:
+  approve:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check the confirmation
+        run: |
+          if [ "${{ inputs.confirm }}" != "approve" ]; then
+            echo "Refusing: confirm was '${{ inputs.confirm }}', expected 'approve'."
+            exit 1
+          fi
+
+      - name: Record who approved
+        env:
+          ACTOR: ${{ github.actor }}
+          INTENT_ID: ${{ inputs.intent_id }}
+        run: |
+          echo "approved by $ACTOR"
+          echo "intent: $INTENT_ID"
+
+      - name: Approve via SSH
+        uses: appleboy/ssh-action@v1.2.0
+        env:
+          INTENT_ID: ${{ inputs.intent_id }}
+        with:
+          envs: INTENT_ID
+          host: ${{ secrets.STAGE_HOST }}
+          username: ${{ secrets.STAGE_USER }}
+          password: ${{ secrets.STAGE_SSH_PASSWORD }}
+          script_stop: true
+          script: |
+            set -euo pipefail
+            cd "${{ secrets.STAGE_DEPLOY_PATH }}"
+            git pull --ff-only
+            ACTION=approve bash scripts/mint-intent.sh
