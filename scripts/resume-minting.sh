@@ -38,8 +38,13 @@ echo ""
 echo "=== resuming ==="
 # The token is read INSIDE the container and never printed. Only an Approver may resume; the role
 # split is the whole point of the four-eyes design and this uses it rather than writing to the table.
+#
+# APP_APPROVER_TOKEN, not APP_TREASURY_APPROVER_TOKEN. Both exist on this stack and differ by which
+# side holds them: treasury-service reads APP_APPROVER_TOKEN as its own credential, while the
+# orchestrator carries APP_TREASURY_* as the tokens it SENDS to the treasury. Getting it wrong is a
+# plain 401 with nothing naming the cause.
 RESP=$(docker exec "$SVC" sh -c \
-  'curl -fsS -X POST -H "Authorization: Bearer $APP_TREASURY_APPROVER_TOKEN" \
+  'curl -fsS -X POST -H "Authorization: Bearer $APP_APPROVER_TOKEN" \
    http://127.0.0.1:8090/internal/resume' 2>&1 || true)
 echo "    response: ${RESP:-<none>}"
 
