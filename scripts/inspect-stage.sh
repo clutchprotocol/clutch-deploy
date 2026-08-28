@@ -265,24 +265,18 @@ if [ "$PROBE" = "chain" ]; then
   done
 
   echo ""
-  echo "=== each node's own height, ASKED not inferred ==="
-  # Previously this grepped block numbers out of the logs, which was wrong in a way that sent an
-  # investigation sideways: a node serving blocks to a syncing peer logs THAT peer's block numbers,
-  # so node3 appeared to drop from 117,573 to 17,463 when it was simply feeding node1. Ask each
-  # node over its own JSON-RPC instead. The node serves HTTP on the same port as its WebSocket.
+  echo "=== each node's own height, from its metrics endpoint ==="
+  # NOT the JSON-RPC port: 8081-8083 speak WebSocket only, so curling them returns nothing and the
+  # previous version reported "(no answer)" for every node -- true, but useless.
+  # metric.rs serves a Prometheus gauge on 3001-3003 over plain HTTP, which is curl-able.
+  #
+  # And NOT grepped from the logs either: a node serving blocks to a syncing peer logs THAT peer's
+  # block numbers, which made node3 look like it fell from 117,573 to 17,463 while it was feeding
+  # node1, and sent an investigation the wrong way for an hour.
   for n in 1 2 3; do
-    port=$((8080 + n))
-    resp=$(docker exec clutch-stage-tron-signer-1 sh -c \
-      "curl -fsS --max-time 8 -X POST http://node${n}:${port} -H 'Content-Type: application/json' \
-       -d '{\"jsonrpc\":\"2.0\",\"method\":\"get_chain_info\",\"params\":null,\"id\":\"probe\"}'" \
-      2>/dev/null || true)
-    if [ -z "$resp" ]; then
-      echo "    node${n}: (no answer on :${port})"
-    else
-      h=$(printf '%s' "$resp" | sed -n 's/.*"latest_block_index":[ ]*\([0-9]*\).*/\1/p')
-      s=$(printf '%s' "$resp" | sed -n 's/.*"total_supply":"\([0-9]*\)".*/\1/p')
-      echo "    node${n}: height=${h:-?} total_supply=${s:-?}"
-    fi
+    mport=$((3000 + n))
+    h=$(docker exec clutch-stage-tron-signer-1 sh -c       "curl -fsS --max-time 8 http://node${n}:${mport}/metrics" 2>/dev/null       | grep -aE '^latest_block_index' | awk '{print $2}' | head -1)
+    echo "    node${n}: height=${h:-<no answer on :${mport}>}"
     echo "            started $(docker inspect -f '{{.State.StartedAt}}' "clutch-stage-node${n}-1" 2>/dev/null || echo '?')"
   done
 
