@@ -69,8 +69,15 @@ if ! has CUSTODY_TRON_ADDRESS; then
   exit 1
 fi
 
-cp -a .env ".env.bak.$(date +%Y%m%d-%H%M%S)"
-echo "=== backed up .env ==="
+BACKUP=".env.bak.$(date +%Y%m%d-%H%M%S)"
+cp -a .env "$BACKUP"
+# The backup holds DEPOSIT_MNEMONIC, so it is exactly as sensitive as .env itself. cp -a copies the
+# mode, and the FIRST backup was taken before .env had been chmodded 600 -- so it inherited whatever
+# the file happened to be, and sat on the host readable. Tighten every backup on every run, not just
+# the one being made now, so earlier ones are fixed the next time this executes.
+chmod 600 "$BACKUP"
+chmod 600 .env.bak.* 2>/dev/null || true
+echo "=== backed up .env (mode 600) ==="
 
 # These two decide WHICH CHAIN and WHICH TOKEN stage is operating on. They have been coming from
 # docker-compose.treasury.yml's defaults, so editing that file would move a running stage to a
