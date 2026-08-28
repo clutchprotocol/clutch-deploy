@@ -1,0 +1,50 @@
+# Clear the treasury's minting breaker on stage.
+#
+# The breaker latches on a reconciliation mismatch and only a human clears it. That is deliberate
+# and this workflow does not weaken it — it makes the clearing auditable and repeatable rather than
+# an ad-hoc curl on the host, and keeps the Approver token there instead of in someone's terminal.
+#
+# scripts/resume-minting.sh refuses to resume while the latest reconciliation run is still a
+# mismatch, because that would re-halt on the next pass and a breaker cleared in a loop stops
+# meaning anything.
+#
+# Clearing this does NOT make minting unconditional: the node staleness guard is separate and keeps
+# mints parked while the node reports is_syncing.
+
+name: Resume minting (stage, clears the breaker)
+
+on:
+  workflow_dispatch:
+    inputs:
+      confirm:
+        description: 'Type "resume" to confirm clearing the minting breaker'
+        required: true
+        default: ""
+
+concurrency:
+  group: resume-minting
+  cancel-in-progress: false
+
+jobs:
+  resume:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check the confirmation
+        run: |
+          if [ "${{ inputs.confirm }}" != "resume" ]; then
+            echo "Refusing: confirm was '${{ inputs.confirm }}', expected 'resume'."
+            exit 1
+          fi
+
+      - name: Resume via SSH
+        uses: appleboy/ssh-action@v1.2.0
+        with:
+          host: ${{ secrets.STAGE_HOST }}
+          username: ${{ secrets.STAGE_USER }}
+          password: ${{ secrets.STAGE_SSH_PASSWORD }}
+          script_stop: true
+          script: |
+            set -euo pipefail
+            cd "${{ secrets.STAGE_DEPLOY_PATH }}"
+            git pull --ff-only
+            bash scripts/resume-minting.sh
