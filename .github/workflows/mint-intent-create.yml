@@ -26,6 +26,14 @@ on:
       reason:
         description: "Why money is being created. Recorded in this log and nowhere else."
         required: true
+      override_duplicate:
+        description: 'Ignore the duplicate guard (only when the chain proves an existing "credited" intent was never delivered)'
+        required: false
+        default: "false"
+      override_reason:
+        description: "Justification for the override. Required when overriding."
+        required: false
+        default: ""
       confirm:
         description: 'Type "create" to confirm'
         required: true
@@ -62,8 +70,10 @@ jobs:
           BENEFICIARY: ${{ inputs.beneficiary }}
           AMOUNT_CLT: ${{ inputs.amount_clt }}
           REASON: ${{ inputs.reason }}
+          OVERRIDE_DUPLICATE: ${{ inputs.override_duplicate }}
+          OVERRIDE_REASON: ${{ inputs.override_reason }}
         with:
-          envs: BENEFICIARY,AMOUNT_CLT,REASON
+          envs: BENEFICIARY,AMOUNT_CLT,REASON,OVERRIDE_DUPLICATE,OVERRIDE_REASON
           host: ${{ secrets.STAGE_HOST }}
           username: ${{ secrets.STAGE_USER }}
           password: ${{ secrets.STAGE_SSH_PASSWORD }}

@@ -48,6 +48,21 @@ if [ "$ACTION" = "create" ]; then
      where beneficiary = '$BENEFICIARY' and amount_clt = $AMOUNT_CLT
        and status in ('created','approved','submitted','credited');" 2>/dev/null | tr -d '[:space:]')
 
+  # The guard assumes a `credited` intent means the CLT is on chain. A chain reset breaks that
+  # assumption: stage holds an intent marked credited whose mint was destroyed, leaving a depositor
+  # short. Re-issuing is then correct and the guard is wrong -- but only in that case, so the
+  # override is explicit, needs its own justification, and stays off by default.
+  if [ "${DUPES:-0}" != "0" ] && [ "${OVERRIDE_DUPLICATE:-false}" = "true" ]; then
+    : "${OVERRIDE_REASON:?OVERRIDE_REASON must be set when overriding the duplicate guard}"
+    echo "!!! DUPLICATE GUARD OVERRIDDEN — $DUPES matching intent(s) exist and are being ignored."
+    echo "!!! justification: $OVERRIDE_REASON"
+    echo "!!! Verify the shortfall on chain BEFORE approving:"
+    echo "!!!   inspect-stage.yml -f probe=balance -f address=$BENEFICIARY"
+    echo "!!! Approval is still a separate dispatch by a second person. Nothing is minted here."
+    echo ""
+    DUPES=0
+  fi
+
   if [ "${DUPES:-0}" != "0" ]; then
     echo "ABORT: $DUPES existing intent(s) already match this beneficiary and amount:"
     docker exec "$PG" psql -U treasury -d treasury \
