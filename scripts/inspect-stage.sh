@@ -158,12 +158,16 @@ if [ "$PROBE" = "balance" ]; then
   : "${ADDRESS:?ADDRESS must be set for the balance probe}"
 
   PG=clutch-stage-clutch-explorer-postgres-1
+  # Credentials come from EXPLORER_POSTGRES_{USER,DB} in .env, so read them out of the container
+  # rather than hardcoding: guessing "explorer" failed with role "explorer" does not exist.
+  PGU=$(docker exec "$PG" printenv POSTGRES_USER)
+  PGD=$(docker exec "$PG" printenv POSTGRES_DB)
   echo "=== on-chain balance for $ADDRESS ==="
-  docker exec "$PG" psql -U explorer -d explorer -c     "select address, balance, nonce, tx_count, updated_at from accounts where address = '$ADDRESS';"     2>&1 | sed 's/^/    /'
+  docker exec "$PG" psql -U "$PGU" -d "$PGD" -c     "select address, balance, nonce, tx_count, updated_at from accounts where address = '$ADDRESS';"     2>&1 | sed 's/^/    /'
 
   echo ""
   echo "=== how far behind is the index? ==="
-  docker exec "$PG" psql -U explorer -d explorer -c     "select * from indexer_cursor;" 2>&1 | sed 's/^/    /'
+  docker exec "$PG" psql -U "$PGU" -d "$PGD" -c     "select * from indexer_cursor;" 2>&1 | sed 's/^/    /'
   echo "    (a stale cursor means this balance is stale too, not that the account is empty)"
 
   echo ""
