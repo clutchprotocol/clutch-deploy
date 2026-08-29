@@ -16,7 +16,9 @@ set -euo pipefail
 INTENT_ID="${INTENT_ID:?INTENT_ID must be set}"
 REASON="${REASON:?REASON must be set — it lands in the event description and is the only record of why}"
 
-PSQL="docker exec -i clutch-stage-treasury-db-1 psql -U treasury -d treasury -t -A"
+# Container name copied from inspect-stage.sh, not guessed -- the first version of this script
+# invented clutch-stage-treasury-db-1, which does not exist.
+PSQL="docker exec -i clutch-stage-treasury-postgres-1 psql -U treasury -d treasury -t -A"
 
 # The intent must exist and be one the ledger actually counted. Reversing a 'created' intent would
 # subtract liability that was never added.
