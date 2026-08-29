@@ -80,6 +80,20 @@ if [ "$PROBE" = "treasury" ]; then
   # or `env` wholesale here: that environment also carries MINT_AUTHORITY_SECRET, the
   # four-eyes tokens, BITCART_TOKEN and both Postgres passwords, and this log is
   # readable by anyone with repo access.
+  # Unkeyed TronGrid throttles, and a throttled watcher looks exactly like "nobody paid" -- the
+  # failure this stack is most likely to misread. Nothing surfaced it before, so the API-key
+  # question could only be argued from theory.
+  echo "=== TronGrid throttling actually observed? ==="
+  HITS=$(docker logs --since 24h clutch-stage-payment-orchestrator-1 2>&1     | grep -aciE "429|rate.?limit|too many request" || true)
+  echo "    ${HITS:-0} throttle-shaped lines in the last 24h of orchestrator logs"
+  if [ "${HITS:-0}" != "0" ]; then
+    docker logs --since 24h clutch-stage-payment-orchestrator-1 2>&1       | grep -aiE "429|rate.?limit|too many request" | tail -5 | sed 's/^/    /'
+    echo "    -> an API key is no longer optional; deposits may be going unseen."
+  else
+    echo "    -> unkeyed polling is coping at current volume. A key is headroom, not a live fault."
+  fi
+  echo ""
+
   echo "=== treasury / orchestrator settings (non-secret keys only) ==="
   for c in treasury-service payment-orchestrator; do
     echo "--- clutch-stage-${c}-1"
