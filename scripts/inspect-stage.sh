@@ -162,7 +162,18 @@ if [ "$PROBE" = "balance" ]; then
   # rather than hardcoding: guessing "explorer" failed with role "explorer" does not exist.
   PGU=$(docker exec "$PG" printenv POSTGRES_USER)
   PGD=$(docker exec "$PG" printenv POSTGRES_DB)
-  echo "=== on-chain balance for $ADDRESS ==="
+  # Ask the node itself first. The explorer index can be empty or behind, and an empty index
+  # reads exactly like an empty account -- which is the mistake this probe exists to prevent.
+  echo "=== balance straight from the node (authoritative) ==="
+  # The node images are Rust-slim with no interpreter, so the client runs in a throwaway python
+  # container on the stack's own network. Cheap, and it leaves nothing behind.
+  for n in 1 2 3; do
+    R=$(docker run --rm --network clutch-stage_clutch-network -v "$PWD/scripts:/s:ro"           python:3-alpine python3 /s/node-rpc.py "ws://node$n:808$n/ws"           get_account_balance "{\"address\":\"$ADDRESS\"}" 2>&1 | tail -1)
+    echo "    node$n: $R"
+  done
+
+  echo ""
+  echo "=== the explorer's index (secondary — can be empty or behind) ==="
   docker exec "$PG" psql -U "$PGU" -d "$PGD" -c     "select address, balance, nonce, tx_count, updated_at from accounts where address = '$ADDRESS';"     2>&1 | sed 's/^/    /'
 
   echo ""
