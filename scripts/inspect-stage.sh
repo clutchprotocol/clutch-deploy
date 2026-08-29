@@ -149,6 +149,29 @@ if [ "$PROBE" = "treasury" ]; then
   fi
 fi
 
+if [ "$PROBE" = "balance" ]; then
+  # What an address ACTUALLY holds on chain, read from the explorer's index rather than inferred
+  # from total_supply. Inferring is how a missing mint stayed invisible: supply sitting a round
+  # number above genesis looks correct until you ask who holds it.
+  #
+  # Read-only. ADDRESS comes from the workflow input.
+  : "${ADDRESS:?ADDRESS must be set for the balance probe}"
+
+  PG=clutch-stage-clutch-explorer-postgres-1
+  echo "=== on-chain balance for $ADDRESS ==="
+  docker exec "$PG" psql -U explorer -d explorer -c     "select address, balance, nonce, tx_count, updated_at from accounts where address = '$ADDRESS';"     2>&1 | sed 's/^/    /'
+
+  echo ""
+  echo "=== how far behind is the index? ==="
+  docker exec "$PG" psql -U explorer -d explorer -c     "select * from indexer_cursor;" 2>&1 | sed 's/^/    /'
+  echo "    (a stale cursor means this balance is stale too, not that the account is empty)"
+
+  echo ""
+  echo "=== what the ledger believes it credited this address ==="
+  docker exec clutch-stage-treasury-postgres-1 psql -U treasury -d treasury -c     "select amount_clt, status, created_at from mint_intents
+     where beneficiary = '$ADDRESS' order by created_at;" 2>&1 | sed 's/^/    /'
+fi
+
 if [ "$PROBE" = "sweeper" ]; then
   # Tailing this service is useless: clutch_chain::node_client logs a get_chain_info request AND
   # its response at INFO every 2 seconds (the outbox poll), so `docker logs --tail 30` is thirty
