@@ -275,6 +275,11 @@ if [ "$PROBE" = "sweeper" ]; then
       from chain_outbox o join mint_intents i on i.id = o.intent_id
       order by o.id desc limit 10;"
 
+  # The watcher credits nothing while its cursor sits above the chain head: process_range returns
+  # None when bound <= cursor, silently and forever. A chain reset leaves exactly that state, since
+  # the cursor lives in Postgres and outlives the chain it was counting.
+  tq "watcher chain cursor" "select last_processed_height from chain_cursor;"
+
   tq "mint intents" \
      "select id, status, beneficiary, amount_clt, expected_amount_usdt, deposit_address,
              swept_at is not null as swept,
