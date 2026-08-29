@@ -1,0 +1,67 @@
+# Record that a mint the ledger holds was destroyed on chain.
+#
+# For the case where a node lost its database and the chain no longer has a mint the ledger counted.
+# Liability then exceeds custody and the breaker halts minting — correctly, because the books
+# disagree. This is how the books are brought back into agreement without pretending a redemption
+# happened.
+#
+# It does NOT create or destroy CLT on chain, and no USDT moves. If a payout is owed, this is the
+# wrong tool — that is a redemption.
+
+name: Reverse a lost mint (stage)
+
+on:
+  workflow_dispatch:
+    inputs:
+      intent_id:
+        description: "Mint intent whose on-chain mint no longer exists"
+        required: true
+      reason:
+        description: "Why. Lands in the event description and is the permanent record."
+        required: true
+      confirm:
+        description: 'Type "reverse" to confirm adjusting the reserve ledger'
+        required: true
+        default: ""
+
+concurrency:
+  group: treasury-ledger
+  cancel-in-progress: false
+
+jobs:
+  reverse:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check the confirmation
+        run: |
+          if [ "${{ inputs.confirm }}" != "reverse" ]; then
+            echo "Refusing: confirm was '${{ inputs.confirm }}', expected 'reverse'."
+            exit 1
+          fi
+
+      # Through env, never interpolated into the script body: a reason containing backticks or
+      # $(...) would otherwise execute as shell.
+      - name: Record who and why
+        env:
+          ACTOR: ${{ github.actor }}
+          REASON: ${{ inputs.reason }}
+        run: |
+          echo "dispatched by $ACTOR"
+          echo "reason: $REASON"
+
+      - name: Append via SSH
+        uses: appleboy/ssh-action@v1.2.0
+        env:
+          INTENT_ID: ${{ inputs.intent_id }}
+          REASON: ${{ inputs.reason }}
+        with:
+          envs: INTENT_ID,REASON
+          host: ${{ secrets.STAGE_HOST }}
+          username: ${{ secrets.STAGE_USER }}
+          password: ${{ secrets.STAGE_SSH_PASSWORD }}
+          script_stop: true
+          script: |
+            set -euo pipefail
+            cd "${{ secrets.STAGE_DEPLOY_PATH }}"
+            git pull --ff-only
+            bash scripts/reverse-mint.sh

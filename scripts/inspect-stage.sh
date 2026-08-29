@@ -276,7 +276,7 @@ if [ "$PROBE" = "sweeper" ]; then
       order by o.id desc limit 10;"
 
   tq "mint intents" \
-     "select status, beneficiary, amount_clt, expected_amount_usdt, deposit_address,
+     "select id, status, beneficiary, amount_clt, expected_amount_usdt, deposit_address,
              swept_at is not null as swept,
              created_at
       from mint_intents order by created_at desc limit 10;"
