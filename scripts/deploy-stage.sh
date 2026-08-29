@@ -223,7 +223,7 @@ if [ "$TREASURY" = "true" ]; then
   # Invoked via `bash`, not by relying on the exec bit: `chmod +x` on a tracked file
   # shows up as a local modification and silently blocks `git pull --ff-only` on this
   # host, which once kept four fixes off the server for an hour.
-  echo "[stub] ensure-nginx-route $NGINX_C"
+  bash scripts/ensure-nginx-payment-route.sh "$NGINX_C"
 
   # Prove the browser-facing /payment/ route reaches the ORCHESTRATOR, not the static
   # site. Both previous checks passed while this was broken: the containers were
