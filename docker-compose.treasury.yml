@@ -143,6 +143,20 @@ services:
       - APP_DAILY_MINT_CAP_CLT=${DAILY_MINT_CAP_CLT:-500000000}
       - APP_SWEEP_THRESHOLD_USDT=${SWEEP_THRESHOLD_USDT:-100000000}
       - APP_SWEEP_MAX_AGE_HOURS=${SWEEP_MAX_AGE_HOURS:-168}
+      # Read off tron-signer's /internal/xpub (PROBE=treasury in inspect-stage.sh), not typed by
+      # hand: this service holds no key material and must not be able to derive a spending address
+      # itself, it only needs to know where to look. This is the payout float derived at
+      # m/44'/195'/0'/2/0 from the stage deposit wallet -- changing DEPOSIT_MNEMONIC changes it too.
+      # Defaulted rather than `:?required` so stage keeps working without an .env edit; override
+      # in .env if the deposit wallet (and therefore this address) ever changes.
+      - APP_PAYOUT_FLOAT_ADDRESS=${PAYOUT_FLOAT_ADDRESS:-TF5p9P2UqwzDEtwvMxaXprNPxMPzMy8Uur}
+      # Rolling 24h payout ceiling in CLT BASE UNITS. AppConfig::load() has no default for this --
+      # absent from config/default.toml, it panics at boot, not just at first payout.
+      #
+      # NOT the same unit as tron-signer's APP_PER_TX_PAYOUT_CAP_USDT (micro-USDT, per-transaction).
+      # They are equal at 1:1 par and must still be set separately -- deriving one from the other
+      # couples two different units.
+      - APP_DAILY_PAYOUT_CAP_CLT=${DAILY_PAYOUT_CAP_CLT:-100000000}
     restart: unless-stopped
     networks:
       - treasury-network   # its own Postgres
@@ -180,7 +194,7 @@ services:
       # it and refuses a non-positive value: a payout cap that silently defaults is a cap nobody
       # chose, and a zero one would refuse every payout while looking like a working service.
       #
-      # NOT the same number as the treasury's future APP_DAILY_PAYOUT_CAP_CLT, which is a rolling
+      # NOT the same number as the treasury's APP_DAILY_PAYOUT_CAP_CLT, which is a rolling
       # 24h total in CLT base units. They are equal at 1:1 par and must still be set separately —
       # deriving one from the other couples two different units.
       #

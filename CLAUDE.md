@@ -88,7 +88,15 @@ Always pass the full `-f` list and `-p` on every command — omitting them targe
 
 ## Stage deploy
 
-`.github/workflows/deploy-stage.yml` SSHes to the VPS (secrets `STAGE_HOST/USER/SSH_PASSWORD/DEPLOY_PATH`), does `git pull`, `compose pull`, `up -d --force-recreate --remove-orphans` — **no `--build`**; stage consumes GHCR images published by each repo's CI. Triggers: manual, push to `main` touching compose/config files, or `repository_dispatch` type `deploy-stage` (sent by sibling repos after image publish). VPS bootstrap steps: `docs/SSH-SERVER-SETUP.md`.
+`.github/workflows/deploy-stage.yml` SSHes to the VPS (secrets `STAGE_HOST/USER/SSH_PASSWORD/DEPLOY_PATH`), does `git pull`, `compose pull`, `up -d --force-recreate --remove-orphans` — **no `--build`**; stage consumes GHCR images published by each repo's CI. Triggers: manual, push to `main` touching compose/config files, or `repository_dispatch` type `deploy-stage` (sent by sibling repos after image publish — e.g. `clutch-hub-demo-app`'s `docker-publish.yml` does this in its `trigger-stage-deploy` job). VPS bootstrap steps: `docs/SSH-SERVER-SETUP.md`.
+
+**Not every sibling repo sends that dispatch — `clutch-treasury` does not.** Its
+`docker-build-push.yml` only builds and pushes the three GHCR images; there is no
+`repository_dispatch` step and no `gh api` call anywhere in it. Confirmed by merging to `main`
+and waiting for a deploy that never came. A treasury image publish needs a deploy triggered
+separately here: a push to this repo's `main` touching compose/config files, or a manual
+`deploy-stage` dispatch. Don't assume image-publish-implies-deploy without checking the
+publishing repo's own workflow first.
 
 **nginx on the stage VPS is not ours.** The `nginx-stage` container there belongs to the **`v2ray`** compose project and mounts `/home/v2ray-docker/config/nginx/nginx.stage.cloudflare-flex.conf` — a hand-maintained superset serving the clutch vhosts alongside v2ray's (`de2`, `de.wenda.ir`, `3x`, `sub`, `de-grpc`). It owns :80, so `docker-compose.stage.nginx.yml` cannot run there, and **editing `config/nginx/*.conf` in this repo does nothing on that host**. A `/payment/` route was added here, deployed, verified present on the server, and still 405'd for a full cycle before anyone checked which file was mounted. `deploy-stage.yml` now patches the mounted config in place each deploy (idempotent, `nginx -t` with rollback) and gates on `/payment/` returning 401 rather than 405.
 
@@ -109,6 +117,16 @@ Three write workflows exist alongside it, each requiring a typed confirmation:
 - Seq first-run admin credentials only apply to a fresh `seq-data` volume; changing them later in `.env` has no effect.
 - The stage overlay uses YAML `!reset` (Compose v2.24+) to unpublish ports — older docker compose versions error on it.
 - `package-lock.json` at the repo root is an artifact; there is no npm project here.
+- **`tron-signer`'s SWEEP API takes an INDEX and nothing else** — the destination is its own
+  config. Do not add a `to`, `contract`, or `amount` parameter there: each one individually
+  deletes the reason that endpoint exists, and owning the orchestrator must never move a deposit.
+  **The PAYOUT endpoint (`/internal/payout`) is the deliberate exception** and does take `to` and
+  `amount`, because a redemption has no other way to express them. Its bound is different, not
+  absent: it can only spend from the payout float at `2/0` — never a deposit address, never
+  custody — so the float balance caps the loss, and a per-tx cap bounds one request. Unlike sweep,
+  its safety DOES depend on the bearer token and the internal-only network. `contract` is still
+  never a parameter. See
+  `clutch-treasury/docs/superpowers/specs/2026-08-30-redemption-payout-rail-design.md`.
 
 ## Deposit detection (no Bitcart)
 
