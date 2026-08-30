@@ -176,6 +176,17 @@ services:
       - APP_TRONGRID_URL=${TRONGRID_URL:-https://nile.trongrid.io}
       - APP_TRONGRID_API_KEY=${TRONGRID_API_KEY:-}
       - APP_USDT_CONTRACT=${USDT_CONTRACT:-TXYZopYRdj2D9XRtbG411XZZ3kM5VkAeBf}
+      # The most one redemption payout may move, in MICRO-USDT. The signer refuses to start without
+      # it and refuses a non-positive value: a payout cap that silently defaults is a cap nobody
+      # chose, and a zero one would refuse every payout while looking like a working service.
+      #
+      # NOT the same number as the treasury's future APP_DAILY_PAYOUT_CAP_CLT, which is a rolling
+      # 24h total in CLT base units. They are equal at 1:1 par and must still be set separately —
+      # deriving one from the other couples two different units.
+      #
+      # 25 USDT default: the payout float is deliberately small, and this bounds a single request
+      # against it. Raise it deliberately, not to make a failing payout succeed.
+      - APP_PER_TX_PAYOUT_CAP_USDT=${PER_TX_PAYOUT_CAP_USDT:-25000000}
       - APP_HTTP_ADDR=0.0.0.0:8093
     restart: unless-stopped
     networks:
