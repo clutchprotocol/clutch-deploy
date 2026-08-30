@@ -161,6 +161,24 @@ if [ "$PROBE" = "treasury" ]; then
       fi
     fi
   fi
+
+  # The USDT payout float at <account>/2/0. Redemption payouts are paid from here and nowhere
+  # else: nothing in this stack holds a key for the custody address, which is the whole reason
+  # this account exists. An operator tops it up from custody, and its balance is the ceiling on
+  # what a compromised treasury-service could move.
+  #
+  # Reuses FEE_JSON above rather than calling the signer twice. An absent payout_address means
+  # the signer predates the payout rail, not that it is down -- the fee_address read above
+  # already proves it is answering.
+  echo ""
+  echo "=== USDT float (payout account) ==="
+  PAYOUT_ADDR=$(printf '%s' "$FEE_JSON" | sed -n 's/.*"payout_address"[ ]*:[ ]*"\([^"]*\)".*/\1/p')
+  if [ -z "$PAYOUT_ADDR" ]; then
+    echo "    (no payout_address in the signer's response -- this image predates the payout rail)"
+  else
+    echo "    payout_address=$PAYOUT_ADDR"
+    echo "    (USDT balance: run PROBE=balance with ADDRESS=$PAYOUT_ADDR -- balanceOf lives there)"
+  fi
 fi
 
 if [ "$PROBE" = "balance" ]; then
