@@ -98,9 +98,8 @@ if [ "$PROBE" = "treasury" ]; then
   for c in treasury-service payment-orchestrator; do
     echo "--- clutch-stage-${c}-1"
     for k in APP_TRONGRID_URL APP_CUSTODY_TRON_ADDRESS APP_USDT_CONTRACT \
-             APP_REDEMPTIONS_ENABLED APP_MIN_DEPOSIT_USDT APP_MAX_DEPOSIT_USDT \
-             APP_DEPOSIT_TTL_MINUTES APP_DEPOSIT_MATCH_WINDOW_HOURS \
-             APP_BITCART_URL APP_INVOICE_CURRENCY; do
+             APP_REDEMPTIONS_ENABLED APP_PERMANENT_DEPOSIT_ADDRESSES_ENABLED \
+             APP_DEPOSIT_HOT_WINDOW_HOURS; do
       v=$(docker exec "clutch-stage-${c}-1" printenv "$k" 2>/dev/null || true)
       if [ -n "$v" ]; then echo "    $k=$v"; fi
     done
