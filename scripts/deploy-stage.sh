@@ -241,10 +241,10 @@ if [ "$TREASURY" = "true" ]; then
   # confirmed patched and reloaded and the gate still failed.
   pok=""; pcode=""
   for _ in $(seq 1 15); do
-    pbody=$(curl -s -w "@@CODE@@%{http_code}" -X POST \
+    pbody=$(curl -s -w "HTTPCODE__%{http_code}" -X POST \
       -H "Host: app-stage.clutchprotocol.io" -H "Content-Type: application/json" \
       -d '{}' http://localhost/payment/api/v1/deposits || true)
-    pcode="${pbody##*@@CODE@@}"
+    pcode="${pbody##*HTTPCODE__}"
     case "$pcode" in
       401|400|422) pok=1; echo "payment route reaches the orchestrator (HTTP $pcode)"; break ;;
       # The rollout gate: while APP_PERMANENT_DEPOSIT_ADDRESSES_ENABLED is false the orchestrator
