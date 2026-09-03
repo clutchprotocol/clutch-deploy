@@ -130,16 +130,27 @@ Three write workflows exist alongside it, each requiring a typed confirmation:
 
 ## Deposit detection (no Bitcart)
 
-**Every deposit intent gets its own freshly derived TRON address.** They come from one HD wallet at
-`m/44'/195'/0'/0/i`, one unique index per intent. `payment-orchestrator` holds only the account
-**xpub** — enough to derive addresses, not to spend from them — and watches for USDT `Transfer`
-events by DESTINATION address (`crates/payment-orchestrator/src/custody.rs`). One batched fetch per
-poll pass, because unkeyed TronGrid throttles and a throttled watcher is indistinguishable from
-"nobody paid".
+**Every user gets one permanent TRON address**, derived once from the account xpub at
+`m/44'/195'/0'/0/i` and stored against their `user_pk` — not one per deposit intent.
+`payment-orchestrator` holds only the account **xpub** — enough to derive addresses, not to spend
+from them — and polls each address for USDT `Transfer` events by DESTINATION
+(`crates/payment-orchestrator/src/custody.rs`, `poller.rs`). Polling is tiered: opening the deposit
+panel marks that user's address hot for `deposit_hot_window_hours`; everyone else rotates through a
+bounded per-pass budget, oldest-polled-first, so cost stays flat as the address set grows
+(`due_addresses`). Any amount paid in is credited in full, and each on-chain transfer is stored as
+its own row keyed by `tron_tx_id` — so repeated top-ups to the same address all count, not just the
+first.
 
 The mnemonic lives only in `tron-signer`, which is why the amount discriminator, slot allocation and
-amount-based matching are all gone: identity is the address, so the amount carries no meaning beyond
-being at least what was asked.
+amount-based matching are all gone: identity is the address plus the transaction, not a promised
+amount. `POST /api/v1/deposits` takes no body — the beneficiary is always the caller's authenticated
+identity (the JWT `pk`, address form); a public-key-form token is refused with 400, and there is
+deliberately no `clt_address` field to "add back".
+
+Addresses derived before this change are not abandoned: a separate, shrinking loop keeps watching
+each still-open legacy per-intent address until its window closes, but a second payment to one of
+those *after* its intent has already settled goes uncredited — users must pay whatever address the
+deposit panel currently shows them.
 
 Bitcart was removed from this path. Its TRX daemon attributes a payment by the **sender's** address
 (`tx.from_addr in request_addresses`, populated only by `set_request_address`), so a request is
@@ -166,8 +177,8 @@ why funding needs **no new env var**.
 
 That account is the one thing in this stack an operator must top up by hand. Empty, every sweep
 answers `fee_account_dry` and the pass stops; deposits are still credited and the reserve total is
-still correct (`get_reserve_balance` sums unswept addresses plus the treasury), but nothing
-consolidates. Find the address and its balance with:
+still correct (`get_reserve_balance` sums custody, every DISTINCT unswept deposit address, and the
+payout float), but nothing consolidates. Find the address and its balance with:
 
 ```
 PROBE=treasury  →  "=== TRX float (fee account) ==="

@@ -253,6 +253,13 @@ services:
       # invites users to burn real CLT for a payout that cannot happen, and the burn is
       # irreversible. Do not flip until a real TRC-20 payout rail replaces the stub.
       - APP_REDEMPTIONS_ENABLED=false
+      # How long a user's address stays on the fast poll tier after they open the deposit panel.
+      # Larger values collapse tiering back into polling every address every pass — a cost
+      # regression, not a correctness one.
+      - APP_DEPOSIT_HOT_WINDOW_HOURS=${DEPOSIT_HOT_WINDOW_HOURS:-24}
+      # Rollout gate. Off means no NEW addresses are issued; it does not un-issue the ones already
+      # handed out, and money sent to an address nothing watches is money nobody credits.
+      - APP_PERMANENT_DEPOSIT_ADDRESSES_ENABLED=${PERMANENT_DEPOSIT_ADDRESSES_ENABLED:-false}
     restart: unless-stopped
     healthcheck:
       test: ["CMD", "curl", "-f", "http://127.0.0.1:8091/health"]
