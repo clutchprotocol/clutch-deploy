@@ -99,7 +99,7 @@ if [ "$PROBE" = "treasury" ]; then
     echo "--- clutch-stage-${c}-1"
     for k in APP_TRONGRID_URL APP_CUSTODY_TRON_ADDRESS APP_USDT_CONTRACT \
              APP_REDEMPTIONS_ENABLED APP_PERMANENT_DEPOSIT_ADDRESSES_ENABLED \
-             APP_DEPOSIT_HOT_WINDOW_HOURS; do
+             APP_DEPOSIT_HOT_WINDOW_HOURS APP_DEPOSIT_MATCH_WINDOW_HOURS; do
       v=$(docker exec "clutch-stage-${c}-1" printenv "$k" 2>/dev/null || true)
       if [ -n "$v" ]; then echo "    $k=$v"; fi
     done
