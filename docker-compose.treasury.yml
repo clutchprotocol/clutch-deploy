@@ -139,8 +139,8 @@ services:
       # deposits too, not just manual corrections -- overpayments credit what actually arrived, so
       # any deposit over the per-transaction cap parks for a human. Worth choosing deliberately
       # rather than inheriting.
-      - APP_PER_TX_MINT_CAP_CLT=${PER_TX_MINT_CAP_CLT:-2000000000}
-      - APP_DAILY_MINT_CAP_CLT=${DAILY_MINT_CAP_CLT:-10000000000}
+      - APP_PER_TX_MINT_CAP_CLT=2000000000
+      - APP_DAILY_MINT_CAP_CLT=10000000000
       - APP_SWEEP_THRESHOLD_USDT=${SWEEP_THRESHOLD_USDT:-100000000}
       - APP_SWEEP_MAX_AGE_HOURS=${SWEEP_MAX_AGE_HOURS:-168}
       # Read off tron-signer's /internal/xpub (PROBE=treasury in inspect-stage.sh), not typed by
