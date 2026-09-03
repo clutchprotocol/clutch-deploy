@@ -241,11 +241,18 @@ if [ "$TREASURY" = "true" ]; then
   # confirmed patched and reloaded and the gate still failed.
   pok=""; pcode=""
   for _ in $(seq 1 15); do
-    pcode=$(curl -s -o /dev/null -w "%{http_code}" -X POST \
+    pbody=$(curl -s -w "@@CODE@@%{http_code}" -X POST \
       -H "Host: app-stage.clutchprotocol.io" -H "Content-Type: application/json" \
       -d '{}' http://localhost/payment/api/v1/deposits || true)
+    pcode="${pbody##*@@CODE@@}"
     case "$pcode" in
       401|400|422) pok=1; echo "payment route reaches the orchestrator (HTTP $pcode)"; break ;;
+      # The rollout gate: while APP_PERMANENT_DEPOSIT_ADDRESSES_ENABLED is false the orchestrator
+      # itself answers 503 with a JSON body. nginx's own 503 for a missing upstream is HTML, so the
+      # body is what tells "deliberately off" from "unreachable".
+      503) case "$pbody" in
+             *"temporarily unavailable"*) pok=1; echo "payment route reaches the orchestrator (HTTP 503: deposits gated off)"; break ;;
+           esac ;;
     esac
     echo "waiting for the /payment/ route (got $pcode)..."
     sleep 2
