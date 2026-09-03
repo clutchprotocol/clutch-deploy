@@ -1,0 +1,76 @@
+# Sweep one deposit address into custody, by hand.
+#
+# The automatic sweeper collects addresses whose mint intent reached `credited` or `submitted`, and
+# deliberately ignores everything else. An intent that ends `failed` therefore strands real USDT at a
+# real address: nothing collects it, and reconciliation stops counting it, because a `failed` row is
+# outside the reserve sum. The money is still there; only the bookkeeping has let go of it.
+#
+# This workflow is the way back. It is manual on purpose — a sweep moves money, so it should be an
+# attributed act with a reason in this log, not something a worker decides.
+#
+# It hands tron-signer a derivation INDEX and nothing else, which is the whole reason that API takes
+# an index: the destination is the signer's own config and no caller can redirect it. If you find
+# yourself wanting to add a `to` or an `amount` here, you want a different tool.
+#
+# This does NOT credit anyone CLT. Sweeping restores custody and the reserve; paying a depositor what
+# a failed mint owed them is a separate correction through mint-intent-create.yml, and that one can
+# only pass the reserve check after the sweep has landed.
+
+name: Sweep one deposit address (stage)
+
+on:
+  workflow_dispatch:
+    inputs:
+      address:
+        description: "The TRON deposit address to sweep into custody"
+        required: true
+      reason:
+        description: "Why this address is being swept by hand. Recorded in this log and nowhere else."
+        required: true
+      confirm:
+        description: 'Type "sweep" to confirm moving money'
+        required: true
+        default: ""
+
+concurrency:
+  group: sweep-address
+  cancel-in-progress: false
+
+jobs:
+  sweep:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check the confirmation
+        run: |
+          if [ "${{ inputs.confirm }}" != "sweep" ]; then
+            echo "Refusing: confirm was '${{ inputs.confirm }}', expected 'sweep'."
+            exit 1
+          fi
+
+      # Through env, never interpolated into the script body: a reason containing backticks or
+      # $(...) would otherwise execute as shell.
+      - name: Record who and why
+        env:
+          ACTOR: ${{ github.actor }}
+          REASON: ${{ inputs.reason }}
+          ADDRESS: ${{ inputs.address }}
+        run: |
+          echo "dispatched by $ACTOR"
+          echo "address: $ADDRESS"
+          echo "reason: $REASON"
+
+      - name: Sweep via SSH
+        uses: appleboy/ssh-action@v1.2.0
+        env:
+          ADDRESS: ${{ inputs.address }}
+        with:
+          envs: ADDRESS
+          host: ${{ secrets.STAGE_HOST }}
+          username: ${{ secrets.STAGE_USER }}
+          password: ${{ secrets.STAGE_SSH_PASSWORD }}
+          script_stop: true
+          script: |
+            set -euo pipefail
+            cd "${{ secrets.STAGE_DEPLOY_PATH }}"
+            git pull --ff-only
+            bash scripts/sweep-address.sh
