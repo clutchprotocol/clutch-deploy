@@ -157,6 +157,21 @@ services:
       # They are equal at 1:1 par and must still be set separately -- deriving one from the other
       # couples two different units.
       - APP_DAILY_PAYOUT_CAP_CLT=${DAILY_PAYOUT_CAP_CLT:-100000000}
+      # Taken off the USDT leg of every redemption, in micro-USDT. The user burns the full CLT and
+      # receives this much less; the difference stays in the reserve, which reconciliation reads as
+      # fine because it fails on reserve BELOW liability, never above.
+      #
+      # $0.10. It MUST stay below the orchestrator's APP_MIN_REDEMPTION_CLT (1000000, $1) or the
+      # smallest redemption a user is allowed to ask for is one the treasury then refuses -- and
+      # that refusal reaches them as a bare 502, not an explanation. At $1 this fee is already 10%
+      # of a minimum redemption, which is the honest reason it is not larger.
+      #
+      # It does NOT cover cost here and is not meant to. Nile energy is faucet TRX, so a payout on
+      # stage costs nothing real. On mainnet a TRC-20 transfer runs roughly 13-27 TRX of energy,
+      # which at any plausible TRX price exceeds this entire fee and can exceed the $1 minimum
+      # redemption outright -- so mainnet needs a measured fee AND a higher minimum, not this
+      # number scaled up. Set both from observed cost before any real USDT is behind this.
+      - APP_REDEMPTION_FEE_USDT=${REDEMPTION_FEE_USDT:-100000}
     restart: unless-stopped
     networks:
       - treasury-network   # its own Postgres
