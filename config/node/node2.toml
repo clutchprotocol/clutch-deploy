@@ -36,4 +36,8 @@ serve_metric_enabled = true
 serve_metric_addr = "0.0.0.0:3002"
 log_level = "info"
 seq_url = "http://seq:80"
-seq_api_key = "T1c9HmUrwLCgf1uhYgoz"
+# Deliberately EMPTY. This file is committed, so a key written here is a published key.
+# Supplied at run time as APP_SEQ_API_KEY from .env (the APP_ prefix is what config actually
+# reads -- a bare SEQ_API_KEY in compose overrides nothing). Empty only costs log ingestion,
+# so it is defaulted rather than required.
+seq_api_key = ""

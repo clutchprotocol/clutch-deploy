@@ -6,7 +6,11 @@ ws_addr = "0.0.0.0:3000"
 clutch_node_ws_url = "ws://node1:8081/ws"
 log_level = "info"
 seq_url = "http://seq:80"
-seq_api_key = "FZii3D6ILDI38a0oIeDL"
+# Deliberately EMPTY. This file is committed, so a key written here is a published key.
+# Supplied at run time as APP_SEQ_API_KEY from .env (the APP_ prefix is what config actually
+# reads -- a bare SEQ_API_KEY in compose overrides nothing). Empty only costs log ingestion,
+# so it is defaulted rather than required.
+seq_api_key = ""
 # Deliberately EMPTY. This file is mounted into the container and lives in a public repo, so a
 # secret written here is a published secret — the same reason faucet_private_key is blank below.
 # The real value arrives as APP_JWT_SECRET from .env, which compose now REQUIRES rather than

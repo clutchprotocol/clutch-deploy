@@ -11,6 +11,7 @@ services:
     # directory — the container's WRITABLE LAYER — and `up -d --force-recreate`, which every
     # deploy runs, discarded the whole chain. Stage restarted from genesis on every deploy.
     environment:
+      - APP_SEQ_API_KEY=${SEQ_API_KEY:-}
       - DB_PATH=/app/data
     networks:
       - clutch-network
@@ -32,6 +33,7 @@ services:
     # directory — the container's WRITABLE LAYER — and `up -d --force-recreate`, which every
     # deploy runs, discarded the whole chain. Stage restarted from genesis on every deploy.
     environment:
+      - APP_SEQ_API_KEY=${SEQ_API_KEY:-}
       - DB_PATH=/app/data
     depends_on:
       - node1
@@ -55,6 +57,7 @@ services:
     # directory — the container's WRITABLE LAYER — and `up -d --force-recreate`, which every
     # deploy runs, discarded the whole chain. Stage restarted from genesis on every deploy.
     environment:
+      - APP_SEQ_API_KEY=${SEQ_API_KEY:-}
       - DB_PATH=/app/data
     depends_on:
       - node1
@@ -88,7 +91,9 @@ services:
       # Being the bootstrap is a p2p role and says nothing about which node is best to read.
       - CLUTCH_NODE_WS_URL=ws://node3:8083/ws
       - SEQ_URL=http://seq:80
-      - SEQ_API_KEY=${SEQ_API_KEY:-}
+      # APP_ prefixed because that is the only form config reads. As a bare SEQ_API_KEY this
+      # overrode nothing and the committed TOML key was the one actually in use.
+      - APP_SEQ_API_KEY=${SEQ_API_KEY:-}
       - APP_ALLOWED_ORIGINS=${ALLOWED_ORIGINS:-*}
       - "APP_JWT_SECRET=${JWT_SECRET:?not set - it signs the tokens the hub API issues and the orchestrator trusts, so there is no safe default. Run provision-treasury-secrets.yml}"
       # Faucet key is env-only — config/api/default.toml is committed, so a key written there is
