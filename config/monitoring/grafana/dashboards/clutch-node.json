@@ -31,15 +31,15 @@
             {
               "type": "value",
               "options": {
+                "0": {
+                  "text": "Down",
+                  "color": "red",
+                  "index": 1
+                },
                 "1": {
                   "text": "Up",
                   "color": "green",
                   "index": 0
-                },
-                "2": {
-                  "text": "Down",
-                  "color": "red",
-                  "index": 1
                 }
               }
             }
@@ -48,12 +48,8 @@
             "mode": "absolute",
             "steps": [
               {
-                "value": null,
-                "color": "green"
-              },
-              {
-                "value": 80,
-                "color": "red"
+                "color": "text",
+                "value": null
               }
             ]
           },
@@ -106,7 +102,8 @@
         }
       ],
       "title": "State",
-      "type": "stat"
+      "type": "stat",
+      "description": "Prometheus scrape health. `up` is 1 or 0 \u2014 a target that is down reads 0, not 2."
     },
     {
       "datasource": {
@@ -1104,5 +1101,5 @@
   "timezone": "browser",
   "title": "Clutch-Node",
   "uid": "cdx2uvflsag3kf",
-  "version": 5
+  "version": 6
 }
