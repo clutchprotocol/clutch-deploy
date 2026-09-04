@@ -1,0 +1,66 @@
+# Move the fee account's misplaced USDT into the payout float.
+#
+# The fee account at <account>/1/0 pays TRX energy; USDT there is misplaced by definition, and
+# because reserve is custody plus unswept deposits plus the float, it is counted in no bucket at
+# all. This moves it to <account>/2/0, which redemptions pay out from.
+#
+# It moves money, so it is manual and attributed, like sweep-address. It takes no address, no
+# amount and no destination, because the endpoint behind it takes none either: both ends are
+# derived by the signer from its own mnemonic. If you find yourself wanting to add an input here,
+# you want a different tool.
+#
+# EXPECT THE RESERVE TO RISE and reconciliation to read over-backed afterwards. Funding the float
+# from CUSTODY would be neutral; this moves money from an uncounted place into a counted one, so
+# the total goes up. That is the accurate number, over-backing is the safe direction, and it does
+# not halt minting.
+
+name: Fund the payout float (stage)
+
+on:
+  workflow_dispatch:
+    inputs:
+      reason:
+        description: "Why the float is being funded now. Recorded in this log and nowhere else."
+        required: true
+      confirm:
+        description: 'Type "fund" to confirm moving money'
+        required: true
+        default: ""
+
+concurrency:
+  group: fund-float
+  cancel-in-progress: false
+
+jobs:
+  fund:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check the confirmation
+        run: |
+          if [ "${{ inputs.confirm }}" != "fund" ]; then
+            echo "Refusing: confirm was '${{ inputs.confirm }}', expected 'fund'."
+            exit 1
+          fi
+
+      # Through env, never interpolated into the script body: a reason containing backticks or
+      # $(...) would otherwise execute as shell.
+      - name: Record who and why
+        env:
+          ACTOR: ${{ github.actor }}
+          REASON: ${{ inputs.reason }}
+        run: |
+          echo "dispatched by $ACTOR"
+          echo "reason: $REASON"
+
+      - name: Fund via SSH
+        uses: appleboy/ssh-action@v1.2.0
+        with:
+          host: ${{ secrets.STAGE_HOST }}
+          username: ${{ secrets.STAGE_USER }}
+          password: ${{ secrets.STAGE_SSH_PASSWORD }}
+          script_stop: true
+          script: |
+            set -euo pipefail
+            cd "${{ secrets.STAGE_DEPLOY_PATH }}"
+            git pull --ff-only
+            bash scripts/fund-float.sh
