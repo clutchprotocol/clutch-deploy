@@ -248,10 +248,11 @@ services:
       # Unkeyed TronGrid throttles hard, and a throttled watcher looks exactly like "nobody paid".
       - APP_TRONGRID_API_KEY=${TRONGRID_API_KEY:-}
       - APP_USDT_CONTRACT=${USDT_CONTRACT:-TXYZopYRdj2D9XRtbG411XZZ3kM5VkAeBf}
-      # OFF. The treasury's payout rail is still a stub (payout.rs fabricates a payout_ref and
-      # sends nothing). Spec §7.6 wants a working off-ramp before real deposits; enabling this
-      # invites users to burn real CLT for a payout that cannot happen, and the burn is
-      # irreversible. Do not flip until a real TRC-20 payout rail replaces the stub.
+      # OFF, but not because the rail is missing: payout.rs posts to tron-signer's /internal/payout,
+      # which signs and broadcasts a real TRC-20 transfer from the derived float at 2/0. What has not
+      # happened is the rollout in the payout-rail design section 5 — the float still needs funding,
+      # and reconciliation needs to read ok with the float counted. Flipping before that invites a
+      # burn with no funded payout behind it, and the burn is irreversible.
       - APP_REDEMPTIONS_ENABLED=false
       # How long a user's address stays on the fast poll tier after they open the deposit panel.
       # Larger values collapse tiering back into polling every address every pass — a cost
