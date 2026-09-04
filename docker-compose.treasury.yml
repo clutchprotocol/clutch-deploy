@@ -269,6 +269,14 @@ services:
       # To turn it back off, revert this line and deploy — that is a couple of minutes and leaves a
       # trail, which for a switch that lets people destroy CLT is the right trade. A single
       # redemption is capped at 50 CLT and the float bounds the rest.
+      # The most a user may ASK to redeem, and it must never exceed what tron-signer will actually
+      # pay in one transaction (APP_PER_TX_PAYOUT_CAP_USDT, 25 USDT). These are enforced in
+      # different services in different units, and when they disagreed the gap was a trap: the
+      # orchestrator accepted a 26-50 CLT redemption, the user burned the CLT, and the signer then
+      # refused every payout attempt with CapExceeded — which is retryable, so it retried forever
+      # and never paid. Burned CLT, no USDT, no way out without an operator raising the other cap.
+      # 1 CLT is 1 USDT, so these two numbers must move together.
+      - APP_MAX_REDEMPTION_CLT=${MAX_REDEMPTION_CLT:-25000000}
       - APP_REDEMPTIONS_ENABLED=true
       # How long a user's address stays on the fast poll tier after they open the deposit panel.
       # Larger values collapse tiering back into polling every address every pass — a cost
