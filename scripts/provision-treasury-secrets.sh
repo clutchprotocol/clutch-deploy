@@ -32,8 +32,16 @@ PROBE="tron-signer-xpub-probe"
 # Secrets we can generate ourselves. 32 random bytes covers all of them: the four-eyes tokens and
 # both Postgres passwords are opaque strings, and MINT_AUTHORITY_SECRET is a secp256k1 scalar,
 # for which any 32-byte value is valid with overwhelming probability.
+# JWT_SECRET and GRAFANA_ADMIN_PASSWORD are in this list because they had committed fallbacks in
+# docker-compose, which means the value protecting stage was published in a public repository.
+# The first run here generates real ones; every later run leaves them alone like everything else.
+#
+# Generating JWT_SECRET rotates it, so tokens signed with the old value stop being accepted and
+# anyone signed into the demo app authenticates again. That is the point: the old one is readable
+# by anybody. The hub API and the orchestrator both read this variable, so they move together.
 GENERATED="TREASURY_POSTGRES_PASSWORD ORCHESTRATOR_POSTGRES_PASSWORD MINT_AUTHORITY_SECRET \
-           TREASURY_INITIATOR_TOKEN TREASURY_APPROVER_TOKEN TREASURY_READONLY_TOKEN SIGNER_TOKEN"
+           TREASURY_INITIATOR_TOKEN TREASURY_APPROVER_TOKEN TREASURY_READONLY_TOKEN SIGNER_TOKEN \
+           JWT_SECRET GRAFANA_ADMIN_PASSWORD"
 
 if [ ! -f .env ]; then
   echo "ABORT: no .env here ($(pwd)). Expected the stage deploy checkout."
