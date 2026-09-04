@@ -463,17 +463,17 @@ if [ "$PROBE" = "metrics" ]; then
     || echo "    (could not query Prometheus; is clutch-stage-prometheus-1 running?)"
 
   echo ""
-  echo "=== the endpoints themselves, from inside the network ==="
-  for pair in "treasury-service 9101" "payment-orchestrator 9102"; do
-    set -- $pair
-    echo "--- $1:$2/metrics"
-    docker exec clutch-stage-prometheus-1 wget -qO- "http://$1:$2/metrics" 2>/dev/null \
-      | grep -vE '^#' | grep -E 'up |halted|needs_manual|reconciliation_status|unswept|never_polled|oldest_poll' \
-      | sed 's/^/    /' | head -12 \
-      || echo "    (unreachable from Prometheus - wrong port, wrong network, or not serving)"
+  echo "=== the numbers Prometheus is actually holding ==="
+  # Asked through Prometheus's own query API rather than by curling the services: it uses the same
+  # path the scrape uses, so a value here proves the whole chain, and it avoids this probe claiming
+  # "unreachable" on its own pipeline quirk while the target list says the target is up.
+  for q in clutch_treasury_up clutch_treasury_minting_halted            'clutch_treasury_mint_intents{status="needs_manual"}'            clutch_treasury_unswept_deposit_addresses            'clutch_treasury_reconciliation_status{status="ok"}'            clutch_orchestrator_up            'clutch_orchestrator_deposit_intents{status="needs_manual"}'            clutch_orchestrator_addresses_never_polled; do
+    out=$(docker exec clutch-stage-prometheus-1 wget -qO- --post-data="query=$q"             'http://localhost:9090/api/v1/query' 2>/dev/null | tr ',' '
+' | grep -A1 '"value"' | tail -1 | tr -dc '0-9.')
+    printf '    %-58s %s
+' "$q" "${out:-(no sample yet)}"
   done
 
-  echo ""
   echo "=== anything the services alerted on that nobody has looked at ==="
   docker exec clutch-stage-treasury-postgres-1 psql -U treasury -d treasury -tAc \
     "select severity || '  ' || source || '  ' || left(message, 90) from alerts
