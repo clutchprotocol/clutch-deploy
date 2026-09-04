@@ -12,7 +12,7 @@ seq_url = "http://seq:80"
 # so it is defaulted rather than required.
 seq_api_key = ""
 # Deliberately EMPTY. This file is mounted into the container and lives in a public repo, so a
-# secret written here is a published secret — the same reason faucet_private_key is blank below.
+# secret written here is a published secret.
 # The real value arrives as APP_JWT_SECRET from .env, which compose now REQUIRES rather than
 # defaulting. hub-api refuses to start on an empty or short secret (src/hub/configuration.rs),
 # so a deployment that forgets it fails at boot instead of running on a value anyone can read.
@@ -21,26 +21,6 @@ jwt_expiration_hours = 6
 # "*" here; override per-environment with APP_ALLOWED_ORIGINS (see .env.example).
 allowed_origins = "*"
 
-# Faucet: POST /faucet { "address": "0x..." } — test networks only; requires a funded key.
-# OFF since 2026-09-04, and this is not a temporary measure — the faucet needs removing.
-#
-# It TRANSFERS CLT from a genesis-funded account rather than minting, so the CLT it hands out
-# is not backed by any USDT and is excluded from liability by construction
-# (treasury_minted = onchain_supply - genesis_allocation). That was harmless while CLT only
-# went one way. Redemptions went live on 2026-09-04, and nothing in the burn path asks where
-# the burned CLT came from — so the faucet became a machine for converting unbacked genesis
-# CLT into real USDT out of the payout float, at 100 CLT a go, bounded only by the global
-# daily payout cap.
-#
-# Users get CLT by depositing USDT now. That is the whole point of the deposit rail.
-faucet_enabled = false
-# Secret lives in the environment only (APP_FAUCET_PRIVATE_KEY), never here — this file is
-# committed, so a key written into it is a published key. Empty means the faucet stays off
-# unless the env supplies one.
-faucet_private_key = ""
-# $100 at the peg of 1 USD = 1,000,000 CLT. Must match clutch-hub-api's own default;
-# 1000 was $0.001 here, exactly one tx_fee, leaving a funded account unable to ride.
-faucet_amount_clt = 100000000
 
 # App-developer referrers injected by Hub API (clients must not pass referrer).
 default_ride_request_referrer = "0x0912514c7cc3eec2b2dab4e1d150c4b5eaee5a6f"

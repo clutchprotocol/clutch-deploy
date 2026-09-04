@@ -40,7 +40,7 @@ Useful dev URLs:
 
 | Service | Ports | Description |
 |---------|-------|-------------|
-| clutch-hub-api | 3000 | GraphQL, /health, /faucet |
+| clutch-hub-api | 3000 | GraphQL, /health |
 | clutch-hub-demo-app | 5173 | Reference React demo |
 | clutch-explorer-backend | 8088 | Block explorer API |
 | clutch-explorer-frontend | 5174 | Block explorer UI |

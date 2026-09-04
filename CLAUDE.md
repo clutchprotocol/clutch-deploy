@@ -21,7 +21,7 @@ Docker Compose orchestration for the full Clutch Protocol stack. Workspace overv
 | Service | Image / dev build context | Notes |
 |---------|---------------------------|-------|
 | `node1`..`node3` | `clutch-node` / `../clutch-node` | Validators. Each mounts `./config:/app/config:ro` **and `nodeN-data:/app/data`** with `DB_PATH=/app/data`, started with `--env nodeN` → reads `config/node/nodeN.toml`. WS-RPC 808N, P2P 400N, metrics 300N. node2/3 `depends_on: node1` (bootstrap peer `/dns4/node1/tcp/4001`). |
-| `clutch-hub-api` | `clutch-hub-api` / `../clutch-hub-api` | :3000. `CLUTCH_NODE_WS_URL=ws://node3:8083/ws` (node1 and node2 fell behind; being the p2p bootstrap says nothing about which node is best to read), config at `config/api/default.toml` (faucet key, JWT, referrers). Healthcheck: `curl /health`. |
+| `clutch-hub-api` | `clutch-hub-api` / `../clutch-hub-api` | :3000. `CLUTCH_NODE_WS_URL=ws://node3:8083/ws` (node1 and node2 fell behind; being the p2p bootstrap says nothing about which node is best to read), config at `config/api/default.toml` (JWT, referrers). Healthcheck: `curl /health`. |
 | `clutch-hub-demo-app` | GHCR nginx image / **dev: raw `node:20-alpine`** | :5173→80. Dev runs Vite from bind-mounted source (see below). |
 | `clutch-explorer-backend` | `clutch-explorer-backend` / `../clutch-explorer/backend` | :8088 REST API. `APP_*` env overrides `config/explorer/default.toml`. Healthcheck on `/health`. |
 | `clutch-explorer-indexer` | **same image as backend** | Entrypoint override `/usr/local/bin/indexer --env default`. Polls node every 4s (`APP_INDEXER_POLL_INTERVAL_MS`), writes to Postgres. |
