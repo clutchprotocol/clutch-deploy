@@ -221,7 +221,7 @@ services:
       - APP_DATABASE_URL=postgres://orchestrator:${ORCHESTRATOR_POSTGRES_PASSWORD}@orchestrator-postgres:5432/orchestrator
       # Same secret the hub API signs user JWTs with — the orchestrator authenticates end users
       # by verifying those, so a mismatch rejects every real request.
-      - APP_JWT_SECRET=${JWT_SECRET:-b93ee84f5c75b27cdcaa1ddbb2bd74bbf9b3ed7d2b1effb06ab0a71b61467caf}
+      - "APP_JWT_SECRET=${JWT_SECRET:?not set - it signs the tokens the hub API issues and the orchestrator trusts, so there is no safe default. Run provision-treasury-secrets.yml}"
       # Same ALLOWED_ORIGINS the hub API CORS-allows — both are called from the same demo-app
       # origin, and on stage the browser never reaches this service directly anyway (nginx's
       # /payment/ route proxies it same-origin); this only bites local dev, where the demo app
