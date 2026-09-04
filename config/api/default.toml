@@ -23,5 +23,17 @@ allowed_origins = "*"
 
 
 # App-developer referrers injected by Hub API (clients must not pass referrer).
-default_ride_request_referrer = "0x0912514c7cc3eec2b2dab4e1d150c4b5eaee5a6f"
-default_ride_offer_referrer = "0x0912514c7cc3eec2b2dab4e1d150c4b5eaee5a6f"
+#
+# This is the operator's own wallet for the public stage hub. Both sides credit it, so it
+# earns 400 bps of every RidePay running through this deployment — the only revenue the
+# operator takes anywhere, since a fully-reserved token has no spread to keep.
+#
+# It replaced 0x0912514c7cc3eec2b2dab4e1d150c4b5eaee5a6f, which is a fixture address reused
+# across clutch-node tests, clutch-explorer tests and clutch-hub-api's env.example. Nothing
+# was wrong with the mechanism; the address had simply never been chosen, so ride revenue
+# was accruing to a placeholder whose key nobody could account for.
+#
+# Running your own hub? Put YOUR OWN wallet here — these fees are meant to be yours:
+# https://docs.clutchprotocol.io/getting-started/app-developer-incentives
+default_ride_request_referrer = "0x466e50fa1c0609744e0752a5b494511a5bb99006"
+default_ride_offer_referrer = "0x466e50fa1c0609744e0752a5b494511a5bb99006"
