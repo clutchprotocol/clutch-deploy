@@ -470,7 +470,11 @@ if [ "$PROBE" = "metrics" ]; then
   # The same expressions the Grafana Treasury row uses, so this probe and the dashboard cannot
   # drift into disagreeing about what the numbers are.
   for q in clutch_treasury_up clutch_treasury_minting_halted            'clutch_treasury_clt_liability / 1000000'            'clutch_treasury_custody_usdt / 1000000'            '100 * clutch_treasury_custody_usdt / clamp_min(clutch_treasury_clt_liability, 1)'            'clutch_treasury_mint_intents{status="credited"}'            'sum(clutch_treasury_mint_intents{status="needs_manual"}) + sum(clutch_orchestrator_deposit_intents{status="needs_manual"})'            clutch_treasury_unswept_deposit_addresses            'clutch_treasury_reconciliation_status{status="ok"}'            clutch_treasury_reconciliation_age_seconds            'sum(increase(clutch_treasury_alerts_total{severity="p1"}[24h])) + sum(increase(clutch_orchestrator_alerts_total{severity="p1"}[24h]))'            clutch_orchestrator_up            clutch_orchestrator_addresses_never_polled; do
-    out=$(docker exec clutch-stage-prometheus-1 wget -qO- --post-data="query=$q"             'http://localhost:9090/api/v1/query' 2>/dev/null | tr ',' '
+    # '+' is a SPACE in form-encoded data, so any expression adding two terms arrived at
+    # Prometheus mangled and came back empty -- which read as "no such metric" rather than "this
+    # probe sent nonsense". Encode it.
+    enc=$(printf '%s' "$q" | sed 's/+/%2B/g')
+    out=$(docker exec clutch-stage-prometheus-1 wget -qO- --post-data="query=$enc"             'http://localhost:9090/api/v1/query' 2>/dev/null | tr ',' '
 ' | grep -A1 '"value"' | tail -1 | tr -dc '0-9.')
     printf '    %-96s %s
 ' "$q" "${out:-(no sample yet)}"
