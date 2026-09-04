@@ -30,6 +30,19 @@ for c in "$OPG" "$TPG"; do
   fi
 done
 
+# The dashboard and the probe show a short id, so accept a prefix -- but resolve it to exactly one
+# row and refuse if it matches more than one. Guessing which of two money rows was meant is not a
+# thing this script gets to do.
+MATCHES=$(docker exec "$OPG" psql -U orchestrator -d orchestrator -tAc   "select id from deposit_intents where id::text like '$DEPOSIT_ID%';" 2>/dev/null | tr -d '')
+COUNT=$(printf '%s
+' "$MATCHES" | grep -c . || true)
+case "$COUNT" in
+  0) echo "ABORT: no deposit whose id starts with '$DEPOSIT_ID'."; exit 1;;
+  1) DEPOSIT_ID=$(printf '%s' "$MATCHES" | tr -d '[:space:]'); echo "resolved to $DEPOSIT_ID";;
+  *) echo "ABORT: '$DEPOSIT_ID' matches $COUNT deposits:"; printf '%s
+' "$MATCHES" | sed 's/^/    /'; exit 1;;
+esac
+
 echo "=== the deposit ==="
 docker exec "$OPG" psql -U orchestrator -d orchestrator -c \
   "select id, status, amount_usdt, received_usdt, clt_address, tron_tx_id, created_at
