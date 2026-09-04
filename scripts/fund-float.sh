@@ -15,11 +15,16 @@
 # config. There is nothing here for a caller to redirect -- which is why this script passes no
 # arguments either, and why it must never grow any.
 #
-# EXPECT THE RESERVE TO RISE. Unlike funding the float from custody, which is neutral (custody down,
-# float up, both counted), this moves money from an uncounted place into a counted one. The next
-# reconciliation will read over-backed rather than ok. That is the more accurate number, not a
-# fault: the treasury really does hold that USDT. Over-backing does not halt minting, and
-# over_backed_drift escalates only if it persists. Do NOT "fix" it by excluding the float.
+# THE RESERVE RISES, AND THAT IS ALL. `custody_reported` -- the reserve read from chain, which is
+# custody plus unswept deposits plus the float -- goes up by the amount moved, while the ledger's
+# figures do not change at all. Reconciliation uses that number in exactly one comparison,
+# `custody_reported < ledger_liability -> mismatch`, so a BIGGER reserve only makes a mismatch less
+# likely. The run should stay `ok`.
+#
+# It does NOT cause over_backed_drift. That status compares on-chain SUPPLY against ledger
+# liability and means the ledger counts CLT issued that does not exist on chain -- someone owed
+# money they do not hold. If you see it after this, it is unrelated to the float and worth reading
+# properly rather than waving away.
 
 set -euo pipefail
 
@@ -54,8 +59,9 @@ echo ""
 case "$RESP" in
   *'"status":"funded"'*)
     echo "moved. The USDT is in the payout float and redemptions can be paid from it."
-    echo "NOTE: reconciliation will now read OVER-BACKED, because this money was previously counted"
-    echo "      in no bucket at all. That is expected and it is the accurate number."
+    echo "NOTE: the chain-read reserve rises by this amount and the ledger does not move, which"
+    echo "      only makes a reserve-below-liability mismatch LESS likely. The next"
+    echo "      reconciliation should still read ok."
     ;;
   *'"status":"nothing_to_move"'*)
     echo "nothing to move: the fee account holds no USDT. Already moved, or never misplaced any."

@@ -9,10 +9,10 @@
 # derived by the signer from its own mnemonic. If you find yourself wanting to add an input here,
 # you want a different tool.
 #
-# EXPECT THE RESERVE TO RISE and reconciliation to read over-backed afterwards. Funding the float
-# from CUSTODY would be neutral; this moves money from an uncounted place into a counted one, so
-# the total goes up. That is the accurate number, over-backing is the safe direction, and it does
-# not halt minting.
+# THE RESERVE RISES, AND THAT IS ALL. Reconciliation compares the chain-read reserve against ledger
+# liability only as `reserve < liability -> mismatch`, so moving money into a counted bucket makes a
+# mismatch less likely and the run should stay `ok`. It does NOT cause over_backed_drift, which
+# compares on-chain supply against ledger liability and means something quite different.
 
 name: Fund the payout float (stage)
 
