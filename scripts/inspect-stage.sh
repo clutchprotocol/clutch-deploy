@@ -267,6 +267,18 @@ if [ "$PROBE" = "sweeper" ]; then
       where deposit_address is not null and swept_at is null
       group by status order by 2 desc;"
 
+  echo "--- the actual addresses waiting, with the index a sweep needs ---"
+  # Counts are not enough. The derivation_index lives ONLY in this database, so anything that
+  # wipes it (a reset_chain deploy, down -v) strands the USDT at these addresses: recoverable
+  # only by scanning derivations. Print them, so a reset is never run blind over one.
+  tq "addresses waiting, in full" \
+    "select left(id::text,8) id, status, amount_clt, deposit_address, derivation_index idx,
+            created_at::date created
+       from mint_intents
+      where deposit_address is not null and swept_at is null
+        and status in ('approved','submitted','credited','needs_manual')
+      order by created_at;"
+
   tq "already swept" \
      "select count(*) as swept, max(swept_at) as most_recent from mint_intents where swept_at is not null;"
 
