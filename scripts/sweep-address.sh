@@ -71,6 +71,12 @@ echo ""
 
 case "$RESP" in
   *'"status":"swept"'*)
+    # Record it. The automatic sweeper sets swept_at itself; this script did not, so an address
+    # emptied by hand still read as unswept -- which kept it in the unswept-address metric and in
+    # reconciliation's reserve sum while its real balance was zero. Every intent sharing this
+    # address is marked: deposit addresses are permanent, so one sweep empties all of them.
+    docker exec "$PG" psql -U treasury -d treasury -c       "update mint_intents set swept_at = now()
+        where deposit_address = '$ADDRESS' and swept_at is null;" 2>&1 | sed 's/^/    /'
     echo "swept. The USDT is in custody; reconciliation will count it there on its next run."
     echo "NOTE: this does NOT credit anyone CLT. If the depositor is owed it, that is a separate"
     echo "      correction through mint-intent-create.yml, and it can only pass the reserve check"

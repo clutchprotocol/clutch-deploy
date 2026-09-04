@@ -1,0 +1,66 @@
+# Close a `needs_manual` deposit whose depositor has ALREADY been repaid.
+#
+# A failed mint burns the deposit's client_ref, so repayment is always a brand-new treasury intent
+# to the same beneficiary -- and nothing links it back. The deposit then sits in `needs_manual`
+# forever even though the person has their CLT, and "Needs review" on the dashboard stops meaning
+# anything, which is worse than it being wrong once.
+#
+# This moves NO money and mints nothing. It refuses unless the treasury already holds a credited
+# mint intent for that deposit's beneficiary, so it cannot make an unpaid deposit look paid.
+
+name: Close a repaid deposit (stage)
+
+on:
+  workflow_dispatch:
+    inputs:
+      deposit_id:
+        description: "The orchestrator deposit_intents id to close"
+        required: true
+      reason:
+        description: "Which repayment made this good. Recorded in this log and nowhere else."
+        required: true
+      confirm:
+        description: 'Type "close" to confirm'
+        required: true
+        default: ""
+
+concurrency:
+  group: close-repaid-deposit
+  cancel-in-progress: false
+
+jobs:
+  close:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check the confirmation
+        run: |
+          if [ "${{ inputs.confirm }}" != "close" ]; then
+            echo "Refusing: confirm was '${{ inputs.confirm }}', expected 'close'."
+            exit 1
+          fi
+
+      - name: Record who and why
+        env:
+          ACTOR: ${{ github.actor }}
+          REASON: ${{ inputs.reason }}
+          DEPOSIT_ID: ${{ inputs.deposit_id }}
+        run: |
+          echo "dispatched by $ACTOR"
+          echo "deposit: $DEPOSIT_ID"
+          echo "reason: $REASON"
+
+      - name: Close via SSH
+        uses: appleboy/ssh-action@v1.2.0
+        env:
+          DEPOSIT_ID: ${{ inputs.deposit_id }}
+        with:
+          envs: DEPOSIT_ID
+          host: ${{ secrets.STAGE_HOST }}
+          username: ${{ secrets.STAGE_USER }}
+          password: ${{ secrets.STAGE_SSH_PASSWORD }}
+          script_stop: true
+          script: |
+            set -euo pipefail
+            cd "${{ secrets.STAGE_DEPLOY_PATH }}"
+            git pull --ff-only
+            bash scripts/close-repaid-deposit.sh
