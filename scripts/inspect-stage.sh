@@ -484,11 +484,19 @@ if [ "$PROBE" = "metrics" ]; then
   # "Needs review: 2" on a dashboard is not actionable on its own. These are the rows behind it.
   docker exec clutch-stage-orchestrator-postgres-1 psql -U orchestrator -d orchestrator -c     "select left(id::text,8) id, status, amount_usdt, received_usdt,
             left(coalesce(tron_tx_id,'-'),16) tron_tx, left(coalesce(treasury_intent_id::text,'-'),8) treasury,
-            created_at::date created
+            clt_address, created_at::date created
        from deposit_intents where status = 'needs_manual' order by created_at;" 2>&1 | sed 's/^/    /'
-  docker exec clutch-stage-treasury-postgres-1 psql -U treasury -d treasury -c     "select left(id::text,8) id, status, amount_clt, left(coalesce(deposit_address,'-'),12) addr,
+  docker exec clutch-stage-treasury-postgres-1 psql -U treasury -d treasury -c     "select left(id::text,8) id, status, amount_clt, coalesce(deposit_address,'-') addr,
             derivation_index idx, swept_at is not null swept, created_at::date created
        from mint_intents where status in ('needs_manual','failed') order by created_at;" 2>&1 | sed 's/^/    /'
+
+  # Was the depositor ever made whole by a separate corrective mint? A failed intent's client_ref
+  # is burned, so any repayment is a DIFFERENT intent to the same beneficiary.
+  echo "    --- every mint intent for the beneficiaries of those failed intents ---"
+  docker exec clutch-stage-treasury-postgres-1 psql -U treasury -d treasury -c     "select left(id::text,8) id, beneficiary, amount_clt, status, created_at::date created
+       from mint_intents
+      where beneficiary in (select beneficiary from mint_intents where status = 'failed')
+      order by beneficiary, created_at;" 2>&1 | sed 's/^/    /'
 
   echo "=== anything the services alerted on that nobody has looked at ==="
   docker exec clutch-stage-treasury-postgres-1 psql -U treasury -d treasury -tAc \
