@@ -18,7 +18,6 @@
   "editable": true,
   "fiscalYearStartMonth": 0,
   "graphTooltip": 0,
-  "id": 2,
   "links": [],
   "panels": [
     {
@@ -28,45 +27,45 @@
       },
       "fieldConfig": {
         "defaults": {
-          "color": {
-            "mode": "thresholds"
-          },
           "mappings": [
             {
+              "type": "value",
               "options": {
                 "1": {
+                  "text": "Up",
                   "color": "green",
-                  "index": 0,
-                  "text": "Up"
+                  "index": 0
                 },
                 "2": {
+                  "text": "Down",
                   "color": "red",
-                  "index": 1,
-                  "text": "Down"
+                  "index": 1
                 }
-              },
-              "type": "value"
+              }
             }
           ],
           "thresholds": {
             "mode": "absolute",
             "steps": [
               {
-                "color": "green",
-                "value": 0
+                "value": null,
+                "color": "green"
               },
               {
-                "color": "red",
-                "value": 80
+                "value": 80,
+                "color": "red"
               }
             ]
+          },
+          "color": {
+            "mode": "thresholds"
           }
         },
         "overrides": []
       },
       "gridPos": {
         "h": 7,
-        "w": 12,
+        "w": 24,
         "x": 0,
         "y": 0
       },
@@ -88,13 +87,8 @@
         "textMode": "auto",
         "wideLayout": true
       },
-      "pluginVersion": "12.3.3",
       "targets": [
         {
-          "datasource": {
-            "type": "prometheus",
-            "uid": "PBFA97CFB590B2093"
-          },
           "disableTextWrap": false,
           "editorMode": "builder",
           "expr": "up",
@@ -103,8 +97,12 @@
           "instant": false,
           "legendFormat": "{{job}}",
           "range": true,
+          "useBackend": false,
           "refId": "A",
-          "useBackend": false
+          "datasource": {
+            "type": "prometheus",
+            "uid": "PBFA97CFB590B2093"
+          }
         }
       ],
       "title": "State",
@@ -117,31 +115,30 @@
       },
       "fieldConfig": {
         "defaults": {
-          "color": {
-            "mode": "thresholds"
-          },
-          "mappings": [],
           "thresholds": {
             "mode": "absolute",
             "steps": [
               {
-                "color": "green",
-                "value": 0
+                "value": null,
+                "color": "green"
               },
               {
-                "color": "red",
-                "value": 80
+                "value": 80,
+                "color": "red"
               }
             ]
+          },
+          "color": {
+            "mode": "thresholds"
           }
         },
         "overrides": []
       },
       "gridPos": {
         "h": 7,
-        "w": 9,
-        "x": 12,
-        "y": 0
+        "w": 24,
+        "x": 0,
+        "y": 7
       },
       "id": 2,
       "options": {
@@ -161,13 +158,8 @@
         "textMode": "auto",
         "wideLayout": true
       },
-      "pluginVersion": "12.3.3",
       "targets": [
         {
-          "datasource": {
-            "type": "prometheus",
-            "uid": "PBFA97CFB590B2093"
-          },
           "disableTextWrap": false,
           "editorMode": "builder",
           "expr": "latest_block_index",
@@ -176,276 +168,16 @@
           "instant": false,
           "legendFormat": "{{job}}",
           "range": true,
+          "useBackend": false,
           "refId": "A",
-          "useBackend": false
+          "datasource": {
+            "type": "prometheus",
+            "uid": "PBFA97CFB590B2093"
+          }
         }
       ],
       "title": "Latest Block Index",
       "type": "stat"
-    },
-    {
-      "datasource": {
-        "type": "datasource",
-        "uid": "-- Dashboard --"
-      },
-      "fieldConfig": {
-        "defaults": {
-          "color": {
-            "mode": "thresholds"
-          },
-          "custom": {
-            "align": "auto",
-            "cellOptions": {
-              "type": "auto"
-            },
-            "footer": {
-              "reducers": []
-            },
-            "inspect": false
-          },
-          "mappings": [],
-          "thresholds": {
-            "mode": "absolute",
-            "steps": [
-              {
-                "color": "green",
-                "value": 0
-              },
-              {
-                "color": "red",
-                "value": 80
-              }
-            ]
-          }
-        },
-        "overrides": [
-          {
-            "matcher": {
-              "id": "byName",
-              "options": "label"
-            },
-            "properties": [
-              {
-                "id": "custom.width",
-                "value": 294
-              }
-            ]
-          }
-        ]
-      },
-      "gridPos": {
-        "h": 7,
-        "w": 12,
-        "x": 0,
-        "y": 7
-      },
-      "id": 3,
-      "options": {
-        "cellHeight": "sm",
-        "showHeader": true,
-        "sortBy": []
-      },
-      "pluginVersion": "12.3.3",
-      "targets": [
-        {
-          "datasource": {
-            "type": "datasource",
-            "uid": "-- Dashboard --"
-          },
-          "refId": "A"
-        }
-      ],
-      "title": "Latest Block (Node 1)",
-      "transformations": [
-        {
-          "id": "labelsToFields",
-          "options": {
-            "keepLabels": [
-              "block_hash"
-            ],
-            "mode": "rows"
-          }
-        }
-      ],
-      "type": "table"
-    },
-    {
-      "datasource": {
-        "type": "prometheus",
-        "uid": "PBFA97CFB590B2093"
-      },
-      "fieldConfig": {
-        "defaults": {
-          "color": {
-            "mode": "thresholds"
-          },
-          "custom": {
-            "align": "auto",
-            "cellOptions": {
-              "type": "auto"
-            },
-            "footer": {
-              "reducers": []
-            },
-            "inspect": false
-          },
-          "mappings": [],
-          "thresholds": {
-            "mode": "absolute",
-            "steps": [
-              {
-                "color": "green",
-                "value": 0
-              },
-              {
-                "color": "red",
-                "value": 80
-              }
-            ]
-          }
-        },
-        "overrides": [
-          {
-            "matcher": {
-              "id": "byName",
-              "options": "label"
-            },
-            "properties": [
-              {
-                "id": "custom.width",
-                "value": 294
-              }
-            ]
-          }
-        ]
-      },
-      "gridPos": {
-        "h": 8,
-        "w": 12,
-        "x": 12,
-        "y": 7
-      },
-      "id": 4,
-      "options": {
-        "cellHeight": "sm",
-        "showHeader": true,
-        "sortBy": []
-      },
-      "pluginVersion": "12.3.3",
-      "targets": [
-        {
-          "datasource": {
-            "type": "prometheus",
-            "uid": "PBFA97CFB590B2093"
-          },
-          "expr": "",
-          "instant": false,
-          "range": true,
-          "refId": "A"
-        }
-      ],
-      "title": "Latest Block (Node 2)",
-      "transformations": [
-        {
-          "id": "labelsToFields",
-          "options": {
-            "keepLabels": [
-              "block_hash"
-            ],
-            "mode": "rows"
-          }
-        }
-      ],
-      "type": "table"
-    },
-    {
-      "datasource": {
-        "type": "prometheus",
-        "uid": "PBFA97CFB590B2093"
-      },
-      "fieldConfig": {
-        "defaults": {
-          "color": {
-            "mode": "thresholds"
-          },
-          "custom": {
-            "align": "auto",
-            "cellOptions": {
-              "type": "auto"
-            },
-            "footer": {
-              "reducers": []
-            },
-            "inspect": false
-          },
-          "mappings": [],
-          "thresholds": {
-            "mode": "absolute",
-            "steps": [
-              {
-                "color": "green",
-                "value": 0
-              },
-              {
-                "color": "red",
-                "value": 80
-              }
-            ]
-          }
-        },
-        "overrides": [
-          {
-            "matcher": {
-              "id": "byName",
-              "options": "label"
-            },
-            "properties": [
-              {
-                "id": "custom.width",
-                "value": 294
-              }
-            ]
-          }
-        ]
-      },
-      "gridPos": {
-        "h": 8,
-        "w": 12,
-        "x": 0,
-        "y": 14
-      },
-      "id": 5,
-      "options": {
-        "cellHeight": "sm",
-        "showHeader": true,
-        "sortBy": []
-      },
-      "pluginVersion": "12.3.3",
-      "targets": [
-        {
-          "datasource": {
-            "type": "prometheus",
-            "uid": "PBFA97CFB590B2093"
-          },
-          "expr": "",
-          "instant": false,
-          "range": true,
-          "refId": "A"
-        }
-      ],
-      "title": "Latest Block (Node 3)",
-      "transformations": [
-        {
-          "id": "labelsToFields",
-          "options": {
-            "keepLabels": [
-              "block_hash"
-            ],
-            "mode": "rows"
-          }
-        }
-      ],
-      "type": "table"
     },
     {
       "collapsed": false,
@@ -453,9 +185,9 @@
         "h": 1,
         "w": 24,
         "x": 0,
-        "y": 22
+        "y": 14
       },
-      "id": 100,
+      "id": 200,
       "panels": [],
       "title": "Treasury",
       "type": "row"
@@ -467,20 +199,19 @@
       },
       "fieldConfig": {
         "defaults": {
-          "color": {
-            "mode": "thresholds"
-          },
-          "mappings": [],
+          "decimals": 2,
           "thresholds": {
             "mode": "absolute",
             "steps": [
               {
-                "color": "text",
-                "value": null
+                "value": null,
+                "color": "text"
               }
             ]
           },
-          "decimals": 2
+          "color": {
+            "mode": "thresholds"
+          }
         },
         "overrides": []
       },
@@ -488,7 +219,7 @@
         "h": 5,
         "w": 4,
         "x": 0,
-        "y": 23
+        "y": 15
       },
       "id": 101,
       "options": {
@@ -496,6 +227,7 @@
         "graphMode": "area",
         "justifyMode": "auto",
         "orientation": "auto",
+        "percentChangeColorMode": "standard",
         "reduceOptions": {
           "calcs": [
             "lastNotNull"
@@ -509,15 +241,15 @@
       },
       "targets": [
         {
-          "datasource": {
-            "type": "prometheus",
-            "uid": "PBFA97CFB590B2093"
-          },
           "editorMode": "code",
           "expr": "clutch_treasury_clt_liability / 1000000",
           "instant": false,
           "range": true,
-          "refId": "A"
+          "refId": "A",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "PBFA97CFB590B2093"
+          }
         }
       ],
       "title": "CLT in circulation",
@@ -531,20 +263,19 @@
       },
       "fieldConfig": {
         "defaults": {
-          "color": {
-            "mode": "thresholds"
-          },
-          "mappings": [],
+          "decimals": 2,
           "thresholds": {
             "mode": "absolute",
             "steps": [
               {
-                "color": "text",
-                "value": null
+                "value": null,
+                "color": "text"
               }
             ]
           },
-          "decimals": 2
+          "color": {
+            "mode": "thresholds"
+          }
         },
         "overrides": []
       },
@@ -552,7 +283,7 @@
         "h": 5,
         "w": 4,
         "x": 4,
-        "y": 23
+        "y": 15
       },
       "id": 102,
       "options": {
@@ -560,6 +291,7 @@
         "graphMode": "area",
         "justifyMode": "auto",
         "orientation": "auto",
+        "percentChangeColorMode": "standard",
         "reduceOptions": {
           "calcs": [
             "lastNotNull"
@@ -573,15 +305,15 @@
       },
       "targets": [
         {
-          "datasource": {
-            "type": "prometheus",
-            "uid": "PBFA97CFB590B2093"
-          },
           "editorMode": "code",
           "expr": "clutch_treasury_custody_usdt / 1000000",
           "instant": false,
           "range": true,
-          "refId": "A"
+          "refId": "A",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "PBFA97CFB590B2093"
+          }
         }
       ],
       "title": "USDT in custody",
@@ -595,29 +327,30 @@
       },
       "fieldConfig": {
         "defaults": {
-          "color": {
-            "mode": "thresholds"
-          },
-          "mappings": [],
+          "unit": "percent",
+          "decimals": 1,
+          "min": 0,
+          "max": 100,
           "thresholds": {
             "mode": "absolute",
             "steps": [
               {
-                "color": "red",
-                "value": null
+                "value": null,
+                "color": "red"
               },
               {
-                "color": "orange",
-                "value": 100
+                "value": 100,
+                "color": "orange"
               },
               {
-                "color": "green",
-                "value": 100.5
+                "value": 100.5,
+                "color": "green"
               }
             ]
           },
-          "unit": "percent",
-          "decimals": 1
+          "color": {
+            "mode": "thresholds"
+          }
         },
         "overrides": []
       },
@@ -625,7 +358,7 @@
         "h": 5,
         "w": 4,
         "x": 8,
-        "y": 23
+        "y": 15
       },
       "id": 103,
       "options": {
@@ -633,6 +366,7 @@
         "graphMode": "area",
         "justifyMode": "auto",
         "orientation": "auto",
+        "percentChangeColorMode": "standard",
         "reduceOptions": {
           "calcs": [
             "lastNotNull"
@@ -646,15 +380,15 @@
       },
       "targets": [
         {
-          "datasource": {
-            "type": "prometheus",
-            "uid": "PBFA97CFB590B2093"
-          },
           "editorMode": "code",
           "expr": "100 * clutch_treasury_custody_usdt / clamp_min(clutch_treasury_clt_liability, 1)",
           "instant": false,
           "range": true,
-          "refId": "A"
+          "refId": "A",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "PBFA97CFB590B2093"
+          }
         }
       ],
       "title": "Reserve backing",
@@ -668,34 +402,34 @@
       },
       "fieldConfig": {
         "defaults": {
-          "color": {
-            "mode": "thresholds"
-          },
           "mappings": [
             {
+              "type": "value",
               "options": {
                 "0": {
+                  "text": "Running",
                   "color": "green",
-                  "index": 0,
-                  "text": "Running"
+                  "index": 0
                 },
                 "1": {
+                  "text": "HALTED",
                   "color": "red",
-                  "index": 1,
-                  "text": "HALTED"
+                  "index": 1
                 }
-              },
-              "type": "value"
+              }
             }
           ],
           "thresholds": {
             "mode": "absolute",
             "steps": [
               {
-                "color": "text",
-                "value": null
+                "value": null,
+                "color": "text"
               }
             ]
+          },
+          "color": {
+            "mode": "thresholds"
           }
         },
         "overrides": []
@@ -704,7 +438,7 @@
         "h": 5,
         "w": 4,
         "x": 12,
-        "y": 23
+        "y": 15
       },
       "id": 104,
       "options": {
@@ -712,6 +446,7 @@
         "graphMode": "area",
         "justifyMode": "auto",
         "orientation": "auto",
+        "percentChangeColorMode": "standard",
         "reduceOptions": {
           "calcs": [
             "lastNotNull"
@@ -725,15 +460,15 @@
       },
       "targets": [
         {
-          "datasource": {
-            "type": "prometheus",
-            "uid": "PBFA97CFB590B2093"
-          },
           "editorMode": "code",
           "expr": "clutch_treasury_minting_halted",
           "instant": false,
           "range": true,
-          "refId": "A"
+          "refId": "A",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "PBFA97CFB590B2093"
+          }
         }
       ],
       "title": "Minting",
@@ -747,34 +482,34 @@
       },
       "fieldConfig": {
         "defaults": {
-          "color": {
-            "mode": "thresholds"
-          },
           "mappings": [
             {
+              "type": "value",
               "options": {
                 "0": {
+                  "text": "NOT OK",
                   "color": "red",
-                  "index": 1,
-                  "text": "NOT OK"
+                  "index": 1
                 },
                 "1": {
+                  "text": "OK",
                   "color": "green",
-                  "index": 0,
-                  "text": "OK"
+                  "index": 0
                 }
-              },
-              "type": "value"
+              }
             }
           ],
           "thresholds": {
             "mode": "absolute",
             "steps": [
               {
-                "color": "text",
-                "value": null
+                "value": null,
+                "color": "text"
               }
             ]
+          },
+          "color": {
+            "mode": "thresholds"
           }
         },
         "overrides": []
@@ -783,7 +518,7 @@
         "h": 5,
         "w": 4,
         "x": 16,
-        "y": 23
+        "y": 15
       },
       "id": 105,
       "options": {
@@ -791,6 +526,7 @@
         "graphMode": "area",
         "justifyMode": "auto",
         "orientation": "auto",
+        "percentChangeColorMode": "standard",
         "reduceOptions": {
           "calcs": [
             "lastNotNull"
@@ -804,15 +540,15 @@
       },
       "targets": [
         {
-          "datasource": {
-            "type": "prometheus",
-            "uid": "PBFA97CFB590B2093"
-          },
           "editorMode": "code",
           "expr": "clutch_treasury_reconciliation_status{status=\"ok\"}",
           "instant": false,
           "range": true,
-          "refId": "A"
+          "refId": "A",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "PBFA97CFB590B2093"
+          }
         }
       ],
       "title": "Reconciliation",
@@ -826,22 +562,21 @@
       },
       "fieldConfig": {
         "defaults": {
-          "color": {
-            "mode": "thresholds"
-          },
-          "mappings": [],
           "thresholds": {
             "mode": "absolute",
             "steps": [
               {
-                "color": "green",
-                "value": null
+                "value": null,
+                "color": "green"
               },
               {
-                "color": "red",
-                "value": 1
+                "value": 1,
+                "color": "red"
               }
             ]
+          },
+          "color": {
+            "mode": "thresholds"
           }
         },
         "overrides": []
@@ -850,7 +585,7 @@
         "h": 5,
         "w": 4,
         "x": 20,
-        "y": 23
+        "y": 15
       },
       "id": 106,
       "options": {
@@ -858,6 +593,7 @@
         "graphMode": "area",
         "justifyMode": "auto",
         "orientation": "auto",
+        "percentChangeColorMode": "standard",
         "reduceOptions": {
           "calcs": [
             "lastNotNull"
@@ -871,15 +607,15 @@
       },
       "targets": [
         {
-          "datasource": {
-            "type": "prometheus",
-            "uid": "PBFA97CFB590B2093"
-          },
           "editorMode": "code",
           "expr": "sum(clutch_treasury_mint_intents{status=\"needs_manual\"}) + sum(clutch_orchestrator_deposit_intents{status=\"needs_manual\"})",
           "instant": false,
           "range": true,
-          "refId": "A"
+          "refId": "A",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "PBFA97CFB590B2093"
+          }
         }
       ],
       "title": "Needs review",
@@ -893,6 +629,15 @@
       },
       "fieldConfig": {
         "defaults": {
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "value": null,
+                "color": "green"
+              }
+            ]
+          },
           "color": {
             "mode": "palette-classic"
           },
@@ -920,6 +665,7 @@
               "type": "linear"
             },
             "showPoints": "never",
+            "showValues": false,
             "spanNulls": false,
             "stacking": {
               "group": "A",
@@ -928,16 +674,6 @@
             "thresholdsStyle": {
               "mode": "off"
             }
-          },
-          "mappings": [],
-          "thresholds": {
-            "mode": "absolute",
-            "steps": [
-              {
-                "color": "green",
-                "value": null
-              }
-            ]
           }
         },
         "overrides": []
@@ -946,7 +682,7 @@
         "h": 6,
         "w": 12,
         "x": 0,
-        "y": 28
+        "y": 20
       },
       "id": 107,
       "options": {
@@ -964,28 +700,28 @@
       },
       "targets": [
         {
-          "datasource": {
-            "type": "prometheus",
-            "uid": "PBFA97CFB590B2093"
-          },
           "editorMode": "code",
           "expr": "clutch_treasury_clt_liability / 1000000",
           "instant": false,
+          "legendFormat": "CLT",
           "range": true,
           "refId": "A",
-          "legendFormat": "CLT"
-        },
-        {
           "datasource": {
             "type": "prometheus",
             "uid": "PBFA97CFB590B2093"
-          },
+          }
+        },
+        {
           "editorMode": "code",
           "expr": "clutch_treasury_custody_usdt / 1000000",
           "instant": false,
+          "legendFormat": "USDT in custody",
           "range": true,
           "refId": "B",
-          "legendFormat": "USDT in custody"
+          "datasource": {
+            "type": "prometheus",
+            "uid": "PBFA97CFB590B2093"
+          }
         }
       ],
       "title": "CLT in circulation",
@@ -999,6 +735,15 @@
       },
       "fieldConfig": {
         "defaults": {
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "value": null,
+                "color": "green"
+              }
+            ]
+          },
           "color": {
             "mode": "palette-classic"
           },
@@ -1026,6 +771,7 @@
               "type": "linear"
             },
             "showPoints": "never",
+            "showValues": false,
             "spanNulls": false,
             "stacking": {
               "group": "A",
@@ -1034,16 +780,6 @@
             "thresholdsStyle": {
               "mode": "off"
             }
-          },
-          "mappings": [],
-          "thresholds": {
-            "mode": "absolute",
-            "steps": [
-              {
-                "color": "green",
-                "value": null
-              }
-            ]
           }
         },
         "overrides": []
@@ -1052,7 +788,7 @@
         "h": 6,
         "w": 12,
         "x": 12,
-        "y": 28
+        "y": 20
       },
       "id": 108,
       "options": {
@@ -1070,16 +806,16 @@
       },
       "targets": [
         {
-          "datasource": {
-            "type": "prometheus",
-            "uid": "PBFA97CFB590B2093"
-          },
           "editorMode": "code",
           "expr": "clutch_orchestrator_deposit_intents",
           "instant": false,
+          "legendFormat": "{{status}}",
           "range": true,
           "refId": "A",
-          "legendFormat": "{{status}}"
+          "datasource": {
+            "type": "prometheus",
+            "uid": "PBFA97CFB590B2093"
+          }
         }
       ],
       "title": "Deposits by status",
@@ -1093,18 +829,17 @@
       },
       "fieldConfig": {
         "defaults": {
-          "color": {
-            "mode": "thresholds"
-          },
-          "mappings": [],
           "thresholds": {
             "mode": "absolute",
             "steps": [
               {
-                "color": "text",
-                "value": null
+                "value": null,
+                "color": "text"
               }
             ]
+          },
+          "color": {
+            "mode": "thresholds"
           }
         },
         "overrides": []
@@ -1113,7 +848,7 @@
         "h": 4,
         "w": 6,
         "x": 0,
-        "y": 34
+        "y": 26
       },
       "id": 109,
       "options": {
@@ -1121,6 +856,7 @@
         "graphMode": "area",
         "justifyMode": "auto",
         "orientation": "auto",
+        "percentChangeColorMode": "standard",
         "reduceOptions": {
           "calcs": [
             "lastNotNull"
@@ -1134,15 +870,15 @@
       },
       "targets": [
         {
-          "datasource": {
-            "type": "prometheus",
-            "uid": "PBFA97CFB590B2093"
-          },
           "editorMode": "code",
           "expr": "clutch_treasury_mint_intents{status=\"credited\"}",
           "instant": false,
           "range": true,
-          "refId": "A"
+          "refId": "A",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "PBFA97CFB590B2093"
+          }
         }
       ],
       "title": "Mints credited",
@@ -1156,18 +892,17 @@
       },
       "fieldConfig": {
         "defaults": {
-          "color": {
-            "mode": "thresholds"
-          },
-          "mappings": [],
           "thresholds": {
             "mode": "absolute",
             "steps": [
               {
-                "color": "text",
-                "value": null
+                "value": null,
+                "color": "text"
               }
             ]
+          },
+          "color": {
+            "mode": "thresholds"
           }
         },
         "overrides": []
@@ -1176,7 +911,7 @@
         "h": 4,
         "w": 6,
         "x": 6,
-        "y": 34
+        "y": 26
       },
       "id": 110,
       "options": {
@@ -1184,6 +919,7 @@
         "graphMode": "area",
         "justifyMode": "auto",
         "orientation": "auto",
+        "percentChangeColorMode": "standard",
         "reduceOptions": {
           "calcs": [
             "lastNotNull"
@@ -1197,15 +933,15 @@
       },
       "targets": [
         {
-          "datasource": {
-            "type": "prometheus",
-            "uid": "PBFA97CFB590B2093"
-          },
           "editorMode": "code",
           "expr": "clutch_treasury_unswept_deposit_addresses",
           "instant": false,
           "range": true,
-          "refId": "A"
+          "refId": "A",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "PBFA97CFB590B2093"
+          }
         }
       ],
       "title": "Unswept deposit addresses",
@@ -1219,28 +955,27 @@
       },
       "fieldConfig": {
         "defaults": {
-          "color": {
-            "mode": "thresholds"
-          },
-          "mappings": [],
+          "unit": "s",
           "thresholds": {
             "mode": "absolute",
             "steps": [
               {
-                "color": "green",
-                "value": null
+                "value": null,
+                "color": "green"
               },
               {
-                "color": "orange",
-                "value": 90000
+                "value": 90000,
+                "color": "orange"
               },
               {
-                "color": "red",
-                "value": 172800
+                "value": 172800,
+                "color": "red"
               }
             ]
           },
-          "unit": "s"
+          "color": {
+            "mode": "thresholds"
+          }
         },
         "overrides": []
       },
@@ -1248,7 +983,7 @@
         "h": 4,
         "w": 6,
         "x": 12,
-        "y": 34
+        "y": 26
       },
       "id": 111,
       "options": {
@@ -1256,6 +991,7 @@
         "graphMode": "area",
         "justifyMode": "auto",
         "orientation": "auto",
+        "percentChangeColorMode": "standard",
         "reduceOptions": {
           "calcs": [
             "lastNotNull"
@@ -1269,15 +1005,15 @@
       },
       "targets": [
         {
-          "datasource": {
-            "type": "prometheus",
-            "uid": "PBFA97CFB590B2093"
-          },
           "editorMode": "code",
           "expr": "clutch_treasury_reconciliation_age_seconds",
           "instant": false,
           "range": true,
-          "refId": "A"
+          "refId": "A",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "PBFA97CFB590B2093"
+          }
         }
       ],
       "title": "Reconciliation age",
@@ -1291,24 +1027,23 @@
       },
       "fieldConfig": {
         "defaults": {
-          "color": {
-            "mode": "thresholds"
-          },
-          "mappings": [],
+          "decimals": 0,
           "thresholds": {
             "mode": "absolute",
             "steps": [
               {
-                "color": "green",
-                "value": null
+                "value": null,
+                "color": "green"
               },
               {
-                "color": "red",
-                "value": 1
+                "value": 1,
+                "color": "red"
               }
             ]
           },
-          "decimals": 0
+          "color": {
+            "mode": "thresholds"
+          }
         },
         "overrides": []
       },
@@ -1316,7 +1051,7 @@
         "h": 4,
         "w": 6,
         "x": 18,
-        "y": 34
+        "y": 26
       },
       "id": 112,
       "options": {
@@ -1324,6 +1059,7 @@
         "graphMode": "area",
         "justifyMode": "auto",
         "orientation": "auto",
+        "percentChangeColorMode": "standard",
         "reduceOptions": {
           "calcs": [
             "lastNotNull"
@@ -1337,15 +1073,15 @@
       },
       "targets": [
         {
-          "datasource": {
-            "type": "prometheus",
-            "uid": "PBFA97CFB590B2093"
-          },
           "editorMode": "code",
           "expr": "sum(increase(clutch_treasury_alerts_total{severity=\"p1\"}[24h])) + sum(increase(clutch_orchestrator_alerts_total{severity=\"p1\"}[24h]))",
           "instant": false,
           "range": true,
-          "refId": "A"
+          "refId": "A",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "PBFA97CFB590B2093"
+          }
         }
       ],
       "title": "P1 alerts (24h)",
@@ -1368,5 +1104,5 @@
   "timezone": "browser",
   "title": "Clutch-Node",
   "uid": "cdx2uvflsag3kf",
-  "version": 4
+  "version": 5
 }
