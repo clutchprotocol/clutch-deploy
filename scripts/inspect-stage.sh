@@ -2,7 +2,7 @@
 #
 # Read-only inspection of the stage VPS. Run ON the host, from the clutch-deploy checkout.
 #
-#   PROBE=nginx|containers|git|treasury|sweeper|chain|bitcart bash scripts/inspect-stage.sh
+#   PROBE=nginx|containers|git|treasury|sweeper|chain|metrics|bitcart bash scripts/inspect-stage.sh
 #
 # A file, not an inline `script:` block, for the same reason deploy-stage.sh is: as inline YAML
 # this probe broke three times — once making the whole workflow unparseable (column-0 Python
@@ -449,6 +449,40 @@ if [ "$PROBE" = "bitcart-daemon" ]; then
   echo "  --- Nile head, for comparison ---"
   docker run --rm curlimages/curl:8.10.1 -s -m 20 -X POST     https://nile.trongrid.io/wallet/getnowblock 2>/dev/null     | head -c 300
   echo ""
+fi
+
+if [ "$PROBE" = "metrics" ]; then
+  # Does Prometheus actually have the treasury services, and are they UP?
+  #
+  # Worth its own probe because a scrape target can be wrong in two silent ways: the config lists a
+  # job nobody can reach (DNS name, port, or network), or the service answers but with nothing in
+  # it. Both look like "no alerts" on a dashboard, which is indistinguishable from healthy.
+  echo "=== scrape targets Prometheus knows about ==="
+  docker exec clutch-stage-prometheus-1 wget -qO- 'http://localhost:9090/api/v1/targets?state=any' 2>/dev/null \
+    | tr ',' '\n' | grep -E '"job"|"health"|"scrapeUrl"|"lastError"' | sed 's/^/    /' \
+    || echo "    (could not query Prometheus; is clutch-stage-prometheus-1 running?)"
+
+  echo ""
+  echo "=== the endpoints themselves, from inside the network ==="
+  for pair in "treasury-service 9101" "payment-orchestrator 9102"; do
+    set -- $pair
+    echo "--- $1:$2/metrics"
+    docker exec clutch-stage-prometheus-1 wget -qO- "http://$1:$2/metrics" 2>/dev/null \
+      | grep -vE '^#' | grep -E 'up |halted|needs_manual|reconciliation_status|unswept|never_polled|oldest_poll' \
+      | sed 's/^/    /' | head -12 \
+      || echo "    (unreachable from Prometheus - wrong port, wrong network, or not serving)"
+  done
+
+  echo ""
+  echo "=== anything the services alerted on that nobody has looked at ==="
+  docker exec clutch-stage-treasury-postgres-1 psql -U treasury -d treasury -tAc \
+    "select severity || '  ' || source || '  ' || left(message, 90) from alerts
+      where created_at > now() - interval '24 hours' order by created_at desc limit 8;" 2>/dev/null \
+    | sed 's/^/    /' || echo "    (could not read treasury alerts)"
+  docker exec clutch-stage-orchestrator-postgres-1 psql -U orchestrator -d orchestrator -tAc \
+    "select severity || '  ' || source || '  ' || left(message, 90) from alerts
+      where created_at > now() - interval '24 hours' order by created_at desc limit 8;" 2>/dev/null \
+    | sed 's/^/    /' || echo "    (could not read orchestrator alerts)"
 fi
 
 # Always succeed. This is a read-only probe whose OUTPUT is the deliverable — a trailing non-zero

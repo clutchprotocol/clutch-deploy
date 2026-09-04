@@ -31,6 +31,7 @@ on:
           - treasury
           - sweeper
           - chain
+          - metrics
           - balance
           - bitcart
           - bitcart-daemon
