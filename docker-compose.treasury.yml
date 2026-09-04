@@ -248,12 +248,28 @@ services:
       # Unkeyed TronGrid throttles hard, and a throttled watcher looks exactly like "nobody paid".
       - APP_TRONGRID_API_KEY=${TRONGRID_API_KEY:-}
       - APP_USDT_CONTRACT=${USDT_CONTRACT:-TXYZopYRdj2D9XRtbG411XZZ3kM5VkAeBf}
-      # OFF, but not because the rail is missing: payout.rs posts to tron-signer's /internal/payout,
-      # which signs and broadcasts a real TRC-20 transfer from the derived float at 2/0. What has not
-      # happened is the rollout in the payout-rail design section 5 — the float still needs funding,
-      # and reconciliation needs to read ok with the float counted. Flipping before that invites a
-      # burn with no funded payout behind it, and the burn is irreversible.
-      - APP_REDEMPTIONS_ENABLED=false
+      # ON since 2026-09-04. The rollout in the payout-rail design section 5 has run, and this is
+      # what was true when the flag moved — a burn is irreversible, so the evidence belongs beside
+      # the switch rather than in a chat log:
+      #
+      #   - The payout float at 2/0 (TF5p9…Uur) holds 1,000 USDT. Moved from the fee account, where
+      #     it had been sitting misplaced and counted in no reserve bucket, by /internal/fund-float:
+      #     tx f0f09da4bb01fa444d335fd6e34ba3089e9284b3116b7f343396b00889b5df79, block 70668270,
+      #     receipt SUCCESS, confirmed by reading balanceOf on the contract rather than the account
+      #     index, which lags for an address receiving its first transfer.
+      #   - Reconciliation ran AFTER the funding and read `ok`, with the float counted. Minting was
+      #     not halted.
+      #   - confirm_burn's sender match was made case-insensitive, and the redemption route now
+      #     refuses a subject that is not an address. Before that, a checksummed address or a
+      #     public-key-form token created a redemption that could never be honoured: the user burns,
+      #     the match fails, the intent is marked failed and never paid.
+      #   - The demo app has a Withdraw panel, so the routes have a caller. It verifies the burn
+      #     against what it asked for before signing, and re-reads its record before broadcasting.
+      #
+      # To turn it back off, revert this line and deploy — that is a couple of minutes and leaves a
+      # trail, which for a switch that lets people destroy CLT is the right trade. A single
+      # redemption is capped at 50 CLT and the float bounds the rest.
+      - APP_REDEMPTIONS_ENABLED=true
       # How long a user's address stays on the fast poll tier after they open the deposit panel.
       # Larger values collapse tiering back into polling every address every pass — a cost
       # regression, not a correctness one.
