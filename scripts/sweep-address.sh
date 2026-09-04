@@ -83,8 +83,15 @@ case "$RESP" in
     echo "      once this sweep has landed."
     ;;
   *'"status":"nothing_to_sweep"'*)
+    # Backfill for addresses emptied before this script recorded swept_at. Restricted to intents
+    # already `credited`: those are accounted for and their CLT is issued, so an empty address means
+    # collection is finished. A deposit still WAITING for payment sits at created/approved and is
+    # deliberately left alone -- marking that swept would make the automatic sweeper skip the money
+    # when it finally arrives.
+    docker exec "$PG" psql -U treasury -d treasury -c       "update mint_intents set swept_at = now()
+        where deposit_address = '$ADDRESS' and swept_at is null and status = 'credited';" 2>&1 | sed 's/^/    /'
     echo "nothing to sweep: the address holds no USDT above the sweep threshold. Already collected,"
-    echo "or never funded. No action taken."
+    echo "or never funded. No USDT moved."
     ;;
   *'"status":"funded"'*)
     echo "the address had no TRX for its own fee, so the signer funded it from the fee account."
