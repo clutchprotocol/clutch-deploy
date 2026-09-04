@@ -28,3 +28,19 @@ scrape_configs:
     scrape_interval: 10s
     metrics_path: /metrics
     scheme: http
+
+  # The treasury services. Both sit on clutch-network alongside Prometheus, and both serve metrics
+  # on their own port rather than on their API: the orchestrator's API is public through nginx's
+  # /payment/ route, and deposit counts are not public. Neither port is published in compose.
+  #
+  # Scraped every 30s rather than the nodes' 10s: these are database aggregates describing state
+  # that changes on the order of minutes, not block-by-block counters.
+  - job_name: "treasury-service"
+    scrape_interval: 30s
+    static_configs:
+      - targets: ["treasury-service:9101"]
+
+  - job_name: "payment-orchestrator"
+    scrape_interval: 30s
+    static_configs:
+      - targets: ["payment-orchestrator:9102"]
