@@ -95,11 +95,18 @@ if [ "$PROBE" = "treasury" ]; then
   echo ""
 
   echo "=== treasury / orchestrator settings (non-secret keys only) ==="
-  for c in treasury-service payment-orchestrator; do
+  # tron-signer is in this list for its payout cap alone. That cap and the orchestrator's
+  # max_redemption_clt are enforced in different services and can silently disagree -- and a
+  # redemption the orchestrator accepts but the signer refuses is CLT already burned that no
+  # retry can ever pay. Show them side by side so a mismatch is visible without reading two repos.
+  for c in treasury-service payment-orchestrator tron-signer; do
     echo "--- clutch-stage-${c}-1"
     for k in APP_TRONGRID_URL APP_CUSTODY_TRON_ADDRESS APP_USDT_CONTRACT \
              APP_REDEMPTIONS_ENABLED APP_PERMANENT_DEPOSIT_ADDRESSES_ENABLED \
-             APP_DEPOSIT_HOT_WINDOW_HOURS APP_DEPOSIT_MATCH_WINDOW_HOURS; do
+             APP_DEPOSIT_HOT_WINDOW_HOURS APP_DEPOSIT_MATCH_WINDOW_HOURS \
+             APP_MIN_REDEMPTION_CLT APP_MAX_REDEMPTION_CLT \
+             APP_DAILY_PAYOUT_CAP_CLT APP_PER_TX_PAYOUT_CAP_USDT \
+             APP_PER_TX_MINT_CAP_CLT APP_DAILY_MINT_CAP_CLT; do
       v=$(docker exec "clutch-stage-${c}-1" printenv "$k" 2>/dev/null || true)
       if [ -n "$v" ]; then echo "    $k=$v"; fi
     done
