@@ -28,7 +28,19 @@ is_testnet = true
 tx_fee = 1000
 mint_authority = "0x662c5f11ed534ae93f29ed5e02a928081056f5f9"
 faucet_address = "0x88f9c89f2e06410755b987bf9a6da20361ba7e7a"
-faucet_allocation = 1000000000000000
+# Zero. The faucet endpoint was removed long before this, but the BALANCE was the actual risk:
+# it TRANSFERRED rather than minted, so the CLT it held had no USDT behind it and was excluded
+# from reserve liability by construction. That was harmless while CLT only ever flowed one way.
+# Redemptions are live now, and nothing in the burn path asks where the burned CLT came from —
+# which made this account a route from unbacked genesis supply to real USDT out of the payout
+# float, gated only by whoever holds its key.
+#
+# faucet_address stays because it is committed into the genesis hash and removing the field would
+# change the ChainInit encoding. With a zero allocation the account is inert: it is credited
+# nothing and holds nothing.
+#
+# Genesis-only. Changing this forks the chain, so it takes effect on a reset and nowhere else.
+faucet_allocation = 0
 ride_request_referrer_fee_bps = 200
 ride_offer_referrer_fee_bps = 200
 sync_enabled = true
