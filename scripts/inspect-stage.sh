@@ -230,10 +230,22 @@ if [ "$PROBE" = "sweeper" ]; then
   # its response at INFO every 2 seconds (the outbox poll), so `docker logs --tail 30` is thirty
   # lines of the same poll and nothing else. Grep for what actually matters instead.
   echo "=== sweeper / signer activity (filtered out of the 2s chain poll) ==="
-  docker logs --tail 4000 clutch-stage-treasury-service-1 2>&1 \
-    | grep -aiE "sweep|swept|funded|fee_account|signer|alert|authority|outbox" \
-    | tail -25 \
-    || echo "(no sweeper lines in the last 4000 log lines)"
+  # Two filters, in this order, and the order is the whole fix. `clutch_chain::node_client` logs the
+  # get_chain_info request AND its response at INFO every 2 seconds, and that response is a JSON blob
+  # carrying `mint_authority` -- so the keyword `authority` below matched every single poll line and
+  # this probe printed the exact noise it exists to strip. Excluding the poll by its own message
+  # shape, rather than dropping the keyword, keeps `authority` doing its real job (main.rs logs
+  # "mint authority confirmed by the chain" once at startup) and stops any keyword added here later
+  # from colliding with the poll the same way.
+  SWEEPER_LINES=$(docker logs --tail 4000 clutch-stage-treasury-service-1 2>&1 | grep -avE "Sending request to node|Received response" | grep -aiE "sweep|swept|funded|fee_account|signer|alert|authority|outbox" | tail -25)
+  # Tested for emptiness, not exit status. This was a `|| echo` before, which could never fire: a
+  # pipeline exits with tail's status and tail succeeds on empty input, so a probe with nothing to
+  # report printed nothing at all and read as a truncated run rather than a quiet one.
+  if [ -n "$SWEEPER_LINES" ]; then
+    echo "$SWEEPER_LINES"
+  else
+    echo "(no sweeper lines in the last 4000 log lines)"
+  fi
 
   # The signer's own log. treasury-service only ever reports "signer returned 500" -- the actual
   # reason lives here, and without it a failing sweep is unattributable.
