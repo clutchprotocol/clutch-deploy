@@ -33,6 +33,7 @@ on:
           - chain
           - metrics
           - balance
+          - energy
           - bitcart
           - bitcart-daemon
 
