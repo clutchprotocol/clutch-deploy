@@ -143,6 +143,18 @@ services:
       - APP_DAILY_MINT_CAP_CLT=${DAILY_MINT_CAP_CLT:-500000000}
       - APP_SWEEP_THRESHOLD_USDT=${SWEEP_THRESHOLD_USDT:-100000000}
       - APP_SWEEP_MAX_AGE_HOURS=${SWEEP_MAX_AGE_HOURS:-168}
+      # Floor under the age valve above, in micro-USDT. Below this a balance is left where it is:
+      # sweeping it burns more TRX than the USDT it recovers, and because deposit addresses are
+      # permanent per user, the balance sweeps by itself once that user's next deposit lifts it
+      # over the line. An unswept address is already counted in the reserve, so leaving it costs
+      # nothing but patience.
+      #
+      # $5, about twice measured cost. On 2026-09-10 a TRC-20 USDT transfer into an address that
+      # already holds USDT burned 64,285 energy at a getEnergyFee of 100 sun -- 6.43 TRX, roughly
+      # $2.19 at TRX $0.34. Every sweep is that shape, because the treasury address holds USDT
+      # from its first sweep onward. Was absent from this file entirely until now, which meant it
+      # quietly ran on treasury-service's $1 default: a sweep that spent $2.19 to recover $1.
+      - APP_SWEEP_MIN_USDT=${SWEEP_MIN_USDT:-5000000}
       # Read off tron-signer's /internal/xpub (PROBE=treasury in inspect-stage.sh), not typed by
       # hand: this service holds no key material and must not be able to derive a spending address
       # itself, it only needs to know where to look. This is the payout float derived at
@@ -161,17 +173,30 @@ services:
       # receives this much less; the difference stays in the reserve, which reconciliation reads as
       # fine because it fails on reserve BELOW liability, never above.
       #
-      # $0.10. It MUST stay below the orchestrator's APP_MIN_REDEMPTION_CLT (1000000, $1) or the
-      # smallest redemption a user is allowed to ask for is one the treasury then refuses -- and
-      # that refusal reaches them as a bare 502, not an explanation. At $1 this fee is already 10%
-      # of a minimum redemption, which is the honest reason it is not larger.
+      # $5.00, measured on 2026-09-10 across 20 live USDT transfers on Tron mainnet. A TRC-20
+      # transfer into an address holding no USDT yet burns 130,285 energy, and the chain parameter
+      # getEnergyFee was 100 sun per energy -- 13.03 TRX, about $4.43 at TRX $0.34, plus roughly
+      # $0.12 of bandwidth once the daily free 600 is spent. A payout is that expensive shape
+      # whenever the user's Tron address is new to USDT, which is not something we control, so this
+      # covers the worst case rather than the average. The cheap case, an address that already
+      # holds USDT, is half that.
       #
-      # It does NOT cover cost here and is not meant to. Nile energy is faucet TRX, so a payout on
-      # stage costs nothing real. On mainnet a TRC-20 transfer runs roughly 13-27 TRX of energy,
-      # which at any plausible TRX price exceeds this entire fee and can exceed the $1 minimum
-      # redemption outright -- so mainnet needs a measured fee AND a higher minimum, not this
-      # number scaled up. Set both from observed cost before any real USDT is behind this.
-      - APP_REDEMPTION_FEE_USDT=${REDEMPTION_FEE_USDT:-100000}
+      # The old estimate in this comment, 13-27 TRX, assumed getEnergyFee was 210 sun. It is 100
+      # now. That is a governance parameter, so this figure can go stale without the TRX price
+      # moving at all: re-measure before mainnet rather than scaling it.
+      #
+      # It MUST stay below the orchestrator's APP_MIN_REDEMPTION_CLT ($10) or the smallest
+      # redemption a user is allowed to ask for is one the treasury then refuses -- and that
+      # refusal reaches them as a bare 502, not an explanation. The two move together.
+      #
+      # Charging this on stage, where Nile energy is faucet TRX and the cost is not real, is
+      # deliberate: the arithmetic a user sees in the Withdraw panel here is then the arithmetic
+      # they will see on mainnet. A stage that quotes par teaches the wrong number.
+      #
+      # An underpriced fee is an operating loss, not a solvency event -- the fee is withheld from
+      # the payout leg and stays in the reserve, while the TRX energy comes out of the fee account.
+      # What it drains is that TRX, and the fee account running dry stops sweeps, not just payouts.
+      - APP_REDEMPTION_FEE_USDT=${REDEMPTION_FEE_USDT:-5000000}
     restart: unless-stopped
     networks:
       - treasury-network   # its own Postgres
@@ -292,6 +317,18 @@ services:
       # and never paid. Burned CLT, no USDT, no way out without an operator raising the other cap.
       # 1 CLT is 1 USDT, so these two numbers must move together.
       - APP_MAX_REDEMPTION_CLT=${MAX_REDEMPTION_CLT:-25000000}
+      # The least a user may ask to redeem, in CLT base units. $10, and pinned there by the fee
+      # rather than chosen for its own sake: treasury-service refuses any redemption that cannot
+      # cover APP_REDEMPTION_FEE_USDT ($5), and this service maps that refusal to a 502 carrying no
+      # reason, so every amount between the fee and this minimum would fail with nothing to read.
+      # Nothing enforces the ordering at boot -- the two values live in different services in
+      # different units -- so raise this whenever the fee rises.
+      #
+      # At the floor the fee is half of what a user asks for. That is what a $4.55 on-chain payout
+      # costs against a $10 redemption, not a margin. The ways out are a higher floor with a higher
+      # cap to match, or staking TRX for energy instead of burning it; both are decisions, not
+      # config tweaks.
+      - APP_MIN_REDEMPTION_CLT=${MIN_REDEMPTION_CLT:-10000000}
       - APP_REDEMPTIONS_ENABLED=true
       # How long a user's address stays on the fast poll tier after they open the deposit panel.
       # Larger values collapse tiering back into polling every address every pass — a cost
