@@ -1,0 +1,45 @@
+# Dump, encrypt and off-host the treasury and orchestrator databases.
+#
+# Readiness item D1. These two databases are the off-chain half of the peg: the chain records that
+# a Mint and a Burn happened, not which USDT payment a mint answered or whose deposit address is
+# whose. Nothing dumped them until this workflow existed.
+#
+# The schedule is the point. A backup job somebody remembers to run is the same as no backup job,
+# and the failure it guards against — host loss — arrives without warning.
+#
+# This does NOT close D1 on its own. D1 needs the dumps to land off host (BACKUP_REMOTE set on the
+# host's .env) and a restore to have actually been performed. See docs/BACKUP-RESTORE.md.
+
+name: Backup treasury databases (stage)
+
+on:
+  schedule:
+    # 03:17 UTC daily. Off the hour on purpose: every cron job in the world runs at :00, and this
+    # one shares a small VPS with three validators.
+    - cron: "17 3 * * *"
+  workflow_dispatch:
+
+concurrency:
+  group: backup-treasury-db
+  cancel-in-progress: false
+
+jobs:
+  backup:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Back up via SSH
+        uses: appleboy/ssh-action@v1.2.0
+        with:
+          host: ${{ secrets.STAGE_HOST }}
+          username: ${{ secrets.STAGE_USER }}
+          password: ${{ secrets.STAGE_SSH_PASSWORD }}
+          script_stop: true
+          script: |
+            set -euo pipefail
+            cd "${{ secrets.STAGE_DEPLOY_PATH }}"
+            git pull --ff-only
+            # Same convention as deploy-stage.yml: the logic lives in the script, the workflow
+            # stays a wrapper, and git pull runs above the call so the script that runs is the
+            # one just pulled. Run with `bash`, not the exec bit — chmod +x on a tracked file
+            # reads as a local modification and blocks the next `git pull --ff-only` on this host.
+            bash scripts/backup-treasury-db.sh
