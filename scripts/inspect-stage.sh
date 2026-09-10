@@ -560,26 +560,31 @@ if [ "$PROBE" = "bitcart-daemon" ]; then
 fi
 
 if [ "$PROBE" = "metrics" ]; then
-  # prom_get PATH [POST-DATA] — ask Prometheus, from the host.
+  # prom_get PATH [POST-DATA] — ask Prometheus through a container that can actually fetch.
   #
-  # These queries used to run as `docker exec clutch-stage-prometheus-1 wget -qO- ...`. Recent
-  # prom/prometheus tags dropped busybox, so the image has neither wget nor curl: every Prometheus
-  # query in this probe had been failing and printing "could not query Prometheus" while Prometheus
-  # was up and healthy. The probe written to catch silent monitoring failures was itself one.
+  # Two earlier attempts, both wrong, both worth recording so a third does not repeat them:
   #
-  # Asking from the host against the container's own IP works whatever is inside the image. Stage
-  # does not publish 9090 (the overlay resets ports), so the container IP is the only route, and
-  # the host can always reach the container network.
+  #   1. `docker exec clutch-stage-prometheus-1 wget ...` — recent prom/prometheus tags dropped
+  #      busybox, so the image has neither wget nor curl. Every query in this probe printed
+  #      "could not query Prometheus" while Prometheus was up and healthy, which made the probe
+  #      built to catch silent monitoring failures an instance of one.
+  #   2. curl from the host to the container IP — `docker inspect` rendered the address as the
+  #      literal string `invalidIP`, so the URL was never valid.
+  #
+  # So borrow a container that has curl and sits on the same network, and reach Prometheus by its
+  # compose service name over Docker DNS. clutch-hub-api's healthcheck is a curl, which is why it
+  # is first; the explorer backend is a fallback in case that container is down.
   prom_get() {
-    local path="$1" data="${2:-}" ip
-    ip=$(docker inspect -f '{{range .NetworkSettings.Networks}}{{.IPAddress}}{{end}}' \
-           clutch-stage-prometheus-1 2>/dev/null | tr -d '[:space:]')
-    [ -n "$ip" ] || return 1
-    if [ -n "$data" ]; then
-      curl -sS -m 10 --data "$data" "http://$ip:9090$path"
-    else
-      curl -sS -m 10 "http://$ip:9090$path"
-    fi
+    local path="$1" data="${2:-}" c
+    for c in clutch-stage-clutch-hub-api-1 clutch-stage-clutch-explorer-backend-1; do
+      docker inspect "$c" >/dev/null 2>&1 || continue
+      if [ -n "$data" ]; then
+        docker exec "$c" curl -sS -m 10 --data "$data" "http://prometheus:9090$path" 2>/dev/null && return 0
+      else
+        docker exec "$c" curl -sS -m 10 "http://prometheus:9090$path" 2>/dev/null && return 0
+      fi
+    done
+    return 1
   }
 
   # Does Prometheus actually have the treasury services, and are they UP?
