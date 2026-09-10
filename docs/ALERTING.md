@@ -53,6 +53,18 @@ seen deliver is in exactly the same state the metrics were in before these rules
 cheapest forcing function: stop `treasury-service` for four minutes and confirm
 `TreasuryServiceDown` reaches you.
 
+## One threshold that encodes a capacity limit
+
+`OrchestratorPollingStalled` fires when the oldest deposit-address poll age passes one hour. That
+is not an arbitrary number: the cold rotation's worst-case latency is
+`ceil(addresses / 50) * 30` seconds, so one hour is what roughly **6,000 handed-out addresses**
+produce on a completely healthy system.
+
+So this alert doubles as the capacity tripwire for readiness item E2. Past that many addresses it
+becomes a false positive, and the fix is not to raise the threshold on its own — it is to raise
+`MAX_ADDRESSES_PER_PASS` in `payment-orchestrator`'s poller, or shorten `poll_interval_secs`, and
+move this threshold with it. The two numbers describe the same thing and have to agree.
+
 ## Deliberately not alerted on
 
 - **Absolute reserve or liability values.** `clutch_treasury_clt_liability` and
