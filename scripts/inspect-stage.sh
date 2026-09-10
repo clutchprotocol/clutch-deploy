@@ -106,6 +106,7 @@ if [ "$PROBE" = "treasury" ]; then
              APP_DEPOSIT_HOT_WINDOW_HOURS APP_DEPOSIT_MATCH_WINDOW_HOURS \
              APP_MIN_REDEMPTION_CLT APP_MAX_REDEMPTION_CLT APP_REDEMPTION_FEE_USDT \
              APP_DAILY_PAYOUT_CAP_CLT APP_PER_TX_PAYOUT_CAP_USDT \
+             APP_SWEEP_THRESHOLD_USDT APP_SWEEP_MAX_AGE_HOURS APP_SWEEP_MIN_USDT \
              APP_PER_TX_MINT_CAP_CLT APP_DAILY_MINT_CAP_CLT; do
       v=$(docker exec "clutch-stage-${c}-1" printenv "$k" 2>/dev/null || true)
       if [ -n "$v" ]; then echo "    $k=$v"; fi
