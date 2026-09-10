@@ -17,3 +17,7 @@
 .DS_Store
 Thumbs.db
 
+
+# Encrypted database dumps written by scripts/backup-treasury-db.sh. Encrypted, but still the
+# whole off-chain ledger — never committable.
+backups/
