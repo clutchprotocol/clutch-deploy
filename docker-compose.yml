@@ -120,6 +120,11 @@ services:
     volumes:
       - prometheus-data:/prometheus
       - ./config/monitoring/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      # The rules DIRECTORY, not a file. prometheus.yml globs /etc/prometheus/rules/*.yml, and a
+      # glob that matches nothing is not an error — so without this mount Prometheus starts
+      # cleanly, reports no rules, and every alert in config/monitoring/prometheus/rules/ silently
+      # does not exist. That is the same shape as the nginx config this repo already learned from.
+      - ./config/monitoring/prometheus/rules:/etc/prometheus/rules:ro
     command:
       - "--config.file=/etc/prometheus/prometheus.yml"
       - "--storage.tsdb.path=/prometheus"
