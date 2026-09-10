@@ -565,6 +565,17 @@ if [ "$PROBE" = "metrics" ]; then
   # Worth its own probe because a scrape target can be wrong in two silent ways: the config lists a
   # job nobody can reach (DNS name, port, or network), or the service answers but with nothing in
   # it. Both look like "no alerts" on a dashboard, which is indistinguishable from healthy.
+  # Are the alerting rules loaded at all? prometheus.yml globs /etc/prometheus/rules/*.yml, and a
+  # glob matching nothing is not an error, so a missing mount reports zero rules and no complaint.
+  # Zero groups here means every alert in config/monitoring/prometheus/rules/ silently does not
+  # exist — the same failure the nginx config taught this repo to check for rather than assume.
+  echo "=== alerting rules Prometheus has loaded ==="
+  docker exec clutch-stage-prometheus-1 wget -qO- 'http://localhost:9090/api/v1/rules' 2>/dev/null     | tr ',' '
+' | grep -E '"name"|"state"|"health"' | sed 's/^/    /'     || echo "    (could not query Prometheus; is clutch-stage-prometheus-1 running?)"
+  echo ""
+  echo "    If the block above is empty, the rules directory is not mounted. See docs/ALERTING.md."
+
+  echo ""
   echo "=== scrape targets Prometheus knows about ==="
   docker exec clutch-stage-prometheus-1 wget -qO- 'http://localhost:9090/api/v1/targets?state=any' 2>/dev/null \
     | tr ',' '\n' | grep -E '"job"|"health"|"scrapeUrl"|"lastError"' | sed 's/^/    /' \
