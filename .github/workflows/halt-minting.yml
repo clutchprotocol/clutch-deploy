@@ -1,0 +1,63 @@
+# Stop the treasury issuing new CLT, until a human clears it.
+#
+# Readiness item G3. `POST /internal/halt` existed in treasury-service and nothing could reach it:
+# resuming had a workflow, halting did not. An operator who decided something was wrong had to SSH
+# in and curl with the Approver token by hand, which is the worst moment to be assembling a command.
+#
+# This is the control you reach for when you SUSPECT rather than know. Halting is cheap and fully
+# reversible: deposits keep being credited on chain, the reserve total stays correct, and only new
+# issuance stops. Being wrong about halting costs a delay; being slow to halt when something really
+# is wrong costs unbacked CLT.
+#
+# It does NOT stop the payout workers, which run regardless of this flag, and it does not touch
+# anything already on the chain.
+#
+# See docs/ON-CALL.md. The counterpart is "Resume minting (stage)", which deliberately refuses
+# while the latest reconciliation is still a mismatch.
+
+name: Halt minting (stage, sets the breaker)
+
+on:
+  workflow_dispatch:
+    inputs:
+      reason:
+        description: 'Why (recorded in halt_reason — letters, digits, spaces and . _ , : ; ( ) / - only)'
+        required: true
+        type: string
+      confirm:
+        description: 'Type "halt" to confirm stopping new mints'
+        required: true
+        type: string
+
+concurrency:
+  group: treasury-breaker
+  cancel-in-progress: false
+
+jobs:
+  halt:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check the confirmation
+        if: ${{ inputs.confirm != 'halt' }}
+        run: |
+          echo "::error::confirm must be exactly 'halt' — got '${{ inputs.confirm }}'"
+          exit 1
+
+      - name: Halt via SSH
+        uses: appleboy/ssh-action@v1.2.0
+        env:
+          # Through the action's env rather than interpolated into the script, so the reason
+          # cannot become part of the command that runs. The script validates it again on the
+          # host, because a workflow input is not a trusted string.
+          HALT_REASON: ${{ inputs.reason }}
+        with:
+          host: ${{ secrets.STAGE_HOST }}
+          username: ${{ secrets.STAGE_USER }}
+          password: ${{ secrets.STAGE_SSH_PASSWORD }}
+          envs: HALT_REASON
+          script_stop: true
+          script: |
+            set -euo pipefail
+            cd "${{ secrets.STAGE_DEPLOY_PATH }}"
+            git pull --ff-only
+            REASON="$HALT_REASON" bash scripts/halt-minting.sh
