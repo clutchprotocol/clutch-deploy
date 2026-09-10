@@ -562,30 +562,33 @@ fi
 if [ "$PROBE" = "metrics" ]; then
   # prom_get PATH [POST-DATA] — ask Prometheus without assuming anything about any image.
   #
-  # Three attempts, and the first two are recorded because each looked obviously right:
+  # Three earlier attempts failed, each looking obviously right, and all three were diagnosed
+  # slowly because this function swallowed stderr and printed a generic "could not query" line.
+  # A probe that hides its own errors is the same defect it exists to catch, so stderr now
+  # reaches the log:
   #
   #   1. `docker exec clutch-stage-prometheus-1 wget ...` — recent prom/prometheus tags dropped
-  #      busybox, so that image has neither wget nor curl. Every query in this probe printed
-  #      "could not query Prometheus" while Prometheus was up and healthy, making the probe built
-  #      to catch silent monitoring failures an instance of one.
-  #   2. curl from the host to the container's IP — `docker inspect` rendered the address as the
-  #      literal string `invalidIP`.
-  #   3. `docker exec` curl inside clutch-hub-api — its healthcheck is a curl, so the binary
-  #      looked certain to be there. It was not reachable that way either.
+  #      busybox, so that image has no wget and no curl. Every query printed "could not query
+  #      Prometheus" while Prometheus was up and healthy.
+  #   2. curl from the host to the container IP — `docker inspect` rendered it as the literal
+  #      string `invalidIP`.
+  #   3. `docker exec` curl inside clutch-hub-api, whose healthcheck is a curl.
   #
-  # What works without depending on the contents of any particular image: run a throwaway
-  # container that shares Prometheus's own network namespace, so `localhost:9090` IS Prometheus,
-  # with no DNS and no IP to resolve. postgres:16-alpine is already pulled on this host for the
-  # two databases, and being Alpine it has busybox wget.
+  # This runs a throwaway container sharing Prometheus's own network namespace, so
+  # `localhost:9090` IS Prometheus with no DNS and no IP involved. postgres:16-alpine is already
+  # pulled here for the two databases and carries busybox wget.
   prom_get() {
     local path="$1" data="${2:-}"
-    docker inspect clutch-stage-prometheus-1 >/dev/null 2>&1 || return 1
+    if ! docker inspect clutch-stage-prometheus-1 >/dev/null 2>&1; then
+      echo "    prom_get: container clutch-stage-prometheus-1 does not exist" >&2
+      return 1
+    fi
     if [ -n "$data" ]; then
       docker run --rm --network "container:clutch-stage-prometheus-1" postgres:16-alpine \
-        wget -qO- --post-data="$data" "http://localhost:9090$path" 2>/dev/null
+        wget -qO- --post-data="$data" "http://localhost:9090$path"
     else
       docker run --rm --network "container:clutch-stage-prometheus-1" postgres:16-alpine \
-        wget -qO- "http://localhost:9090$path" 2>/dev/null
+        wget -qO- "http://localhost:9090$path"
     fi
   }
 
