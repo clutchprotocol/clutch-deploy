@@ -32,8 +32,12 @@ if [ ! -f .env ]; then
   exit 1
 fi
 
-cp -a .env ".env.bak.$(date +%Y%m%d-%H%M%S)"
-chmod 600 .env.bak.* 2>/dev/null || true
+# One backup, overwritten each run. Every copy holds DEPOSIT_MNEMONIC, so the timestamped naming
+# this replaces left one more plaintext copy of it on the host per run. Copy before deleting; the
+# glob requires a character after `.bak.`, so it cannot match .env.bak itself.
+cp -a .env .env.bak
+chmod 600 .env.bak
+rm -f .env.bak.*
 
 # Replace in place if present, append if not. sed -i on the file itself, NOT a mv: .env is
 # bind-mounted by inode elsewhere in this stack and moving it silently detaches the mount.
