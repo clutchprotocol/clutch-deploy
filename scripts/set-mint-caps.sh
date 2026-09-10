@@ -82,6 +82,13 @@ for i in $(seq 1 20); do
     if [ "$v" = "$PER_TX" ] && [ "$d" = "$DAILY" ]; then
       echo ""
       echo "caps applied."
+      # Re-check the WHOLE limit set, not just the two values written. These caps are not
+      # independent: the redemption bounds live in two services that do not derive from each
+      # other, and the fee has to stay under the minimum. Changing one number can break a
+      # relationship elsewhere, and every one of those failures is quiet — a limit that refuses
+      # everything, or one that protects nothing, or a burn that cannot be paid.
+      echo ""
+      bash scripts/check-cap-invariants.sh
       exit 0
     fi
     echo "ABORT: the container is not reporting the values just written."
