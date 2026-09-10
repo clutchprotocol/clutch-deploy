@@ -2,7 +2,7 @@
 #
 # Read-only inspection of the stage VPS. Run ON the host, from the clutch-deploy checkout.
 #
-#   PROBE=nginx|containers|git|treasury|sweeper|chain|metrics|bitcart bash scripts/inspect-stage.sh
+#   PROBE=nginx|containers|git|treasury|sweeper|chain|metrics|bitcart|energy bash scripts/inspect-stage.sh
 #
 # A file, not an inline `script:` block, for the same reason deploy-stage.sh is: as inline YAML
 # this probe broke three times — once making the whole workflow unparseable (column-0 Python
@@ -224,6 +224,64 @@ if [ "$PROBE" = "balance" ]; then
   echo "=== what the ledger believes it credited this address ==="
   docker exec clutch-stage-treasury-postgres-1 psql -U treasury -d treasury -c     "select amount_clt, status, created_at from mint_intents
      where beneficiary = '$ADDRESS' order by created_at;" 2>&1 | sed 's/^/    /'
+fi
+
+if [ "$PROBE" = "energy" ]; then
+  # Does the payout float pay for TRC-20 transfers with staked energy, or by burning TRX?
+  #
+  # The redemption fee exists to cover that burn: about 13 TRX per payout to an address holding no
+  # USDT yet. Energy delegated to the float from any wallet -- no key of ours involved -- replaces
+  # the burn with a daily allowance, and this probe is how an operator confirms the delegation
+  # landed BEFORE lowering the fee on the strength of it. See docs: Redemptions > Energy for payouts.
+  #
+  # Read-only. Everything here is public chain state.
+  echo "=== payout float energy ==="
+  FEE_JSON=$(docker exec clutch-stage-tron-signer-1 sh -c \
+    'curl -fsS -H "Authorization: Bearer $APP_SIGNER_TOKEN" http://localhost:8093/internal/xpub' \
+    2>/dev/null || true)
+  PAYOUT_ADDR=$(printf '%s' "$FEE_JSON" | sed -n 's/.*"payout_address"[ ]*:[ ]*"\([^"]*\)".*/\1/p')
+  if [ -z "$PAYOUT_ADDR" ]; then
+    echo "    (could not read payout_address from tron-signer -- is the service up?)"
+  else
+    echo "    payout_address=$PAYOUT_ADDR"
+    # Queried from inside the signer so it reads the same chain the payouts run against.
+    RES=$(docker exec clutch-stage-tron-signer-1 sh -c \
+      "curl -fsS -X POST \"\$APP_TRONGRID_URL/wallet/getaccountresource\" \
+         -H 'Content-Type: application/json' \
+         -d '{\"address\":\"$PAYOUT_ADDR\",\"visible\":true}'" 2>/dev/null || true)
+    num() { printf '%s' "$RES" | sed -n "s/.*\"$1\"[ ]*:[ ]*\([0-9]*\).*/\1/p" | head -1; }
+    LIMIT=$(num EnergyLimit); USED=$(num EnergyUsed)
+    TEL=$(num TotalEnergyLimit); TEW=$(num TotalEnergyWeight)
+    echo "    EnergyLimit=${LIMIT:-0}  EnergyUsed=${USED:-0}  (need 130,285 per payout to a fresh address)"
+    if [ "${LIMIT:-0}" -eq 0 ]; then
+      echo "    -> no energy delegated: every payout burns TRX, and the fee has to cover it."
+    fi
+    if [ -n "$TEL" ] && [ -n "$TEW" ] && [ "$TEW" -gt 0 ]; then
+      # Energy one staked TRX earns per day, and what one daily payout therefore costs to stake.
+      awk -v tel="$TEL" -v tew="$TEW" 'BEGIN {
+        r = tel / tew;
+        printf "    chain yields %.2f energy per TRX staked per day\n", r;
+        printf "    one payout per day needs about %.0f TRX staked\n", 130285 / r }'
+    fi
+  fi
+
+  # Did the most recent payout actually burn anything? The signer logs every payout's tx_id; the
+  # receipt's energy_fee is the burn in sun. Zero means the delegation is doing its job.
+  echo ""
+  echo "=== last payout's burn ==="
+  TX=$(docker logs clutch-stage-tron-signer-1 2>&1 | grep -a " paid " | tail -1 \
+       | sed -n 's/.*tx_id[^0-9a-f]*\([0-9a-f]\{64\}\).*/\1/p')
+  if [ -z "$TX" ]; then
+    echo "    (no payout in the signer log since container start)"
+  else
+    INFO=$(docker exec clutch-stage-tron-signer-1 sh -c \
+      "curl -fsS -X POST \"\$APP_TRONGRID_URL/wallet/gettransactioninfobyid\" \
+         -H 'Content-Type: application/json' -d '{\"value\":\"$TX\"}'" 2>/dev/null || true)
+    EF=$(printf '%s' "$INFO" | sed -n 's/.*"energy_fee"[ ]*:[ ]*\([0-9]*\).*/\1/p' | head -1)
+    EU=$(printf '%s' "$INFO" | sed -n 's/.*"energy_usage_total"[ ]*:[ ]*\([0-9]*\).*/\1/p' | head -1)
+    echo "    tx=$TX"
+    echo "    energy_usage_total=${EU:-?}  energy_fee=${EF:-0} sun ($(( ${EF:-0} / 1000000 )) TRX burned)"
+  fi
 fi
 
 if [ "$PROBE" = "sweeper" ]; then
