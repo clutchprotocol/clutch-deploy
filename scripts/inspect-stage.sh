@@ -560,6 +560,28 @@ if [ "$PROBE" = "bitcart-daemon" ]; then
 fi
 
 if [ "$PROBE" = "metrics" ]; then
+  # prom_get PATH [POST-DATA] — ask Prometheus, from the host.
+  #
+  # These queries used to run as `docker exec clutch-stage-prometheus-1 wget -qO- ...`. Recent
+  # prom/prometheus tags dropped busybox, so the image has neither wget nor curl: every Prometheus
+  # query in this probe had been failing and printing "could not query Prometheus" while Prometheus
+  # was up and healthy. The probe written to catch silent monitoring failures was itself one.
+  #
+  # Asking from the host against the container's own IP works whatever is inside the image. Stage
+  # does not publish 9090 (the overlay resets ports), so the container IP is the only route, and
+  # the host can always reach the container network.
+  prom_get() {
+    local path="$1" data="${2:-}" ip
+    ip=$(docker inspect -f '{{range .NetworkSettings.Networks}}{{.IPAddress}}{{end}}' \
+           clutch-stage-prometheus-1 2>/dev/null | tr -d '[:space:]')
+    [ -n "$ip" ] || return 1
+    if [ -n "$data" ]; then
+      curl -sS -m 10 --data "$data" "http://$ip:9090$path"
+    else
+      curl -sS -m 10 "http://$ip:9090$path"
+    fi
+  }
+
   # Does Prometheus actually have the treasury services, and are they UP?
   #
   # Worth its own probe because a scrape target can be wrong in two silent ways: the config lists a
@@ -570,14 +592,15 @@ if [ "$PROBE" = "metrics" ]; then
   # Zero groups here means every alert in config/monitoring/prometheus/rules/ silently does not
   # exist — the same failure the nginx config taught this repo to check for rather than assume.
   echo "=== alerting rules Prometheus has loaded ==="
-  docker exec clutch-stage-prometheus-1 wget -qO- 'http://localhost:9090/api/v1/rules' 2>/dev/null     | tr ',' '
-' | grep -E '"name"|"state"|"health"' | sed 's/^/    /'     || echo "    (could not query Prometheus; is clutch-stage-prometheus-1 running?)"
+  prom_get '/api/v1/rules' | tr ',' '
+' | grep -E '"name"|"state"|"health"' | sed 's/^/    /' \
+    || echo "    (could not query Prometheus; is clutch-stage-prometheus-1 running?)"
   echo ""
   echo "    If the block above is empty, the rules directory is not mounted. See docs/ALERTING.md."
 
   echo ""
   echo "=== scrape targets Prometheus knows about ==="
-  docker exec clutch-stage-prometheus-1 wget -qO- 'http://localhost:9090/api/v1/targets?state=any' 2>/dev/null \
+  prom_get '/api/v1/targets?state=any' \
     | tr ',' '\n' | grep -E '"job"|"health"|"scrapeUrl"|"lastError"' | sed 's/^/    /' \
     || echo "    (could not query Prometheus; is clutch-stage-prometheus-1 running?)"
 
@@ -593,7 +616,7 @@ if [ "$PROBE" = "metrics" ]; then
     # Prometheus mangled and came back empty -- which read as "no such metric" rather than "this
     # probe sent nonsense". Encode it.
     enc=$(printf '%s' "$q" | sed 's/+/%2B/g')
-    out=$(docker exec clutch-stage-prometheus-1 wget -qO- --post-data="query=$enc"             'http://localhost:9090/api/v1/query' 2>/dev/null | tr ',' '
+    out=$(prom_get '/api/v1/query' "query=$enc" | tr ',' '
 ' | grep -A1 '"value"' | tail -1 | tr -dc '0-9.')
     printf '    %-96s %s
 ' "$q" "${out:-(no sample yet)}"
