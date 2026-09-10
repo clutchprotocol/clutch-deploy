@@ -560,16 +560,25 @@ if [ "$PROBE" = "bitcart-daemon" ]; then
 fi
 
 if [ "$PROBE" = "metrics" ]; then
+  # Prometheus's own state first. Everything below depends on it, and a container that is not
+  # running produces the same empty output as a working Prometheus with nothing to say — which is
+  # how three separate wrong diagnoses happened before this block existed.
+  echo "=== Prometheus container state ==="
+  docker inspect -f '    state={{.State.Status}} exit={{.State.ExitCode}} restarts={{.RestartCount}} error={{.State.Error}}' \
+    clutch-stage-prometheus-1 2>/dev/null || echo "    (no such container)"
+  echo "    --- last 15 log lines ---"
+  docker logs --tail 15 clutch-stage-prometheus-1 2>&1 | sed 's/^/    /' || echo "    (no logs)"
+  echo ""
+
   # prom_get PATH [POST-DATA] — ask Prometheus without assuming anything about any image.
   #
   # Three earlier attempts failed, each looking obviously right, and all three were diagnosed
   # slowly because this function swallowed stderr and printed a generic "could not query" line.
-  # A probe that hides its own errors is the same defect it exists to catch, so stderr now
-  # reaches the log:
+  # A probe that hides its own errors is the same defect it exists to catch, so stderr reaches
+  # the log now:
   #
   #   1. `docker exec clutch-stage-prometheus-1 wget ...` — recent prom/prometheus tags dropped
-  #      busybox, so that image has no wget and no curl. Every query printed "could not query
-  #      Prometheus" while Prometheus was up and healthy.
+  #      busybox, so that image has no wget and no curl.
   #   2. curl from the host to the container IP — `docker inspect` rendered it as the literal
   #      string `invalidIP`.
   #   3. `docker exec` curl inside clutch-hub-api, whose healthcheck is a curl.
