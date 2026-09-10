@@ -1,0 +1,134 @@
+# Alerting rules for the money path. Readiness item D3.
+#
+# Everything here was already measured and already logged. What did not exist was anything that
+# EVALUATES it: a reconciliation mismatch wrote a p1 row, logged an error, and bumped a gauge that
+# nobody was watching. A condition nobody is looking at is not monitored, it is recorded.
+#
+# These rules only fire. Delivering them somewhere a human notices needs an Alertmanager route or
+# Grafana contact point — see docs/ALERTING.md. Rules without a destination are still worth having:
+# they show up in Prometheus and Grafana, and they are the part that has to be right.
+
+groups:
+  - name: treasury-reserve
+    interval: 30s
+    rules:
+      # The one condition that halts minting on its own. If this is firing, the chain believes more
+      # CLT exists than the treasury can back, and the breaker has already stopped new mints.
+      - alert: TreasuryReconciliationMismatch
+        expr: clutch_treasury_reconciliation_status{status="mismatch"} > 0
+        for: 1m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Reserve does not cover liability"
+          description: >-
+            Reconciliation reports a mismatch, so minting is halted. Do not clear the breaker to
+            make this go away: it is correct, and resuming while the mismatch stands re-halts on
+            the next pass. Find the missing reserve first.
+
+      # Reconciliation going quiet is as bad as it failing, and quieter. Minting is blocked without
+      # a recent run, so this shows up as "the treasury stopped minting" long before anyone looks
+      # at reconciliation itself.
+      - alert: TreasuryReconciliationStale
+        expr: clutch_treasury_reconciliation_age_seconds > 7200
+        for: 5m
+        labels:
+          severity: critical
+        annotations:
+          summary: "No successful reconciliation in over 2 hours"
+          description: >-
+            The worker retries a failed run on a short cadence rather than waiting the full
+            interval, so age climbing past two hours means it is failing repeatedly, not waiting.
+
+      - alert: TreasuryMintingHalted
+        expr: clutch_treasury_minting_halted == 1
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Minting breaker is latched"
+          description: >-
+            Deposits are still credited on chain but no new CLT is being minted. Either a
+            reconciliation mismatch latched it or a human did.
+
+      - alert: TreasuryP1Alert
+        expr: increase(clutch_treasury_alerts_total{severity="p1"}[10m]) > 0
+        labels:
+          severity: critical
+        annotations:
+          summary: "Treasury raised a p1"
+          description: >-
+            The service itself decided this needs a human. The ambiguous-payout path lands here:
+            it deliberately does not retry, so a redemption is sitting claimed and unpaid.
+
+  - name: treasury-liveness
+    interval: 30s
+    rules:
+      # `up` from the scrape, not the service's own gauge: a service that cannot answer at all
+      # cannot report that it is down.
+      - alert: TreasuryServiceDown
+        expr: up{job=~"treasury-service|payment-orchestrator"} == 0
+        for: 3m
+        labels:
+          severity: critical
+        annotations:
+          summary: "{{ $labels.job }} is not answering scrapes"
+
+      # Sweeping stopping is not urgent — deposits are credited and the reserve total stays
+      # correct, counting unswept addresses. But a number that only climbs means the fee account
+      # is dry, and that is a manual top-up nobody is prompted to do.
+      - alert: TreasurySweepingStalled
+        expr: clutch_treasury_unswept_deposit_addresses > 5
+        for: 2h
+        labels:
+          severity: warning
+        annotations:
+          summary: "Deposit addresses are not being swept"
+          description: >-
+            Most likely the TRX fee account is dry. Deposits are still credited and the reserve is
+            still counted correctly; consolidation has stopped. Check the treasury probe's
+            "TRX float (fee account)" section.
+
+      - alert: TreasuryChainOutboxStuck
+        expr: clutch_treasury_chain_outbox{status="failed"} > 0
+        for: 15m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Chain outbox has failed rows"
+          description: "A signed transaction the treasury meant to submit is not landing."
+
+  - name: orchestrator-deposits
+    interval: 30s
+    rules:
+      # Detection latency is the user-visible symptom of a stalled poller: someone has paid and is
+      # watching a panel that will not update. The cold rotation is bounded per pass, so a rising
+      # oldest-poll age means passes have stopped, not that the queue is long.
+      - alert: OrchestratorPollingStalled
+        expr: clutch_orchestrator_oldest_poll_age_seconds > 3600
+        for: 10m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Deposit addresses have not been polled in over an hour"
+          description: >-
+            A deposit paid now might not be detected. Check TronGrid reachability and the
+            orchestrator's poller logs.
+
+      - alert: OrchestratorAddressesNeverPolled
+        expr: clutch_orchestrator_addresses_never_polled > 0
+        for: 30m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Deposit addresses have never been polled"
+          description: >-
+            An address handed to a user that has never been checked is a deposit that cannot be
+            detected at all.
+
+      - alert: OrchestratorP1Alert
+        expr: increase(clutch_orchestrator_alerts_total{severity="p1"}[10m]) > 0
+        labels:
+          severity: critical
+        annotations:
+          summary: "Orchestrator raised a p1"
