@@ -265,10 +265,17 @@ if [ "$PROBE" = "energy" ]; then
     fi
   fi
 
-  # Did the most recent payout actually burn anything? The signer logs every payout's tx_id; the
-  # receipt's energy_fee is the burn in sun. Zero means the delegation is doing its job.
+  # Who paid for the most recent payout's energy? The signer logs every payout's tx_id, and the
+  # receipt splits the answer three ways:
+  #   energy_usage         energy the SENDER supplied, own or delegated. Non-zero here with
+  #                        energy_fee=0 is the delegation working. The only real proof.
+  #   origin_energy_usage  energy the CONTRACT's deployer supplied. Nile's test USDT sponsors
+  #                        every transfer this way, so on Nile energy_fee is 0 with or without a
+  #                        delegation and proves nothing -- a payout made before delegating read
+  #                        the same. Mainnet USDT makes the sender pay.
+  #   energy_fee           TRX burned, in sun. What the redemption fee exists to cover.
   echo ""
-  echo "=== last payout's burn ==="
+  echo "=== last payout's energy: who paid ==="
   TX=$(docker logs clutch-stage-tron-signer-1 2>&1 | grep -a " paid " | tail -1 \
        | sed -n 's/.*tx_id[^0-9a-f]*\([0-9a-f]\{64\}\).*/\1/p')
   if [ -z "$TX" ]; then
@@ -279,8 +286,19 @@ if [ "$PROBE" = "energy" ]; then
          -H 'Content-Type: application/json' -d '{\"value\":\"$TX\"}'" 2>/dev/null || true)
     EF=$(printf '%s' "$INFO" | sed -n 's/.*"energy_fee"[ ]*:[ ]*\([0-9]*\).*/\1/p' | head -1)
     EU=$(printf '%s' "$INFO" | sed -n 's/.*"energy_usage_total"[ ]*:[ ]*\([0-9]*\).*/\1/p' | head -1)
+    # The closing quote after energy_usage keeps this from matching energy_usage_total.
+    ES=$(printf '%s' "$INFO" | sed -n 's/.*"energy_usage"[ ]*:[ ]*\([0-9]*\).*/\1/p' | head -1)
+    EO=$(printf '%s' "$INFO" | sed -n 's/.*"origin_energy_usage"[ ]*:[ ]*\([0-9]*\).*/\1/p' | head -1)
     echo "    tx=$TX"
-    echo "    energy_usage_total=${EU:-?}  energy_fee=${EF:-0} sun ($(( ${EF:-0} / 1000000 )) TRX burned)"
+    echo "    energy_usage (sender, own or delegated)=${ES:-0}  origin_energy_usage (contract paid)=${EO:-0}  total=${EU:-?}"
+    echo "    energy_fee=${EF:-0} sun ($(( ${EF:-0} / 1000000 )) TRX burned)"
+    if [ "${EF:-0}" -gt 0 ]; then
+      echo "    -> burned TRX: no delegation, or the allowance is exhausted."
+    elif [ "${ES:-0}" -gt 0 ]; then
+      echo "    -> paid with the sender's energy: the delegation is working."
+    elif [ "${EO:-0}" -gt 0 ]; then
+      echo "    -> paid by the contract's deployer. Says NOTHING about the delegation; expected on Nile."
+    fi
   fi
 fi
 
