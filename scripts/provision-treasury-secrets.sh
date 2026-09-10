@@ -77,15 +77,20 @@ if ! has CUSTODY_TRON_ADDRESS; then
   exit 1
 fi
 
-BACKUP=".env.bak.$(date +%Y%m%d-%H%M%S)"
-cp -a .env "$BACKUP"
-# The backup holds DEPOSIT_MNEMONIC, so it is exactly as sensitive as .env itself. cp -a copies the
-# mode, and the FIRST backup was taken before .env had been chmodded 600 -- so it inherited whatever
-# the file happened to be, and sat on the host readable. Tighten every backup on every run, not just
-# the one being made now, so earlier ones are fixed the next time this executes.
-chmod 600 "$BACKUP"
-chmod 600 .env.bak.* 2>/dev/null || true
-echo "=== backed up .env (mode 600) ==="
+# ONE backup, overwritten each run -- not a timestamped pile. Every copy holds DEPOSIT_MNEMONIC,
+# so each is exactly as sensitive as .env itself, and the old naming left one more of them on the
+# host per run with no upper bound. Keeping the most recent one still makes a bad edit undoable,
+# which is the only reason to copy .env at all.
+#
+# cp -a preserves the mode, and the FIRST backup this script ever took predated .env being
+# chmodded 600, so it inherited whatever the file happened to be and sat on the host readable.
+# The explicit chmod covers that. Copy before deleting, so a failed cp cannot leave nothing behind.
+cp -a .env .env.bak
+chmod 600 .env.bak
+# Sweep the pile earlier runs left. This glob requires a character after `.bak.`, so it cannot
+# match .env.bak itself.
+rm -f .env.bak.*
+echo "=== backed up .env to .env.bak (mode 600); removed older timestamped copies ==="
 
 # These two decide WHICH CHAIN and WHICH TOKEN stage is operating on. They have been coming from
 # docker-compose.treasury.yml's defaults, so editing that file would move a running stage to a

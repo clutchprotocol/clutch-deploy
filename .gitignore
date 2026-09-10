@@ -2,6 +2,10 @@
 .env
 .env.local
 .env.*.local
+# Backups the treasury scripts take before editing .env. They hold DEPOSIT_MNEMONIC, so each is
+# exactly as sensitive as .env itself and must never be committable.
+.env.bak
+.env.bak.*
 
 # IDE
 .idea/
