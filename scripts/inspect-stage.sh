@@ -560,31 +560,33 @@ if [ "$PROBE" = "bitcart-daemon" ]; then
 fi
 
 if [ "$PROBE" = "metrics" ]; then
-  # prom_get PATH [POST-DATA] — ask Prometheus through a container that can actually fetch.
+  # prom_get PATH [POST-DATA] — ask Prometheus without assuming anything about any image.
   #
-  # Two earlier attempts, both wrong, both worth recording so a third does not repeat them:
+  # Three attempts, and the first two are recorded because each looked obviously right:
   #
   #   1. `docker exec clutch-stage-prometheus-1 wget ...` — recent prom/prometheus tags dropped
-  #      busybox, so the image has neither wget nor curl. Every query in this probe printed
-  #      "could not query Prometheus" while Prometheus was up and healthy, which made the probe
-  #      built to catch silent monitoring failures an instance of one.
-  #   2. curl from the host to the container IP — `docker inspect` rendered the address as the
-  #      literal string `invalidIP`, so the URL was never valid.
+  #      busybox, so that image has neither wget nor curl. Every query in this probe printed
+  #      "could not query Prometheus" while Prometheus was up and healthy, making the probe built
+  #      to catch silent monitoring failures an instance of one.
+  #   2. curl from the host to the container's IP — `docker inspect` rendered the address as the
+  #      literal string `invalidIP`.
+  #   3. `docker exec` curl inside clutch-hub-api — its healthcheck is a curl, so the binary
+  #      looked certain to be there. It was not reachable that way either.
   #
-  # So borrow a container that has curl and sits on the same network, and reach Prometheus by its
-  # compose service name over Docker DNS. clutch-hub-api's healthcheck is a curl, which is why it
-  # is first; the explorer backend is a fallback in case that container is down.
+  # What works without depending on the contents of any particular image: run a throwaway
+  # container that shares Prometheus's own network namespace, so `localhost:9090` IS Prometheus,
+  # with no DNS and no IP to resolve. postgres:16-alpine is already pulled on this host for the
+  # two databases, and being Alpine it has busybox wget.
   prom_get() {
-    local path="$1" data="${2:-}" c
-    for c in clutch-stage-clutch-hub-api-1 clutch-stage-clutch-explorer-backend-1; do
-      docker inspect "$c" >/dev/null 2>&1 || continue
-      if [ -n "$data" ]; then
-        docker exec "$c" curl -sS -m 10 --data "$data" "http://prometheus:9090$path" 2>/dev/null && return 0
-      else
-        docker exec "$c" curl -sS -m 10 "http://prometheus:9090$path" 2>/dev/null && return 0
-      fi
-    done
-    return 1
+    local path="$1" data="${2:-}"
+    docker inspect clutch-stage-prometheus-1 >/dev/null 2>&1 || return 1
+    if [ -n "$data" ]; then
+      docker run --rm --network "container:clutch-stage-prometheus-1" postgres:16-alpine \
+        wget -qO- --post-data="$data" "http://localhost:9090$path" 2>/dev/null
+    else
+      docker run --rm --network "container:clutch-stage-prometheus-1" postgres:16-alpine \
+        wget -qO- "http://localhost:9090$path" 2>/dev/null
+    fi
   }
 
   # Does Prometheus actually have the treasury services, and are they UP?
