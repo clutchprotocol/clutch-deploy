@@ -28,7 +28,9 @@ env_get() {
   grep -E "^$1=" .env | head -1 | cut -d= -f2- | sed -e 's/^"//' -e 's/"$//'
 }
 
-BACKUP_PASSPHRASE="$(env_get BACKUP_PASSPHRASE)"
+# The environment wins over .env, so a rehearsal can inject an ephemeral passphrase
+# without writing a secret to the host. Real backups still take theirs from .env.
+BACKUP_PASSPHRASE="${BACKUP_PASSPHRASE:-$(env_get BACKUP_PASSPHRASE)}"
 if [ -z "$BACKUP_PASSPHRASE" ]; then
   echo "ABORT: BACKUP_PASSPHRASE is not set in .env — nothing here can decrypt that dump."
   exit 1
@@ -83,6 +85,15 @@ psql_in -d "$TARGET" -c "
     psql -U "$USER" -d "$TARGET" -c "
       SELECT relname AS table, n_live_tup AS approx_rows
       FROM pg_stat_user_tables ORDER BY n_live_tup DESC LIMIT 12;"
+
+# DROP_AFTER=1 makes this a self-cleaning rehearsal. Off by default: an operator restoring after a
+# real loss must be left with the restored database, not have it removed under them.
+if [ "${DROP_AFTER:-0}" = "1" ]; then
+  echo ""
+  echo "=== DROP_AFTER=1: removing $TARGET ==="
+  psql_in -c "DROP DATABASE \"$TARGET\";"
+  echo "  dropped $TARGET"
+fi
 
 echo ""
 echo "=== next, and this is the part that closes D1 ==="
