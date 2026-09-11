@@ -53,6 +53,15 @@ authorities_of() {
 # --- the eight genesis-committed values, plus the authority set -------------------------------
 echo "=== agreement across nodes ==="
 GENESIS_FIELDS="chain_id is_testnet tx_fee ride_request_referrer_fee_bps ride_offer_referrer_fee_bps mint_authority faucet_address faucet_allocation"
+
+# Committed to the genesis hash like the eight above, but added later and carrying a
+# `#[serde(default)]` in the node. Absent therefore means the default rather than a mistake, and
+# checking them like the others would fail every config written before they existed -- including
+# the running testnet, on a script that gates a boot.
+#
+# They still have to AGREE: two nodes disagreeing about a default and an explicit value have
+# different genesis hashes and cannot peer, which is exactly what a defaulted field hides.
+OPTIONAL_GENESIS_FIELDS="mint_cosigners=[] mint_threshold=0 ride_auto_release_secs=0"
 for field in $GENESIS_FIELDS; do
   first=$(get "${FILES[0]}" "$field")
   if [ -z "$first" ]; then
@@ -67,6 +76,26 @@ for field in $GENESIS_FIELDS; do
   if [ -n "$mismatch" ]; then
     bad "$field disagrees: ${FILES[0]##*/}=$first$mismatch"
     note "The genesis hash covers this. Nodes will fail to peer."
+  else
+    ok "$field agrees ($first)"
+  fi
+done
+
+for spec in $OPTIONAL_GENESIS_FIELDS; do
+  field="${spec%%=*}"
+  default="${spec#*=}"
+  first=$(get "${FILES[0]}" "$field" || true)
+  [ -n "$first" ] || first="$default"
+  mismatch=""
+  for f in "${FILES[@]:1}"; do
+    v=$(get "$f" "$field" || true)
+    [ -n "$v" ] || v="$default"
+    [ "$v" = "$first" ] || mismatch="$mismatch $(basename "$f")=$v"
+  done
+  if [ -n "$mismatch" ]; then
+    bad "$field disagrees: ${FILES[0]##*/}=$first$mismatch"
+    note "Committed to the genesis hash. An unset value is the default, not a wildcard, so a node"
+    note "that omits it and one that sets it are two different chains."
   else
     ok "$field agrees ($first)"
   fi
@@ -148,9 +177,50 @@ if [ "${MAINNET:-0}" = "1" ]; then
   else
     ok "chain_id ($CHAIN_ID) differs from the testnet's 2077"
   fi
+
+  # Decided 2026-09-12: three mint authorities, any two must sign. Recorded in
+  # clutch-treasury/docs/mainnet-readiness.md item A1. Checked as an exact value rather than
+  # "greater than one" because a typo that lowers it is the failure that looks fine.
+  MINT_THRESHOLD=$(get "${FILES[0]}" mint_threshold || true)
+  [ -n "$MINT_THRESHOLD" ] || MINT_THRESHOLD=0
+  COSIGNERS=$(get "${FILES[0]}" mint_cosigners || true)
+  if [ -z "$COSIGNERS" ] || [ "$COSIGNERS" = "[]" ]; then
+    COSIGNER_COUNT=0
+  else
+    COSIGNER_COUNT=$(printf '%s' "$COSIGNERS" | tr -cd ',' | wc -c)
+    COSIGNER_COUNT=$((COSIGNER_COUNT + 1))
+  fi
+  if [ "$MINT_THRESHOLD" != "2" ]; then
+    bad "mint_threshold is '$MINT_THRESHOLD' — the decision of record is 2 of 3"
+    note "A single-signature mint authority means a stolen key mints without limit, and the"
+    note "four-eyes rule in treasury-service is off-chain and does not stop it."
+  else
+    ok "mint_threshold is 2"
+  fi
+  if [ "$COSIGNER_COUNT" != "2" ]; then
+    bad "mint_cosigners lists $COSIGNER_COUNT address(es) — 2 of 3 needs exactly 2 alongside mint_authority"
+    note "Three keys total, in three separate places. Three in one account is a 2-of-3 on paper"
+    note "and a 1-of-1 in practice."
+  else
+    ok "mint_cosigners lists 2, making a set of 3"
+  fi
+
+  # Decided 2026-09-12: two hours. Long enough for a rider to notice a problem, short enough that
+  # a driver is not financing them. Genesis-committed, so it is decided once.
+  AUTO_RELEASE=$(get "${FILES[0]}" ride_auto_release_secs || true)
+  [ -n "$AUTO_RELEASE" ] || AUTO_RELEASE=0
+  if [ "$AUTO_RELEASE" != "7200" ]; then
+    bad "ride_auto_release_secs is '$AUTO_RELEASE' — the decision of record is 7200 (2 hours)"
+    note "0 leaves a driver with no way to be paid by a rider who simply stops sending RidePay."
+    note "A wrong non-zero value is worse than obvious: it silently shifts who the held fare"
+    note "belongs to, and it cannot be changed without a new chain."
+  else
+    ok "ride_auto_release_secs is 7200 (2 hours)"
+  fi
 else
   echo "=== mainnet rules: SKIPPED ==="
   note "is_testnet=$IS_TESTNET, faucet_allocation=$FAUCET_ALLOC, chain_id=$CHAIN_ID"
+  note "mint_threshold=$(get "${FILES[0]}" mint_threshold || true), ride_auto_release_secs=$(get "${FILES[0]}" ride_auto_release_secs || true) (empty means the default)"
   note "Re-run with MAINNET=1 to enforce the mainnet-only rules on this config."
 fi
 
