@@ -25,7 +25,11 @@ if [ -z "$DUMP" ] || [ ! -f "$DUMP" ]; then
 fi
 
 env_get() {
-  grep -E "^$1=" .env | head -1 | cut -d= -f2- | sed -e 's/^"//' -e 's/"$//'
+  # `|| true` because an absent key is an empty answer, not a failure. Under `set -euo pipefail`
+  # a grep that matches nothing fails the pipeline and kills the script inside a command
+  # substitution -- which is exactly how the first rehearsal died, on an unset optional setting,
+  # before printing a single line. The first real backup would have died the same way.
+  grep -E "^$1=" .env 2>/dev/null | head -1 | cut -d= -f2- | sed -e 's/^"//' -e 's/"$//' || true
 }
 
 # The environment wins over .env, so a rehearsal can inject an ephemeral passphrase
