@@ -1,0 +1,82 @@
+# Readiness item D1: prove the backup and restore path actually works.
+#
+# A dump nobody has restored is a hypothesis. This runs the whole loop against stage -- dump both
+# databases, encrypt, decrypt, restore into a throwaway database, count the rows, drop it -- so the
+# scripts are known to work before the day someone needs them.
+#
+# The passphrase is generated per run and never written anywhere. That is deliberate: it makes this
+# a test of the machinery rather than a backup, and it means this workflow cannot quietly become
+# the thing producing backups nobody can decrypt. Real backups take their passphrase from the
+# host's .env, which has to be stored off the host to be worth anything.
+#
+# Nothing here touches a live database. restore-treasury-db.sh creates `<db>_restore_<stamp>` and
+# refuses to target anything else; DROP_AFTER=1 removes that copy at the end.
+
+name: Rehearse restore (stage, D1)
+
+on:
+  workflow_dispatch:
+    inputs:
+      confirm:
+        description: 'Type "rehearse" to run the backup and restore rehearsal'
+        required: true
+
+concurrency:
+  group: rehearse-restore
+  cancel-in-progress: false
+
+jobs:
+  rehearse:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check confirmation
+        run: |
+          if [ "${{ inputs.confirm }}" != "rehearse" ]; then
+            echo "Refusing: confirmation was '${{ inputs.confirm }}', expected 'rehearse'."
+            exit 1
+          fi
+
+      - name: Rehearse via SSH
+        uses: appleboy/ssh-action@v1.2.0
+        with:
+          host: ${{ secrets.STAGE_HOST }}
+          username: ${{ secrets.STAGE_USER }}
+          password: ${{ secrets.STAGE_SSH_PASSWORD }}
+          command_timeout: 20m
+          script_stop: true
+          script: |
+            set -euo pipefail
+            cd "${{ secrets.STAGE_DEPLOY_PATH }}"
+            git pull --ff-only
+
+            # Ephemeral, never echoed, never written to .env. Lives for this shell only.
+            REHEARSAL_PASSPHRASE="$(openssl rand -base64 48)"
+            REHEARSAL_DIR="$(mktemp -d)"
+            # Remove the dumps even if a step below fails, so an encrypted copy of the whole
+            # ledger is never left lying in a temp directory.
+            trap 'rm -rf "$REHEARSAL_DIR"' EXIT
+
+            echo "=== 1/3 backup into a temp directory ==="
+            BACKUP_PASSPHRASE="$REHEARSAL_PASSPHRASE" \
+              BACKUP_DIR="$REHEARSAL_DIR" \
+              BACKUP_REMOTE="" \
+              bash scripts/backup-treasury-db.sh
+
+            echo ""
+            echo "=== 2/3 restore the treasury dump into a throwaway database ==="
+            TREASURY_DUMP="$(ls -1t "$REHEARSAL_DIR"/treasury-*.dump.enc | head -1)"
+            BACKUP_PASSPHRASE="$REHEARSAL_PASSPHRASE" DROP_AFTER=1 \
+              bash scripts/restore-treasury-db.sh "$TREASURY_DUMP"
+
+            echo ""
+            echo "=== 3/3 restore the orchestrator dump into a throwaway database ==="
+            ORCH_DUMP="$(ls -1t "$REHEARSAL_DIR"/orchestrator-*.dump.enc | head -1)"
+            BACKUP_PASSPHRASE="$REHEARSAL_PASSPHRASE" DROP_AFTER=1 \
+              bash scripts/restore-treasury-db.sh "$ORCH_DUMP"
+
+            echo ""
+            echo "=== rehearsal complete ==="
+            echo "The scripts work. What this did NOT prove, and what still closes D1:"
+            echo "  - BACKUP_PASSPHRASE set in .env and stored somewhere that is NOT this host"
+            echo "  - BACKUP_REMOTE set, so dumps stop sharing a disk with the databases"
+            echo "  - reconciliation run green against a restored ledger, not just row counts"

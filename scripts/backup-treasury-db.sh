@@ -36,7 +36,9 @@ env_get() {
   grep -E "^$1=" .env | head -1 | cut -d= -f2- | sed -e 's/^"//' -e 's/"$//'
 }
 
-BACKUP_PASSPHRASE="$(env_get BACKUP_PASSPHRASE)"
+# The environment wins over .env, so a rehearsal can inject an ephemeral passphrase
+# without writing a secret to the host. Real backups still take theirs from .env.
+BACKUP_PASSPHRASE="${BACKUP_PASSPHRASE:-$(env_get BACKUP_PASSPHRASE)}"
 BACKUP_REMOTE="${BACKUP_REMOTE:-$(env_get BACKUP_REMOTE)}"
 RETAIN="${BACKUP_RETAIN:-$(env_get BACKUP_RETAIN)}"
 RETAIN="${RETAIN:-14}"
