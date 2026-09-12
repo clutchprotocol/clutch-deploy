@@ -225,6 +225,15 @@ if [ "$TREASURY" = "true" ]; then
   # host, which once kept four fixes off the server for an hour.
   bash scripts/ensure-nginx-payment-route.sh "$NGINX_C"
 
+  # Readiness item G1: give the clutch vhost's config an owner. Adds one include line pointing at
+  # a directory synced from config/nginx/clutch.d/ in this repo, and syncs it.
+  #
+  # Inert on its first deploy, deliberately. That directory holds no .conf files yet, and a glob
+  # include matching nothing is valid nginx, so this changes no routing at all on the run that
+  # introduces it. The mechanism gets proven on the real host before any route depends on it;
+  # moving /payment/ out of the hand-maintained file and into the repo is a later, separate step.
+  bash scripts/ensure-nginx-clutch-include.sh "$NGINX_C"
+
   # Prove the browser-facing /payment/ route reaches the ORCHESTRATOR, not the static
   # site. Both previous checks passed while this was broken: the containers were
   # healthy and nginx answered — with 405 from the SPA's static location, because the
