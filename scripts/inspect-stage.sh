@@ -54,6 +54,23 @@ if [ "$PROBE" = "nginx" ]; then
     docker exec "$LIVE" grep -nE '^[[:space:]]*location' /etc/nginx/nginx.conf 2>/dev/null || true
     echo "--- does it already route /payment/ ? ---"
     docker exec "$LIVE" grep -n 'payment' /etc/nginx/nginx.conf 2>/dev/null || echo "(no /payment/ route in the LIVE config)"
+
+    # Readiness item G1. The clutch-owned routes are injected between markers by
+    # scripts/ensure-nginx-clutch-block.sh, and markers are comments -- so the server_name and
+    # location greps above cannot show them, and "the block is live" was unanswerable without this.
+    echo "--- clutch-deploy managed block (G1) ---"
+    if docker exec "$LIVE" grep -q 'clutch-deploy managed block' /etc/nginx/nginx.conf 2>/dev/null; then
+      docker exec "$LIVE" sed -n '/>>> clutch-deploy managed block/,/<<< clutch-deploy managed block/p' \
+        /etc/nginx/nginx.conf 2>/dev/null || true
+    else
+      echo "(no managed block in the LIVE config — routes are still hand-maintained)"
+    fi
+
+    # An include pointing into the container's own filesystem loads nothing and passes nginx -t,
+    # so it is invisible unless asked for by name. One was shipped and removed on 2026-09-13.
+    echo "--- stale clutch.d include (should be absent) ---"
+    docker exec "$LIVE" grep -n 'include .*clutch\.d' /etc/nginx/nginx.conf 2>/dev/null \
+      || echo "(none — correct; that include could never have loaded anything)"
   else
     echo "no running nginx container"
   fi
