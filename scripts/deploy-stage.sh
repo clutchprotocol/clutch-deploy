@@ -225,14 +225,16 @@ if [ "$TREASURY" = "true" ]; then
   # host, which once kept four fixes off the server for an hour.
   bash scripts/ensure-nginx-payment-route.sh "$NGINX_C"
 
-  # Readiness item G1: give the clutch vhost's config an owner. Adds one include line pointing at
-  # a directory synced from config/nginx/clutch.d/ in this repo, and syncs it.
+  # Readiness item G1: give the clutch vhost'''s config an owner. Injects the contents of
+  # config/nginx/clutch.d/ into the mounted file between markers, replacing whatever was there.
   #
-  # Inert on its first deploy, deliberately. That directory holds no .conf files yet, and a glob
-  # include matching nothing is valid nginx, so this changes no routing at all on the run that
-  # introduces it. The mechanism gets proven on the real host before any route depends on it;
-  # moving /payment/ out of the hand-maintained file and into the repo is a later, separate step.
-  bash scripts/ensure-nginx-clutch-include.sh "$NGINX_C"
+  # NOT an include. That was tried first and cannot work: the container bind-mounts exactly one
+  # path, the single nginx.conf, so no host directory is visible inside it and the include loaded
+  # nothing while passing nginx -t. Adding a mount means editing another project'''s compose file.
+  #
+  # Inert until config/nginx/clutch.d/ holds a .conf, so the run that introduces it changes no
+  # routing. Moving /payment/ out of the hand-maintained file is a later, separate step.
+  bash scripts/ensure-nginx-clutch-block.sh "$NGINX_C"
 
   # Prove the browser-facing /payment/ route reaches the ORCHESTRATOR, not the static
   # site. Both previous checks passed while this was broken: the containers were
