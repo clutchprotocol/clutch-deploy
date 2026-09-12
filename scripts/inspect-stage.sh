@@ -58,6 +58,12 @@ if [ "$PROBE" = "nginx" ]; then
     # Readiness item G1. The clutch-owned routes are injected between markers by
     # scripts/ensure-nginx-clutch-block.sh, and markers are comments -- so the server_name and
     # location greps above cannot show them, and "the block is live" was unanswerable without this.
+    # The whole /payment/ block, not just the lines containing the word: before moving a live
+    # money route into the repo, what is on the host has to be read rather than assumed to match
+    # whatever generated it.
+    echo "--- live /payment/ block, in full ---"
+    docker exec "$LIVE" awk '''/location \/payment\// {inb=1} inb {print; n+=gsub(/{/,"{"); n-=gsub(/}/,"}"); if (inb && n==0) exit}'''       /etc/nginx/nginx.conf 2>/dev/null || echo "(no /payment/ block)"
+
     echo "--- clutch-deploy managed block (G1) ---"
     if docker exec "$LIVE" grep -q 'clutch-deploy managed block' /etc/nginx/nginx.conf 2>/dev/null; then
       docker exec "$LIVE" sed -n '/>>> clutch-deploy managed block/,/<<< clutch-deploy managed block/p' \
