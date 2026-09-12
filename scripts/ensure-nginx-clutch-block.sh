@@ -140,8 +140,16 @@ else
   ' "$CONF" > "$TMP" || die "awk could not find the $VHOST anchor — config untouched"
 fi
 
-# Remove the dead include from the earlier attempt, wherever it sits.
-grep -v 'include[[:space:]]\+/etc/nginx/clutch\.d/\*\.conf;' "$TMP" > "$TMP.clean" && mv "$TMP.clean" "$TMP"
+# Remove every trace of the earlier include attempt: the dead include line AND the comment block
+# that introduced it. Dropping the line alone left four orphan comments on the host describing a
+# directive that no longer existed -- config nothing accounts for, which is the exact drift this
+# item exists to end. Matched on their own text, which is unique to those lines.
+grep -v -e 'include[[:space:]]\+/etc/nginx/clutch\.d/\*\.conf;' \
+        -e 'Added by clutch-deploy (scripts/ensure-nginx-clutch-include\.sh)\.' \
+        -e 'Clutch routes live in files this repo owns, synced on each deploy\.' \
+        -e 'A glob include matching nothing is valid nginx, so this line is safe' \
+        -e 'even when the directory is empty\.' \
+        "$TMP" > "$TMP.clean" && mv "$TMP.clean" "$TMP"
 
 # ---------------------------------------------------------------------------
 # Retire the legacy inline /payment/ block, but ONLY once the repo provides that route.
