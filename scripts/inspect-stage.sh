@@ -60,9 +60,11 @@ if [ "$PROBE" = "nginx" ]; then
     # location greps above cannot show them, and "the block is live" was unanswerable without this.
     # The whole /payment/ block, not just the lines containing the word: before moving a live
     # money route into the repo, what is on the host has to be read rather than assumed to match
-    # whatever generated it.
-    echo "--- live /payment/ block, in full ---"
-    docker exec "$LIVE" awk '''/location \/payment\// {inb=1} inb {print; n+=gsub(/{/,"{"); n-=gsub(/}/,"}"); if (inb && n==0) exit}'''       /etc/nginx/nginx.conf 2>/dev/null || echo "(no /payment/ block)"
+    # whatever generated it. grep -A rather than awk brace-counting -- an awk program has to
+    # survive YAML, the ssh-action and a remote shell, and the brace-counting version silently
+    # matched nothing.
+    echo "--- live /payment/ block (12 lines of context) ---"
+    docker exec "$LIVE" grep -n -A 12 'location /payment/' /etc/nginx/nginx.conf 2>/dev/null       || echo "(no /payment/ block)"
 
     echo "--- clutch-deploy managed block (G1) ---"
     if docker exec "$LIVE" grep -q 'clutch-deploy managed block' /etc/nginx/nginx.conf 2>/dev/null; then
