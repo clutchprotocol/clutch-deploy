@@ -143,6 +143,44 @@ fi
 # Remove the dead include from the earlier attempt, wherever it sits.
 grep -v 'include[[:space:]]\+/etc/nginx/clutch\.d/\*\.conf;' "$TMP" > "$TMP.clean" && mv "$TMP.clean" "$TMP"
 
+# ---------------------------------------------------------------------------
+# Retire the legacy inline /payment/ block, but ONLY once the repo provides that route.
+#
+# Two mechanisms that can both write the same location is how you get a duplicate `location` and a
+# config nginx refuses. The condition is therefore the repo's content, not a date or a flag: strip
+# the old block exactly when the managed block carries a replacement, so the route is never absent
+# from the file even for one line of it.
+#
+# Bounded on purpose. If the marker comment survives but its block does not, unbounded brace
+# counting would eat whatever came next. 40 lines is far more than the block has ever been, and
+# overrunning it aborts rather than guesses.
+# ---------------------------------------------------------------------------
+if grep -q 'location /payment/' "$BLOCK"; then
+  LEGACY='# Added by clutch-deploy (scripts/ensure-nginx-payment-route.sh).'
+  if grep -qF "$LEGACY" "$TMP"; then
+    log "repo owns /payment/ now — removing the legacy inline block"
+    awk -v marker="$LEGACY" -v budget=40 '
+      index($0, marker) && !dropping { dropping = 1; depth = 0; seen = 0; used = 0; next }
+      dropping {
+        used++
+        if (used > budget) { print "OVERRUN" > "/dev/stderr"; exit 4 }
+        opens = gsub(/{/, "{"); closes = gsub(/}/, "}")
+        depth += opens - closes
+        if (opens > 0) seen = 1
+        if (seen && depth <= 0) dropping = 0
+        next
+      }
+      { print }
+    ' "$TMP" > "$TMP.stripped" || die "legacy /payment/ block did not close within 40 lines — nothing written"
+    mv "$TMP.stripped" "$TMP"
+
+    # Exactly one must remain, and it must be the managed one.
+    count=$(grep -c 'location /payment/' "$TMP" || true)
+    [ "$count" = "1" ] || die "expected exactly 1 /payment/ location after the move, found $count"
+    log "one /payment/ location remains, inside the managed block"
+  fi
+fi
+
 if [ -n "${DRY_RUN:-}" ]; then
   log "DRY_RUN — managed block as it would be written:"
   sed -n '/>>> clutch-deploy managed block/,/<<< clutch-deploy managed block/p' "$TMP"

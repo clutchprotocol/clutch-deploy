@@ -208,32 +208,23 @@ if [ "$TREASURY" = "true" ]; then
     done
     [ -n "$tok" ] || { echo "DEPLOY FAILED: ${name} not healthy"; docker logs "clutch-stage-${name}-1" 2>&1 | tail -30; exit 1; }
   done
-
-  # Only now that the orchestrator is confirmed healthy: make sure nginx routes
-  # /payment/ to it. Deliberately after the health gate — `nginx -t` resolves a
-  # static proxy_pass host at config-load time, so running this against a
-  # not-yet-started orchestrator fails the deploy for the wrong reason.
-  #
-  # In a script, NOT inline here. As an inline block with a multi-line single-quoted
-  # awk program it failed twice with exit 1, no message, and no ERR trap firing — the
-  # shell took neither branch of a plain `if`, which a working bash cannot do.
-  # Something between YAML, the ssh-action and the remote shell was mangling it. One
-  # `bash script.sh` has no such layers, and the script is testable locally.
-  #
-  # Invoked via `bash`, not by relying on the exec bit: `chmod +x` on a tracked file
-  # shows up as a local modification and silently blocks `git pull --ff-only` on this
-  # host, which once kept four fixes off the server for an hour.
-  bash scripts/ensure-nginx-payment-route.sh "$NGINX_C"
-
-  # Readiness item G1: give the clutch vhost'''s config an owner. Injects the contents of
-  # config/nginx/clutch.d/ into the mounted file between markers, replacing whatever was there.
+  # Readiness item G1: the clutch vhost's config has an owner. The contents of
+  # config/nginx/clutch.d/ are injected into the mounted file between markers, replacing whatever
+  # sat there before.
   #
   # NOT an include. That was tried first and cannot work: the container bind-mounts exactly one
   # path, the single nginx.conf, so no host directory is visible inside it and the include loaded
-  # nothing while passing nginx -t. Adding a mount means editing another project'''s compose file.
+  # nothing while still passing nginx -t. Adding a mount means editing another project's compose
+  # file.
   #
-  # Inert until config/nginx/clutch.d/ holds a .conf, so the run that introduces it changes no
-  # routing. Moving /payment/ out of the hand-maintained file is a later, separate step.
+  # /payment/ used to be patched in here by a separate ensure-nginx-payment-route.sh, which is now
+  # retired: the route lives in config/nginx/clutch.d/payment.conf and the block script strips the
+  # old inline copy on the first run that sees a replacement in the repo. Two mechanisms able to
+  # write the same location is how you get a duplicate `location` and a config nginx refuses, so
+  # there is deliberately only one.
+  #
+  # Runs after the orchestrator health gate for the same reason its predecessor did: a static
+  # proxy_pass host resolves at config-load time, so nginx -t fails if the upstream is not up yet.
   bash scripts/ensure-nginx-clutch-block.sh "$NGINX_C"
 
   # Prove the browser-facing /payment/ route reaches the ORCHESTRATOR, not the static
