@@ -21,7 +21,7 @@ on:
         required: false
         default: ""
       vhost:
-        description: "nginx probe only: dump this vhost's whole server block (*.clutchprotocol.io only — this log is public)"
+        description: "nginx probe only: dump these vhosts' whole server blocks, comma-separated (*.clutchprotocol.io only — this log is public)"
         required: false
         default: ""
       probe:

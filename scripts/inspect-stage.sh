@@ -91,31 +91,39 @@ if [ "$PROBE" = "nginx" ]; then
     # container. The brace-counting version that ran inside a `docker exec sh -c` silently matched
     # nothing on 2026-09-13: the program had to survive YAML, the ssh-action and two shells. On
     # stdin it survives one.
+    # Comma-separated, because migrating the remaining vhosts means reading four of them and a
+    # GitHub runner queue is slower than the probe by two orders of magnitude. The config is read
+    # once and each name filtered out of the same copy.
     if [ -n "${VHOST:-}" ]; then
-      echo ""
-      echo "=== full server block for $VHOST ==="
-      case "$VHOST" in
-        *.clutchprotocol.io) ;;
-        *) echo "refusing: only *.clutchprotocol.io vhosts may be dumped to a public log"; VHOST="" ;;
-      esac
-    fi
-    if [ -n "${VHOST:-}" ]; then
-      docker exec "$LIVE" cat /etc/nginx/nginx.conf 2>/dev/null | awk -v want="$VHOST" '
-            !inblk && /^[[:space:]]*server[[:space:]]*\{/ {
-              inblk = 1; n = 0; depth = 0; hit = 0
-            }
-            inblk {
-              buf[++n] = $0
-              if (index($0, "server_name") && index($0, want)) hit = 1
-              depth += gsub(/{/, "{") - gsub(/}/, "}")
-              if (depth <= 0) {
-                if (hit) { for (i = 1; i <= n; i++) print buf[i]; found = 1 }
-                inblk = 0
+      CONF_COPY=$(mktemp)
+      docker exec "$LIVE" cat /etc/nginx/nginx.conf > "$CONF_COPY" 2>/dev/null || true
+      echo "$VHOST" | tr ',' '\n' | while read -r want; do
+        want=$(echo "$want" | tr -d '[:space:]')
+        [ -n "$want" ] || continue
+        echo ""
+        echo "=== full server block for $want ==="
+        case "$want" in
+          *.clutchprotocol.io) ;;
+          *) echo "refusing: only *.clutchprotocol.io vhosts may be dumped to a public log"; continue ;;
+        esac
+        awk -v want="$want" '
+              !inblk && /^[[:space:]]*server[[:space:]]*\{/ {
+                inblk = 1; n = 0; depth = 0; hit = 0
               }
-              next
-            }
-            END { if (!found) print "(no server block whose server_name mentions " want ")" }
-          '
+              inblk {
+                buf[++n] = $0
+                if (index($0, "server_name") && index($0, want)) hit = 1
+                depth += gsub(/{/, "{") - gsub(/}/, "}")
+                if (depth <= 0) {
+                  if (hit) { for (i = 1; i <= n; i++) print buf[i]; found = 1 }
+                  inblk = 0
+                }
+                next
+              }
+              END { if (!found) print "(no server block whose server_name mentions " want ")" }
+            ' "$CONF_COPY"
+      done
+      rm -f "$CONF_COPY"
     fi
 
     # An include pointing into the container's own filesystem loads nothing and passes nginx -t,
