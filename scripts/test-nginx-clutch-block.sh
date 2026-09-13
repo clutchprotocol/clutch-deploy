@@ -224,6 +224,22 @@ run || { cat "$WORK/out"; fail "second run failed — the before-set grep matche
 [ "$(grep -c '^[[:space:]]*upstream clutch_api' "$WORK/conf")" = "1" ]   || fail "clutch_api did not survive the second run"
 ok "the strip empties the before-set and the run survives it"
 
+echo "== deleting the file that owns an upstream is refused =="
+fixture "$WORK/conf"; repo
+route app-stage.clutchprotocol.io /payment/ http://payment-orchestrator:8091
+upstream clutch_api clutch-hub-api:3000
+upstream somewhere 10.0.0.1:80
+run || { cat "$WORK/out"; fail "first run failed"; }
+cp "$WORK/conf" "$WORK/conf.orig"
+# Now drop the file that declares them. Both upstreams would vanish from the host, and every route
+# naming one would 502 -- so the guard has to see it. It only can if the baseline comes from the
+# host's own file rather than from the already-stripped candidate.
+rm -f "$WORK/upstreams"/*.conf
+run && fail "should have refused to drop both upstreams"
+grep -q 'drops upstream(s) the host already had' "$WORK/out" || { cat "$WORK/out"; fail "wrong error"; }
+cmp -s "$WORK/conf" "$WORK/conf.orig" || fail "config was modified despite the refusal"
+ok "an upstream cannot be deleted out from under the routes that name it"
+
 echo "== a vhost the host does not serve is refused, and nothing is written =="
 fixture "$WORK/conf"; repo
 cp "$WORK/conf" "$WORK/conf.orig"

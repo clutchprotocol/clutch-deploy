@@ -368,9 +368,17 @@ shopt -s nullglob
 up_files=("$HTTP_DIR"/*.conf)
 shopt -u nullglob
 
-if [ ${#up_files[@]} -gt 0 ]; then
-  BEFORE_UPSTREAMS=$(upstream_names "$TMP")
+# Measured on $CONF, the file as the host has it -- NOT on $TMP, which has already had the managed
+# block stripped out. Taken from $TMP the baseline is empty for every upstream this repo already
+# owns, so the guard could only ever catch losing one on its very first migration. `server_names`
+# above got this right; this did not.
+#
+# And taken OUTSIDE the conditional below, because the case it most needs to catch is the directory
+# being empty: with no files the whole section is skipped, the strip has already removed the block
+# those upstreams lived in, and they would disappear from the host with nothing to notice.
+BEFORE_UPSTREAMS=$(upstream_names "$CONF")
 
+if [ ${#up_files[@]} -gt 0 ]; then
   for f in "${up_files[@]}"; do
     awk '
       { for (i = 1; i <= length($0); i++) {
@@ -455,14 +463,15 @@ if [ ${#up_files[@]} -gt 0 ]; then
   # has no business declaring a vhost; adding an upstream, by contrast, is what adding a service
   # looks like. The hazard is an upstream DISAPPEARING -- every route naming it 502s while the
   # config still passes nginx -t.
-  AFTER_UPSTREAMS=$(upstream_names "$TMP")
-  LOST=$(comm -23 <(echo "$BEFORE_UPSTREAMS") <(echo "$AFTER_UPSTREAMS"))
-  if [ -n "$LOST" ]; then
-    echo "--- upstreams that would disappear ---"; echo "$LOST"
-    die "the patched config drops upstream(s) the host already had — nothing written"
-  fi
-  log "no upstream lost ($(echo "$AFTER_UPSTREAMS" | sed '/^$/d' | wc -l) names after)"
 fi
+
+AFTER_UPSTREAMS=$(upstream_names "$TMP")
+LOST=$(comm -23 <(echo "$BEFORE_UPSTREAMS") <(echo "$AFTER_UPSTREAMS"))
+if [ -n "$LOST" ]; then
+  echo "--- upstreams that would disappear ---"; echo "$LOST"
+  die "the patched config drops upstream(s) the host already had — nothing written"
+fi
+log "no upstream lost ($(echo "$AFTER_UPSTREAMS" | sed '/^$/d' | wc -l) names after)"
 
 if [ -n "${DRY_RUN:-}" ]; then
   log "DRY_RUN — managed blocks as they would be written:"
