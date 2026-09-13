@@ -63,5 +63,5 @@ jobs:
           script: |
             set -euo pipefail
             cd "${{ secrets.STAGE_DEPLOY_PATH }}"
-            git pull --ff-only
+            git pull --ff-only origin main
             bash scripts/reverse-mint.sh
