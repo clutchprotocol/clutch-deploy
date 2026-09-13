@@ -306,6 +306,24 @@ if [ "$TREASURY" = "true" ]; then
     echo "DEPLOY FAILED: api-stage $what returned $code, expected $want, after the managed block"
     return 1
   }
-  api_check health 200 || exit 1
-  api_check ws 101     || exit 1
+  # Restore and reload if either gate fails. `nginx -t` passing only means the config parses --
+  # these two checks are the ones that can still find the edge broken, and by then it is already
+  # serving. Reverting the repo change would NOT undo it: the hand-written locations were stripped
+  # in the same pass that added the managed ones, so a later deploy without the route file leaves
+  # the vhost with no routes at all. The backup the block script writes before every edit is the
+  # only thing that puts the previous edge back.
+  restore_nginx() {
+    local conf
+    conf=$(docker inspect "$NGINX_C" \
+      --format '{{range .Mounts}}{{if eq .Destination "/etc/nginx/nginx.conf"}}{{.Source}}{{end}}{{end}}')
+    if [ -n "$conf" ] && [ -f "$conf.clutch-block.bak" ]; then
+      # cat, not mv: the container bind-mounts this path by inode.
+      cat "$conf.clutch-block.bak" > "$conf"
+      docker exec "$NGINX_C" nginx -s reload && echo "restored the previous nginx config and reloaded"
+    else
+      echo "NO BACKUP TO RESTORE at ${conf:-<unknown>}.clutch-block.bak — the edge is live as written"
+    fi
+  }
+  api_check health 200 || { restore_nginx; exit 1; }
+  api_check ws 101     || { restore_nginx; exit 1; }
 fi
