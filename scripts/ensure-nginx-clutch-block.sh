@@ -138,7 +138,7 @@ fi
 [ ${#vhost_dirs[@]} -gt 0 ] || die "$REPO_DIR has no <vhost>/ subdirectory — nothing to own"
 
 BLOCK=$(mktemp); TMP=$(mktemp); SIGS=$(mktemp)
-trap 'rm -f "$BLOCK" "$TMP" "$TMP.ins" "$TMP.clean" "$TMP.stripped" "$SIGS"' EXIT
+trap 'rm -f "$BLOCK" "$TMP" "$TMP.ins" "$TMP.clean" "$TMP.count" "$SIGS"' EXIT
 
 # ---------------------------------------------------------------------------
 # Strip every managed block, then insert each vhost's afresh.
@@ -214,7 +214,9 @@ for dir in "${vhost_dirs[@]}"; do
     echo "        # Generated on each deploy from $REPO_DIR/$vhost/. Edits here are overwritten."
     for f in "${files[@]}"; do
       echo "        # --- $(basename "$f") ---"
-      sed 's/^/        /' "$f"
+      # Indent into the server block, and drop trailing whitespace while doing it: the same
+      # indent applied to a blank separator line turns it into eight spaces of nothing.
+      sed -e 's/^/        /' -e 's/[[:space:]]*$//' "$f"
     done
     echo "$END_MARK"
   } > "$BLOCK"
@@ -233,8 +235,11 @@ for dir in "${vhost_dirs[@]}"; do
   # One pass: insert the block at the anchor, then walk the rest of that server block dropping any
   # hand-written copy of a location the block now provides. Bounded, like every other brace count
   # here -- an unclosed block would otherwise eat the vhosts below it.
-  awk -v anchor="^[[:space:]]*server_name[[:space:]]+${vhost_re};" \
-      -v blockfile="$BLOCK" -v sigfile="$SIGS" -v budget=80 '
+  # The vhost goes in unescaped and the dots are escaped inside awk. `-v` runs its own escape
+  # processing over the value, which turns a `\.` back into `.` and prints a warning while doing
+  # it -- and that warning lands on the same stderr this reads the strip count from.
+  awk -v vhost="$vhost" -v blockfile="$BLOCK" -v sigfile="$SIGS" \
+      -v countfile="$TMP.count" -v budget=80 '
     function sig(line,   s) {
       s = line
       sub(/^[[:space:]]+/, "", s)
@@ -243,7 +248,12 @@ for dir in "${vhost_dirs[@]}"; do
       sub(/[[:space:]]+$/, "", s)
       return s
     }
-    BEGIN { while ((getline s < sigfile) > 0) if (s != "") owned[s] = 1; close(sigfile) }
+    BEGIN {
+      while ((getline s < sigfile) > 0) if (s != "") owned[s] = 1
+      close(sigfile)
+      gsub(/\./, "\\.", vhost)
+      anchor = "^[[:space:]]*server_name[[:space:]]+" vhost ";"
+    }
 
     # Before the anchor: copy through. On the anchor, emit the block immediately after it -- no
     # blank line, because the strip removes the marked lines and nothing else, so a separator
@@ -285,13 +295,13 @@ for dir in "${vhost_dirs[@]}"; do
     END {
       if (phase == 0) exit 3
       if (dropping) exit 4
-      print stripped + 0 > "/dev/stderr"
+      print stripped + 0 > countfile
     }
-  ' "$TMP" > "$TMP.ins" 2> "$TMP.stripped" \
-    || die "$vhost: could not place the block (missing anchor, or a location block that never closed within $((80)) lines) — config untouched"
+  ' "$TMP" > "$TMP.ins" \
+    || die "$vhost: could not place the block (missing anchor, or a location block that never closed within 80 lines) — config untouched"
   mv "$TMP.ins" "$TMP"
-  log "$vhost: block built from ${#files[@]} route file(s), $(cat "$TMP.stripped") hand-written location(s) replaced"
-  rm -f "$TMP.stripped"
+  log "$vhost: block built from ${#files[@]} route file(s), $(cat "$TMP.count") hand-written location(s) replaced"
+  rm -f "$TMP.count"
 done
 
 # One block per vhost directory, no more and no less. Cheap, and it is the assertion that catches a

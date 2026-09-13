@@ -268,4 +268,44 @@ if [ "$TREASURY" = "true" ]; then
       echo "  (no /payment/ block in the running container's config)"
     exit 1
   fi
+
+  # api-stage's routes are repo-owned too, so they have to be proved AFTER the block is written.
+  # The health gate near the top of this script ran before it -- a green gate there says nothing
+  # about the config the reload has since installed.
+  #
+  # Two checks, and deliberately not three. A POST to /graphql proves less than it looks: this
+  # vhost's `location /` proxies everything to the same upstream with the path preserved, so losing
+  # the /graphql block entirely would still answer correctly. What it would catch, a typo'd
+  # upstream name, `nginx -t` already rejects at config load.
+  #
+  #   /health      proves the vhost still proxies to the Hub API at all
+  #   /graphql/ws  proves the upgrade headers survived. Drop `proxy_set_header Upgrade` and the
+  #                request falls through to `location /`, which has none: the handshake degrades to
+  #                a plain 200 instead of 101, every page still loads, and every subscription
+  #                silently never fires. That is the one failure here worth a gate.
+  #
+  # Retried for the same reason the payment gate is: `nginx -s reload` returns as soon as the
+  # master has signalled, and the old workers keep serving the old config for a moment after.
+  api_check() {
+    local what="$1" want="$2" tries=15 code=""
+    while [ "$tries" -gt 0 ]; do
+      case "$what" in
+        health)  code=$(curl -s -o /dev/null -w "%{http_code}" \
+                   -H "Host: api-stage.clutchprotocol.io" http://localhost/health || true) ;;
+        ws)      code=$(curl -s -o /dev/null -w "%{http_code}" \
+                   -H "Host: api-stage.clutchprotocol.io" \
+                   -H "Connection: Upgrade" -H "Upgrade: websocket" \
+                   -H "Sec-WebSocket-Version: 13" -H "Sec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==" \
+                   -H "Sec-WebSocket-Protocol: graphql-transport-ws" \
+                   http://localhost/graphql/ws || true) ;;
+      esac
+      [ "$code" = "$want" ] && { echo "api-stage $what OK (HTTP $code)"; return 0; }
+      echo "waiting for api-stage $what (got $code, want $want)..."
+      sleep 2; tries=$((tries - 1))
+    done
+    echo "DEPLOY FAILED: api-stage $what returned $code, expected $want, after the managed block"
+    return 1
+  }
+  api_check health 200 || exit 1
+  api_check ws 101     || exit 1
 fi
