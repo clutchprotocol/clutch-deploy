@@ -208,6 +208,22 @@ up_line=$(grep -n 'clutch-deploy managed http' "$WORK/conf" | head -1 | cut -d: 
 [ "$up_line" -gt "$http_line" ] || fail "the upstream block landed outside the http block"
 ok "block sits inside http"
 
+echo "== a second run, when the upstreams are already inside a managed block =="
+fixture "$WORK/conf"; repo
+route app-stage.clutchprotocol.io /payment/ http://payment-orchestrator:8091
+# EVERY upstream in the fixture, not just clutch's. That is the condition that broke the host: with
+# one left outside the block the before-set is non-empty and the grep matches, which is exactly why
+# an earlier version of this test passed against the bug it was written for.
+upstream clutch_api clutch-hub-api:3000
+upstream somewhere 10.0.0.1:80
+run || { cat "$WORK/out"; fail "first run failed"; }
+# The state that broke the real host: after run one the upstreams live INSIDE the managed block, so
+# run two strips them before reading the before-set. A grep matching nothing exits 1, and under
+# `set -euo pipefail` in a command substitution that kills the script between two log lines.
+run || { cat "$WORK/out"; fail "second run failed — the before-set grep matched nothing and killed it"; }
+[ "$(grep -c '^[[:space:]]*upstream clutch_api' "$WORK/conf")" = "1" ]   || fail "clutch_api did not survive the second run"
+ok "the strip empties the before-set and the run survives it"
+
 echo "== a vhost the host does not serve is refused, and nothing is written =="
 fixture "$WORK/conf"; repo
 cp "$WORK/conf" "$WORK/conf.orig"
