@@ -71,9 +71,12 @@ if [ "$PROBE" = "nginx" ]; then
     echo "--- live /payment/ block (12 lines of context) ---"
     docker exec "$LIVE" grep -n -A 12 'location /payment/' /etc/nginx/nginx.conf 2>/dev/null       || echo "(no /payment/ block)"
 
-    echo "--- clutch-deploy managed block (G1) ---"
-    if docker exec "$LIVE" grep -q 'clutch-deploy managed block' /etc/nginx/nginx.conf 2>/dev/null; then
-      docker exec "$LIVE" sed -n '/>>> clutch-deploy managed block/,/<<< clutch-deploy managed block/p' \
+    echo "--- clutch-deploy managed blocks (G1) ---"
+    # Both marker kinds: the per-vhost route blocks and the http-level upstream block. Matching
+    # only "managed block" left the upstream one invisible here, so "is it actually on the host"
+    # was unanswerable for exactly the thing that had just been migrated.
+    if docker exec "$LIVE" grep -q 'clutch-deploy managed' /etc/nginx/nginx.conf 2>/dev/null; then
+      docker exec "$LIVE" sed -n '/>>> clutch-deploy managed/,/<<< clutch-deploy managed/p' \
         /etc/nginx/nginx.conf 2>/dev/null || true
     else
       echo "(no managed block in the LIVE config — routes are still hand-maintained)"
