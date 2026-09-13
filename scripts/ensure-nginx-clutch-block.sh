@@ -278,13 +278,26 @@ for dir in "${vhost_dirs[@]}"; do
         if (depth <= 0) dropping = 0
         next
       }
+
+      # Hold consecutive comment lines instead of printing them. A comment sitting directly above a
+      # location describes THAT location -- "# WebSocket endpoint (use wss://...)" on the host is
+      # one -- so removing the block and leaving the comment produces config that documents a
+      # directive no longer present. That orphaning has already happened once on this host and is
+      # the exact drift this item exists to end. Comments carry no braces, so holding them changes
+      # no depth arithmetic.
+      if ($0 ~ /^[[:space:]]*#/) { held[++nheld] = $0; next }
+
       if ($0 ~ /^[[:space:]]*location[[:space:]]/ && owned[sig($0)]) {
+        nheld = 0
         stripped++
         used = 1
         depth = gsub(/{/, "{") - gsub(/}/, "}")
         dropping = (depth > 0)
         next
       }
+
+      for (h = 1; h <= nheld; h++) print held[h]
+      nheld = 0
       print
       rel += gsub(/{/, "{") - gsub(/}/, "}")
       if (rel < 0) phase = 2
@@ -293,6 +306,8 @@ for dir in "${vhost_dirs[@]}"; do
 
     { print }
     END {
+      # Comments held when the vhost ended belonged to nothing that was stripped.
+      for (h = 1; h <= nheld; h++) print held[h]
       if (phase == 0) exit 3
       if (dropping) exit 4
       print stripped + 0 > countfile

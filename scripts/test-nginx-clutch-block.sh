@@ -38,6 +38,7 @@ http {
     server {
         listen 80;
         server_name de2.example.net;
+        # THE-UNTOUCHED-COMMENT belongs to somebody else
         location / { proxy_pass http://private-upstream; }
     }
 
@@ -72,6 +73,7 @@ http {
         listen 80;
         server_name api-stage.clutchprotocol.io;
 
+        # THE-ADOPTED-COMMENT describes the location below it
         location / { proxy_pass http://clutch-hub-api:3000; }
     }
 }
@@ -150,6 +152,18 @@ run || { cat "$WORK/out"; fail "script exited non-zero"; }
   || fail "expected exactly one /legacy-payment/, found $(grep -c 'location /legacy-payment/' "$WORK/conf")"
 grep -q 'ensure-nginx-payment-route' "$WORK/conf" && fail "the retired generator's marker comment survived"
 ok "generator's block replaced, its marker comment gone with it"
+
+echo "== a comment above an adopted location goes with it =="
+fixture "$WORK/conf"; repo
+route app-stage.clutchprotocol.io /payment/ http://payment-orchestrator:8091
+route api-stage.clutchprotocol.io / http://replaced-by-repo:3000
+run || { cat "$WORK/out"; fail "script exited non-zero"; }
+# Leaving it behind is config describing a directive that is no longer there -- the exact drift
+# this item exists to end, and it has already happened once on the real host.
+grep -q 'THE-ADOPTED-COMMENT' "$WORK/conf" && fail "the comment above the adopted location survived"
+# A comment above a location nobody adopted is not ours to remove.
+grep -q 'THE-UNTOUCHED-COMMENT' "$WORK/conf" || fail "a comment on somebody else's location was eaten"
+ok "adopted location takes its comment; everyone else's comments stay"
 
 echo "== a vhost the host does not serve is refused, and nothing is written =="
 fixture "$WORK/conf"; repo
