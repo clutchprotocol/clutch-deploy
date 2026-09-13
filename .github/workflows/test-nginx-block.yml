@@ -1,0 +1,38 @@
+# Run the nginx block script's self-check.
+#
+# That script rewrites, in place, the single nginx config serving the stage host -- including
+# vhosts belonging to another compose project. Three of its bugs reached that host, and every one
+# of them passed `nginx -t`: an include that could never load anything, a vhost guard that missed
+# one-line server blocks, and a `nullglob` that leaked out of a subshell. A fourth, a blank line
+# added per deploy, was caught by this check before it shipped.
+#
+# No secrets, no host access, no docker: a fixture and a temp directory.
+
+name: Test nginx block script
+
+on:
+  pull_request:
+    paths:
+      - "scripts/ensure-nginx-clutch-block.sh"
+      - "scripts/test-nginx-clutch-block.sh"
+      - "config/nginx/clutch.d/**"
+      - ".github/workflows/test-nginx-block.yml"
+  push:
+    branches: [main]
+    paths:
+      - "scripts/ensure-nginx-clutch-block.sh"
+      - "scripts/test-nginx-clutch-block.sh"
+      - "config/nginx/clutch.d/**"
+  workflow_dispatch:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Syntax
+        run: |
+          bash -n scripts/ensure-nginx-clutch-block.sh
+          bash -n scripts/test-nginx-clutch-block.sh
+      - name: Self-check
+        run: bash scripts/test-nginx-clutch-block.sh
