@@ -289,9 +289,16 @@ if [ "$TREASURY" = "true" ]; then
     local host="$1" path="$2" want="$3" mode="${4:-get}" proto="${5:-}" tries=15 code=""
     while [ "$tries" -gt 0 ]; do
       if [ "$mode" = "ws" ]; then
-        code=$(curl -s -o /dev/null -w "%{http_code}" -H "Host: $host"           -H "Connection: Upgrade" -H "Upgrade: websocket"           -H "Sec-WebSocket-Version: 13" -H "Sec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ=="           ${proto:+-H "Sec-WebSocket-Protocol: $proto"}           "http://localhost$path" || true)
+        # --max-time is load-bearing here. A successful upgrade leaves the socket open with nothing
+        # to read, so an unbounded curl waits forever: the first run of this gate hung on node1 /ws
+        # and took the whole deploy down with the ssh action's 10-minute command timeout -- after
+        # the config had been written and reloaded, so the restore never ran either. curl still
+        # reports 101 when --max-time cuts it off.
+        code=$(curl -s --max-time 5 -o /dev/null -w "%{http_code}" -H "Host: $host" -H "Connection: Upgrade" -H "Upgrade: websocket" -H "Sec-WebSocket-Version: 13" -H "Sec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==" ${proto:+-H "Sec-WebSocket-Protocol: $proto"} "http://localhost$path" || true)
       else
-        code=$(curl -s -o /dev/null -w "%{http_code}" -H "Host: $host" "http://localhost$path" || true)
+        # Bounded for the same reason, if not the same cause: a hung GET stops the deploy just as
+        # dead as a hung handshake.
+        code=$(curl -s --max-time 10 -o /dev/null -w "%{http_code}" -H "Host: $host" "http://localhost$path" || true)
       fi
       [ "$code" = "$want" ] && { echo "$host$path OK (HTTP $code)"; return 0; }
       echo "waiting for $host$path (got $code, want $want)..."
