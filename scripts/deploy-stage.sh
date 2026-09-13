@@ -280,11 +280,16 @@ if [ "$TREASURY" = "true" ]; then
   # appears: drop `proxy_set_header Upgrade` and the request falls through to a `location /` that
   # has none, the handshake degrades to a plain 200, every page still loads, and every subscription
   # silently never fires.
+  #
+  # The fifth argument is a WebSocket subprotocol, and it is not decoration. The Hub API's
+  # /graphql/ws answers 400 to a handshake that does not name `graphql-transport-ws`; the nodes'
+  # /ws answers 101 without one. Measured both ways on 2026-09-13 after the first version of this
+  # helper dropped the header and failed the deploy on a config that was in fact correct.
   edge_check() {
-    local host="$1" path="$2" want="$3" mode="${4:-get}" tries=15 code=""
+    local host="$1" path="$2" want="$3" mode="${4:-get}" proto="${5:-}" tries=15 code=""
     while [ "$tries" -gt 0 ]; do
       if [ "$mode" = "ws" ]; then
-        code=$(curl -s -o /dev/null -w "%{http_code}" -H "Host: $host"           -H "Connection: Upgrade" -H "Upgrade: websocket"           -H "Sec-WebSocket-Version: 13" -H "Sec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ=="           "http://localhost$path" || true)
+        code=$(curl -s -o /dev/null -w "%{http_code}" -H "Host: $host"           -H "Connection: Upgrade" -H "Upgrade: websocket"           -H "Sec-WebSocket-Version: 13" -H "Sec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ=="           ${proto:+-H "Sec-WebSocket-Protocol: $proto"}           "http://localhost$path" || true)
       else
         code=$(curl -s -o /dev/null -w "%{http_code}" -H "Host: $host" "http://localhost$path" || true)
       fi
@@ -318,7 +323,7 @@ if [ "$TREASURY" = "true" ]; then
   # everything to the same upstream with the path preserved, so losing the /graphql block entirely
   # would still answer correctly, and the typo it would catch `nginx -t` rejects at config load.
   edge_check api-stage.clutchprotocol.io /health     200 || { restore_nginx; exit 1; }
-  edge_check api-stage.clutchprotocol.io /graphql/ws 101 ws || { restore_nginx; exit 1; }
+  edge_check api-stage.clutchprotocol.io /graphql/ws 101 ws graphql-transport-ws || { restore_nginx; exit 1; }
 
   # explorer-stage. /health reaches the explorer's Rust API; / is the React frontend, and a 200
   # from it is what says the frontend upstream still resolves.
