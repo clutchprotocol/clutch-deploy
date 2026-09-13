@@ -103,7 +103,7 @@ route() {
 }
 
 run() {
-  CONF_OVERRIDE="$WORK/conf" REPO_DIR="$WORK/repo" UPSTREAM_DIR="$WORK/upstreams"     SKIP_NGINX=1 bash "$SCRIPT" >"$WORK/out" 2>&1
+  CONF_OVERRIDE="$WORK/conf" REPO_DIR="$WORK/repo" HTTP_DIR="$WORK/upstreams"     SKIP_NGINX=1 bash "$SCRIPT" >"$WORK/out" 2>&1
 }
 
 echo "== one vhost, migrating the legacy single block =="
@@ -185,7 +185,7 @@ run || { cat "$WORK/out"; fail "script exited non-zero"; }
 [ "$(grep -c '^[[:space:]]*upstream clutch_api' "$WORK/conf")" = "1" ]   || fail "expected exactly one clutch_api upstream, found $(grep -c '^[[:space:]]*upstream clutch_api' "$WORK/conf")"
 grep -q 'upstream somewhere' "$WORK/conf" || fail "somebody else's upstream was removed"
 grep -q 'a comment describing clutch_api' "$WORK/conf" && fail "the comment above the adopted upstream survived"
-grep -q 'managed upstreams' "$WORK/conf" || fail "no managed upstream block"
+grep -q 'managed http' "$WORK/conf" || fail "no managed http block"
 grep -q '1 hand-written upstream(s) replaced' "$WORK/out" || { cat "$WORK/out"; fail "strip count wrong"; }
 ok "upstream adopted, its comment went with it, the other one untouched"
 
@@ -198,13 +198,13 @@ run || { cat "$WORK/out"; fail "adding an upstream should be allowed"; }
 grep -q 'upstream clutch_brand_new' "$WORK/conf" || fail "the new upstream was not added"
 ok "adding is allowed — that is what adding a service looks like"
 
-echo "== upstreams are inserted inside the http block, not before it =="
+echo "== the http block's directives are inserted inside http, not before it =="
 fixture "$WORK/conf"; repo
 route app-stage.clutchprotocol.io /payment/ http://payment-orchestrator:8091
 upstream clutch_api clutch-hub-api:3000
 run || { cat "$WORK/out"; fail "script exited non-zero"; }
 http_line=$(grep -n '^http {' "$WORK/conf" | cut -d: -f1)
-up_line=$(grep -n 'clutch-deploy managed upstreams' "$WORK/conf" | head -1 | cut -d: -f1)
+up_line=$(grep -n 'clutch-deploy managed http' "$WORK/conf" | head -1 | cut -d: -f1)
 [ "$up_line" -gt "$http_line" ] || fail "the upstream block landed outside the http block"
 ok "block sits inside http"
 

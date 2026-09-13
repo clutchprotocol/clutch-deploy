@@ -53,6 +53,9 @@ if [ "$PROBE" = "nginx" ]; then
     # `wc -l /path`, not `wc -l < /path`: the redirect is performed by the HOST shell, which does
     # not have that file, so this printed a "No such file or directory" error and no line count.
     echo "lines: $(docker exec "$LIVE" wc -l /etc/nginx/nginx.conf 2>/dev/null | awk '{print $1}' || echo '?')"
+    # The version decides which directives are available -- limit_req_dry_run needs 1.17.6+, and
+    # "it is nginx:alpine" does not answer that.
+    echo "version: $(docker exec "$LIVE" nginx -v 2>&1 | sed 's|.*/||' || echo '?')"
     echo "--- server_name / listen ---"
     docker exec "$LIVE" grep -nE '^[[:space:]]*(server_name|listen)' /etc/nginx/nginx.conf 2>/dev/null || true
     echo "--- location blocks ---"

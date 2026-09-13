@@ -65,6 +65,7 @@
 # Usage: bash scripts/ensure-nginx-clutch-block.sh [container]
 #
 # Env:
+#   HTTP_DIR=p       http-level directives (default config/nginx/clutch.http)
 #   DRY_RUN=1        build the patched config, print the blocks, touch nothing
 #   CONF_OVERRIDE=p  patch p instead of reading the path off the container mount (for tests)
 #   SKIP_NGINX=1     skip docker/nginx entirely (for tests against a plain file)
@@ -329,18 +330,22 @@ blocks=$(grep -cF "$MARK_PREFIX" "$TMP" || true)
   || die "expected ${#vhost_dirs[@]} managed block(s), found $blocks"
 
 # ---------------------------------------------------------------------------
-# The upstreams those routes resolve to.
+# http-level directives: the upstreams those routes resolve to, and anything else belonging one
+# level up from a server block.
 #
-# A route file cannot declare one. `location` blocks land inside a server; `upstream` blocks belong
-# to `http`, one level up — so this needs its own block, its own anchor and its own marker. Hence a
-# flat directory rather than a per-vhost one: an upstream is not owned by a vhost, and several
-# vhosts name the same one.
+# A route file cannot declare these. `location` blocks land inside a server; `upstream` and
+# `limit_req_zone` belong to `http` — so this needs its own block, its own anchor and its own
+# marker. Hence a flat directory rather than a per-vhost one: nothing here is owned by a vhost, and
+# several vhosts name the same upstream.
+#
+# The takeover below is upstream-specific because an upstream is the only thing here whose name can
+# already exist on the host. A file declaring only a zone adds; it replaces nothing.
 #
 # Skipped entirely when the directory is absent, so a checkout without it behaves as before.
 # ---------------------------------------------------------------------------
-UPSTREAM_DIR="${UPSTREAM_DIR:-config/nginx/clutch.upstreams}"
-UP_MARK_PREFIX="# >>> clutch-deploy managed upstreams"
-UP_END_MARK="    # <<< clutch-deploy managed upstreams <<<"
+HTTP_DIR="${HTTP_DIR:-${UPSTREAM_DIR:-config/nginx/clutch.http}}"
+HTTP_MARK_PREFIX="# >>> clutch-deploy managed http"
+HTTP_END_MARK="    # <<< clutch-deploy managed http <<<"
 
 # Every upstream name in the file. The analogue of the server_name guard, and needed for the same
 # reason: nothing else in this script would notice an upstream disappearing, and every route that
@@ -351,7 +356,7 @@ upstream_names() {
 }
 
 shopt -s nullglob
-up_files=("$UPSTREAM_DIR"/*.conf)
+up_files=("$HTTP_DIR"/*.conf)
 shopt -u nullglob
 
 if [ ${#up_files[@]} -gt 0 ]; then
@@ -370,16 +375,18 @@ if [ ${#up_files[@]} -gt 0 ]; then
 
   grep -hoE '^[[:space:]]*upstream[[:space:]]+[^[:space:]{]+' "${up_files[@]}" \
     | sed 's/.*upstream[[:space:]]*//' | sed '/^$/d' > "$SIGS"
-  [ -s "$SIGS" ] || die "$UPSTREAM_DIR has .conf files but declares no upstream"
+  # An empty list is fine now that this directory holds http-level directives generally rather than
+  # upstreams only -- a file declaring just a `limit_req_zone` has no name to take over, and the
+  # strip below simply matches nothing.
 
   {
-    printf '    # >>> clutch-deploy managed upstreams >>>\n'
-    echo "    # Generated on each deploy from $UPSTREAM_DIR/. Edits here are overwritten."
+    printf '    # >>> clutch-deploy managed http >>>\n'
+    echo "    # Generated on each deploy from $HTTP_DIR/. Edits here are overwritten."
     for f in "${up_files[@]}"; do
       echo "    # --- $(basename "$f") ---"
       sed -e 's/^/    /' -e 's/[[:space:]]*$//' "$f"
     done
-    echo "$UP_END_MARK"
+    echo "$HTTP_END_MARK"
   } > "$BLOCK"
 
   awk -v blockfile="$BLOCK" -v sigfile="$SIGS" -v budget=40 '
