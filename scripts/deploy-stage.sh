@@ -332,6 +332,17 @@ if [ "$TREASURY" = "true" ]; then
   edge_check api-stage.clutchprotocol.io /health     200 || { restore_nginx; exit 1; }
   edge_check api-stage.clutchprotocol.io /graphql/ws 101 ws graphql-transport-ws || { restore_nginx; exit 1; }
 
+  # app-stage, the demo app's own vhost and the last one migrated. `location /` is the site itself,
+  # so a failure here is not one broken path but the whole app -- which is why it has the most
+  # gates and why it went last.
+  edge_check app-stage.clutchprotocol.io /            200 || { restore_nginx; exit 1; }
+  edge_check app-stage.clutchprotocol.io /health      200 || { restore_nginx; exit 1; }
+  # /api/ strips its own prefix before proxying, so /api/health reaches the Hub API's /health.
+  # That is the check worth having: it proves the rewrite survived, not merely the proxy_pass.
+  edge_check app-stage.clutchprotocol.io /api/health  200 || { restore_nginx; exit 1; }
+  edge_check app-stage.clutchprotocol.io /explorer/   200 || { restore_nginx; exit 1; }
+  edge_check app-stage.clutchprotocol.io /graphql/ws  101 ws graphql-transport-ws || { restore_nginx; exit 1; }
+
   # explorer-stage. /health reaches the explorer's Rust API; / is the React frontend, and a 200
   # from it is what says the frontend upstream still resolves.
   edge_check explorer-stage.clutchprotocol.io /health 200 || { restore_nginx; exit 1; }
