@@ -47,7 +47,7 @@ jobs:
           script: |
             set -euo pipefail
             cd "${{ secrets.STAGE_DEPLOY_PATH }}"
-            git pull --ff-only
+            git pull --ff-only origin main
 
             # Ephemeral, never echoed, never written to .env. Lives for this shell only.
             REHEARSAL_PASSPHRASE="$(openssl rand -base64 48)"

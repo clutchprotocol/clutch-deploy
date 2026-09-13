@@ -50,7 +50,9 @@ if [ "$PROBE" = "nginx" ]; then
   LIVE=$(docker ps --format '{{.Names}}' | grep -i nginx | head -1 || true)
   if [ -n "$LIVE" ]; then
     echo "live container: $LIVE"
-    echo "lines: $(docker exec "$LIVE" wc -l < /etc/nginx/nginx.conf 2>/dev/null || echo '?')"
+    # `wc -l /path`, not `wc -l < /path`: the redirect is performed by the HOST shell, which does
+    # not have that file, so this printed a "No such file or directory" error and no line count.
+    echo "lines: $(docker exec "$LIVE" wc -l /etc/nginx/nginx.conf 2>/dev/null | awk '{print $1}' || echo '?')"
     echo "--- server_name / listen ---"
     docker exec "$LIVE" grep -nE '^[[:space:]]*(server_name|listen)' /etc/nginx/nginx.conf 2>/dev/null || true
     echo "--- location blocks ---"
@@ -594,6 +596,17 @@ if [ "$PROBE" = "git" ]; then
   git status --porcelain || true
   echo "--- HEAD ---"
   git log --oneline -3 || true
+  echo "--- branch and upstream ---"
+  # A bare `git pull --ff-only` on this host died with "Cannot fast-forward to multiple branches"
+  # the first time two feature branches existed at once, which stopped the checkout updating while
+  # the deploy reported success. Every workflow now names `origin main`, and these three lines say
+  # whether the underlying config is also what it should be.
+  echo "  branch:   $(git rev-parse --abbrev-ref HEAD 2>/dev/null || echo '?')"
+  echo "  upstream: $(git rev-parse --abbrev-ref '@{upstream}' 2>/dev/null || echo '(none — a bare git pull has nothing to merge)')"
+  git config --get-regexp '^(branch|remote)\.' || echo "(no branch/remote config)"
+  echo "--- behind origin/main? ---"
+  git fetch origin main --quiet 2>/dev/null || echo "(fetch failed)"
+  echo "  $(git rev-list --count HEAD..origin/main 2>/dev/null || echo '?') commit(s) behind origin/main"
   echo "--- fileMode setting ---"
   git config core.fileMode || echo "(unset)"
 fi
