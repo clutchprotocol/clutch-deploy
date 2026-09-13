@@ -42,6 +42,22 @@
 # find in a diff. Nothing is written until the entire candidate file is built and has passed the
 # guards, so a vhost is never momentarily without its routes on disk.
 #
+# TAKING OVER A ROUTE THAT IS ALREADY THERE
+#
+# These routes were hand-written on the host long before this repo owned any of them, so adopting
+# one means removing the existing copy in the same pass that adds the managed one. nginx refuses a
+# duplicate `location`, so a half-done takeover does not serve the old route -- it serves nothing.
+#
+# The script therefore drops, from that vhost's server block only, any location whose signature the
+# repo now provides. Scoped to the one server block on purpose: every vhost in this file has a
+# `location /`, and a strip with no sense of where it is would take over one vhost by breaking the
+# rest.
+#
+# `nginx -t` plus the restore-on-failure below is the backstop. A signature that fails to match --
+# odd spacing, a regex location written differently in the repo than on the host -- leaves both
+# copies, nginx rejects the candidate, and the backup goes back. Loud, and nothing is served from a
+# half-migrated config.
+#
 # Everything outside the markers is v2ray's and is never touched.
 #
 # Idempotent, and safe to run on every deploy.
@@ -121,8 +137,8 @@ if [ ${#stray[@]} -gt 0 ]; then
 fi
 [ ${#vhost_dirs[@]} -gt 0 ] || die "$REPO_DIR has no <vhost>/ subdirectory — nothing to own"
 
-BLOCK=$(mktemp); TMP=$(mktemp)
-trap 'rm -f "$BLOCK" "$TMP"' EXIT
+BLOCK=$(mktemp); TMP=$(mktemp); SIGS=$(mktemp)
+trap 'rm -f "$BLOCK" "$TMP" "$TMP.ins" "$TMP.clean" "$TMP.stripped" "$SIGS"' EXIT
 
 # ---------------------------------------------------------------------------
 # Strip every managed block, then insert each vhost's afresh.
@@ -144,6 +160,7 @@ grep -v -e 'include[[:space:]]\+/etc/nginx/clutch\.d/\*\.conf;' \
         -e 'Clutch routes live in files this repo owns, synced on each deploy\.' \
         -e 'A glob include matching nothing is valid nginx, so this line is safe' \
         -e 'even when the directory is empty\.' \
+        -e 'Added by clutch-deploy (scripts/ensure-nginx-payment-route\.sh)\.' \
         "$TMP" > "$TMP.clean" && mv "$TMP.clean" "$TMP"
 
 for dir in "${vhost_dirs[@]}"; do
@@ -202,22 +219,79 @@ for dir in "${vhost_dirs[@]}"; do
     echo "$END_MARK"
   } > "$BLOCK"
 
-  awk -v anchor="^[[:space:]]*server_name[[:space:]]+${vhost_re};" -v blockfile="$BLOCK" '
-    $0 ~ anchor && !ins {
-      # No blank line between the anchor and the block. The strip removes the marked lines and
-      # nothing else, so a separator printed here survives it and the next run prints another --
-      # the file grows a blank line per deploy and the script stops being idempotent.
+  # The location paths this vhost's block will provide. Anything the repo owns has to be removed
+  # from the hand-written body in the same pass that adds it: nginx refuses a duplicate `location`,
+  # so leaving both means the config will not load at all.
+  #
+  # That refusal is the backstop, not the plan. A signature that fails to match here shows up as
+  # `nginx -t` rejecting the candidate, and the backup is restored -- loud, and nothing served from
+  # a half-migrated config.
+  grep -hE '^[[:space:]]*location[[:space:]]' "${files[@]}" \
+    | sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*{.*$//' -e 's/[[:space:]][[:space:]]*/ /g' -e 's/[[:space:]]*$//' \
+    > "$SIGS"
+
+  # One pass: insert the block at the anchor, then walk the rest of that server block dropping any
+  # hand-written copy of a location the block now provides. Bounded, like every other brace count
+  # here -- an unclosed block would otherwise eat the vhosts below it.
+  awk -v anchor="^[[:space:]]*server_name[[:space:]]+${vhost_re};" \
+      -v blockfile="$BLOCK" -v sigfile="$SIGS" -v budget=80 '
+    function sig(line,   s) {
+      s = line
+      sub(/^[[:space:]]+/, "", s)
+      sub(/[[:space:]]*\{.*$/, "", s)
+      gsub(/[[:space:]]+/, " ", s)
+      sub(/[[:space:]]+$/, "", s)
+      return s
+    }
+    BEGIN { while ((getline s < sigfile) > 0) if (s != "") owned[s] = 1; close(sigfile) }
+
+    # Before the anchor: copy through. On the anchor, emit the block immediately after it -- no
+    # blank line, because the strip removes the marked lines and nothing else, so a separator
+    # printed here survives and the next run prints another. The file would grow a blank line per
+    # deploy and the script would stop being idempotent.
+    phase == 0 {
       print
-      while ((getline line < blockfile) > 0) print line
-      close(blockfile)
-      ins = 1
+      if ($0 ~ anchor) {
+        while ((getline line < blockfile) > 0) print line
+        close(blockfile)
+        phase = 1; rel = 0
+      }
       next
     }
+
+    # Inside the vhost, up to its closing brace. Every managed block was stripped before this ran,
+    # so nothing here can be one.
+    phase == 1 {
+      if (dropping) {
+        if (++used > budget) exit 4
+        depth += gsub(/{/, "{") - gsub(/}/, "}")
+        if (depth <= 0) dropping = 0
+        next
+      }
+      if ($0 ~ /^[[:space:]]*location[[:space:]]/ && owned[sig($0)]) {
+        stripped++
+        used = 1
+        depth = gsub(/{/, "{") - gsub(/}/, "}")
+        dropping = (depth > 0)
+        next
+      }
+      print
+      rel += gsub(/{/, "{") - gsub(/}/, "}")
+      if (rel < 0) phase = 2
+      next
+    }
+
     { print }
-    END { if (!ins) exit 3 }
-  ' "$TMP" > "$TMP.ins" || die "awk could not find the $vhost anchor — config untouched"
+    END {
+      if (phase == 0) exit 3
+      if (dropping) exit 4
+      print stripped + 0 > "/dev/stderr"
+    }
+  ' "$TMP" > "$TMP.ins" 2> "$TMP.stripped" \
+    || die "$vhost: could not place the block (missing anchor, or a location block that never closed within $((80)) lines) — config untouched"
   mv "$TMP.ins" "$TMP"
-  log "$vhost: block built from ${#files[@]} route file(s)"
+  log "$vhost: block built from ${#files[@]} route file(s), $(cat "$TMP.stripped") hand-written location(s) replaced"
+  rm -f "$TMP.stripped"
 done
 
 # One block per vhost directory, no more and no less. Cheap, and it is the assertion that catches a
@@ -225,47 +299,6 @@ done
 blocks=$(grep -cF "$MARK_PREFIX" "$TMP" || true)
 [ "$blocks" = "${#vhost_dirs[@]}" ] \
   || die "expected ${#vhost_dirs[@]} managed block(s), found $blocks"
-
-# ---------------------------------------------------------------------------
-# Retire the legacy inline /payment/ block, but ONLY once the repo provides that route.
-#
-# Two mechanisms that can both write the same location is how you get a duplicate `location` and a
-# config nginx refuses. The condition is therefore the repo's content, not a date or a flag: strip
-# the old block exactly when the managed block carries a replacement, so the route is never absent
-# from the file even for one line of it.
-#
-# Bounded on purpose. If the marker comment survives but its block does not, unbounded brace
-# counting would eat whatever came next. 40 lines is far more than the block has ever been, and
-# overrunning it aborts rather than guesses.
-#
-# Done on the stage host on 2026-09-13, so this now finds nothing. It stays because a host restored
-# from an older copy of the config would need it again, and because it costs one grep.
-# ---------------------------------------------------------------------------
-if grep -rq 'location /payment/' "$REPO_DIR"; then
-  LEGACY='# Added by clutch-deploy (scripts/ensure-nginx-payment-route.sh).'
-  if grep -qF "$LEGACY" "$TMP"; then
-    log "repo owns /payment/ now — removing the legacy inline block"
-    awk -v marker="$LEGACY" -v budget=40 '
-      index($0, marker) && !dropping { dropping = 1; depth = 0; seen = 0; used = 0; next }
-      dropping {
-        used++
-        if (used > budget) { print "OVERRUN" > "/dev/stderr"; exit 4 }
-        opens = gsub(/{/, "{"); closes = gsub(/}/, "}")
-        depth += opens - closes
-        if (opens > 0) seen = 1
-        if (seen && depth <= 0) dropping = 0
-        next
-      }
-      { print }
-    ' "$TMP" > "$TMP.stripped" || die "legacy /payment/ block did not close within 40 lines — nothing written"
-    mv "$TMP.stripped" "$TMP"
-
-    # Exactly one must remain, and it must be the managed one.
-    count=$(grep -c 'location /payment/' "$TMP" || true)
-    [ "$count" = "1" ] || die "expected exactly 1 /payment/ location after the move, found $count"
-    log "one /payment/ location remains, inside the managed block"
-  fi
-fi
 
 if [ -n "${DRY_RUN:-}" ]; then
   log "DRY_RUN — managed blocks as they would be written:"

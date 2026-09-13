@@ -59,6 +59,12 @@ http {
         # Clutch routes live in files this repo owns, synced on each deploy.
         include /etc/nginx/clutch.d/*.conf;
 
+        # Added by clutch-deploy (scripts/ensure-nginx-payment-route.sh).
+        location /legacy-payment/ {
+            proxy_pass http://payment-orchestrator:8091;
+            proxy_set_header Host $host;
+        }
+
         location / { proxy_pass http://clutch-hub-demo-app:80; }
     }
 
@@ -115,6 +121,35 @@ app_line=$(grep -n 'server_name app-stage' "$WORK/conf" | cut -d: -f1)
 [ "$pay_line" -gt "$app_line" ] && [ "$pay_line" -lt "$api_line" ] \
   || fail "/payment/ is not inside app-stage's server block"
 ok "each vhost's routes sit inside that vhost's server block"
+
+echo "== taking over a hand-written location removes it, and only in that vhost =="
+fixture "$WORK/conf"; repo
+# Both vhosts have a hand-written `location /` in the fixture. The repo takes over api-stage's.
+# app-stage's must survive untouched: nginx would refuse a duplicate location, so a strip with no
+# sense of which server block it is in turns one migration into an outage for every other vhost.
+before=$(grep -c 'location /' "$WORK/conf")
+route app-stage.clutchprotocol.io /payment/ http://payment-orchestrator:8091
+route api-stage.clutchprotocol.io / http://replaced-by-repo:3000
+run || { cat "$WORK/out"; fail "script exited non-zero"; }
+after=$(grep -c 'location /' "$WORK/conf")
+[ "$before" = "$after" ] || fail "location count changed from $before to $after — one was added, not replaced"
+grep -q 'replaced-by-repo' "$WORK/conf" || fail "the repo's location / is not in the file"
+grep -q 'proxy_pass http://clutch-hub-api:3000' "$WORK/conf" && fail "api-stage's hand-written location / survived"
+grep -q '1 hand-written location(s) replaced' "$WORK/out" || { cat "$WORK/out"; fail "strip count wrong"; }
+# app-stage's own hand-written / must still proxy where it did.
+grep -q 'clutch-hub-demo-app' "$WORK/conf" || fail "app-stage's hand-written location / was stripped too"
+# And so must the vhosts that are nobody's business here.
+grep -q 'private-upstream' "$WORK/conf" || fail "de2.example.net's location / was stripped"
+ok "the hand-written location is replaced in its own vhost and nowhere else"
+
+echo "== the retired payment-route generator's block and comment both go =="
+fixture "$WORK/conf"; repo
+route app-stage.clutchprotocol.io /legacy-payment/ http://payment-orchestrator:8091
+run || { cat "$WORK/out"; fail "script exited non-zero"; }
+[ "$(grep -c 'location /legacy-payment/' "$WORK/conf")" = "1" ] \
+  || fail "expected exactly one /legacy-payment/, found $(grep -c 'location /legacy-payment/' "$WORK/conf")"
+grep -q 'ensure-nginx-payment-route' "$WORK/conf" && fail "the retired generator's marker comment survived"
+ok "generator's block replaced, its marker comment gone with it"
 
 echo "== a vhost the host does not serve is refused, and nothing is written =="
 fixture "$WORK/conf"; repo

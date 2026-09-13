@@ -24,6 +24,16 @@ Every managed block is deleted and rebuilt on each deploy, so a file — or a wh
 deleted here disappears from the host rather than accumulating as a route nobody can find in a
 diff.
 
+## Taking over a route that is already there
+
+A location added here **replaces** the hand-written copy in that vhost on the next deploy — nginx
+refuses a duplicate `location`, so the takeover has to be atomic or the route serves nothing.
+
+Matching is on the location signature (`location /graphql`, `location ~ ^/x`), normalised for
+whitespace. Copy the line as it appears on the host. If it does not match, both copies survive,
+`nginx -t` rejects the config and the previous one is restored — loud, and nothing is served from a
+half-migrated file.
+
 ## Adding a vhost
 
 Read what is on the host first. These routes were written by hand over time, and the repo has
