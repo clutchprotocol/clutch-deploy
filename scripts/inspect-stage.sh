@@ -126,6 +126,34 @@ if [ "$PROBE" = "nginx" ]; then
       rm -f "$CONF_COPY"
     fi
 
+    # Readiness item G1's remainder. Every clutch ROUTE is repo-owned; the upstream blocks those
+    # routes resolve to are still declared in the hand-maintained file, so a change to one shows up
+    # in no diff anywhere. Owning them means reading them first, same as the routes.
+    #
+    # Names for every upstream, bodies for clutch's only. The names are what a before/after guard
+    # would compare and are harmless to print; the bodies of somebody else's upstreams are internal
+    # hosts and ports, and this log is public.
+    echo ""
+    echo "=== upstream blocks: all names, clutch bodies ==="
+    docker exec "$LIVE" cat /etc/nginx/nginx.conf 2>/dev/null | awk '
+        /^[[:space:]]*upstream[[:space:]]/ {
+          name = $2
+          sub(/[[:space:]]*\{.*$/, "", name)
+          if (name ~ /^clutch/) { show = 1; print "--- " name } else { print "--- " name " (not ours; body withheld)" }
+          depth = gsub(/{/, "{") - gsub(/}/, "}")
+          if (show) print
+          if (depth <= 0) { show = 0 }
+          inblk = (depth > 0)
+          next
+        }
+        inblk {
+          depth += gsub(/{/, "{") - gsub(/}/, "}")
+          if (show) print
+          if (depth <= 0) { inblk = 0; show = 0 }
+          next
+        }
+      ' || echo "(could not read upstreams)"
+
     # An include pointing into the container's own filesystem loads nothing and passes nginx -t,
     # so it is invisible unless asked for by name. One was shipped and removed on 2026-09-13.
     echo "--- stale clutch.d include (should be absent) ---"
