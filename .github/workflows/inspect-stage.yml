@@ -59,7 +59,15 @@ jobs:
           script: |
             set -euo pipefail
             cd "${{ secrets.STAGE_DEPLOY_PATH }}"
-            git pull --ff-only || echo "Note: git pull failed — probing the checkout as-is"
+            # `origin main`, not a bare pull: without a refspec this host resolved FETCH_HEAD to
+            # every branch it had just fetched and died with "Cannot fast-forward to multiple
+            # branches", so pushing two feature branches was enough to stop it updating.
+            #
+            # The failure is still not fatal here — a probe of a stale checkout still answers most
+            # questions, and refusing to look at the host is the wrong response to not being able to
+            # update it. The warning says what it means for what follows.
+            git pull --ff-only origin main \
+              || echo "WARNING: git pull failed — every probe below ran the checkout as it was, which may be older than main"
             # Probes live in scripts/inspect-stage.sh. Inline, this broke three times: once
             # unparseable YAML (column-0 Python ends a literal block), twice a silent exit 1
             # mid-output. Keep this wrapper trivial.

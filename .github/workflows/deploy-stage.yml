@@ -56,7 +56,15 @@ jobs:
           script: |
             set -euo pipefail
             cd "${{ secrets.STAGE_DEPLOY_PATH }}"
-            git pull --ff-only || echo "Note: git pull failed or not a git repo — continuing"
+            # `origin main`, not a bare pull. Without a refspec this host resolved FETCH_HEAD to
+            # every branch it had just fetched and died with "Cannot fast-forward to multiple
+            # branches" — so pushing two feature branches was enough to stop the host updating.
+            #
+            # And no `|| echo ... continuing`. It swallowed exactly that failure: the deploy went on
+            # to run whatever scripts and compose files the host already had, reported success, and
+            # the one line saying the pull had failed was three hundred lines up the log. A deploy
+            # that silently ships the previous commit is worse than a deploy that stops.
+            git pull --ff-only origin main
             # Everything else lives in scripts/deploy-stage.sh. Keep this wrapper tiny.
             #
             # The deploy logic used to be an 11 KB inline block here. It failed three times in a

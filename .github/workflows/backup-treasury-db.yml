@@ -37,7 +37,7 @@ jobs:
           script: |
             set -euo pipefail
             cd "${{ secrets.STAGE_DEPLOY_PATH }}"
-            git pull --ff-only
+            git pull --ff-only origin main
             # Same convention as deploy-stage.yml: the logic lives in the script, the workflow
             # stays a wrapper, and git pull runs above the call so the script that runs is the
             # one just pulled. Run with `bash`, not the exec bit — chmod +x on a tracked file
