@@ -269,53 +269,42 @@ if [ "$TREASURY" = "true" ]; then
     exit 1
   fi
 
-  # api-stage's routes are repo-owned too, so they have to be proved AFTER the block is written.
-  # The health gate near the top of this script ran before it -- a green gate there says nothing
-  # about the config the reload has since installed.
-  #
-  # Two checks, and deliberately not three. A POST to /graphql proves less than it looks: this
-  # vhost's `location /` proxies everything to the same upstream with the path preserved, so losing
-  # the /graphql block entirely would still answer correctly. What it would catch, a typo'd
-  # upstream name, `nginx -t` already rejects at config load.
-  #
-  #   /health      proves the vhost still proxies to the Hub API at all
-  #   /graphql/ws  proves the upgrade headers survived. Drop `proxy_set_header Upgrade` and the
-  #                request falls through to `location /`, which has none: the handshake degrades to
-  #                a plain 200 instead of 101, every page still loads, and every subscription
-  #                silently never fires. That is the one failure here worth a gate.
+  # Every repo-owned vhost has to be proved AFTER the block is written. The health gate near the
+  # top of this script ran before it, and a green gate there says nothing about the config the
+  # reload has since installed.
   #
   # Retried for the same reason the payment gate is: `nginx -s reload` returns as soon as the
   # master has signalled, and the old workers keep serving the old config for a moment after.
-  api_check() {
-    local what="$1" want="$2" tries=15 code=""
+  #
+  # `ws` sends a real WebSocket handshake and wants 101. That check earns its place everywhere it
+  # appears: drop `proxy_set_header Upgrade` and the request falls through to a `location /` that
+  # has none, the handshake degrades to a plain 200, every page still loads, and every subscription
+  # silently never fires.
+  edge_check() {
+    local host="$1" path="$2" want="$3" mode="${4:-get}" tries=15 code=""
     while [ "$tries" -gt 0 ]; do
-      case "$what" in
-        health)  code=$(curl -s -o /dev/null -w "%{http_code}" \
-                   -H "Host: api-stage.clutchprotocol.io" http://localhost/health || true) ;;
-        ws)      code=$(curl -s -o /dev/null -w "%{http_code}" \
-                   -H "Host: api-stage.clutchprotocol.io" \
-                   -H "Connection: Upgrade" -H "Upgrade: websocket" \
-                   -H "Sec-WebSocket-Version: 13" -H "Sec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==" \
-                   -H "Sec-WebSocket-Protocol: graphql-transport-ws" \
-                   http://localhost/graphql/ws || true) ;;
-      esac
-      [ "$code" = "$want" ] && { echo "api-stage $what OK (HTTP $code)"; return 0; }
-      echo "waiting for api-stage $what (got $code, want $want)..."
+      if [ "$mode" = "ws" ]; then
+        code=$(curl -s -o /dev/null -w "%{http_code}" -H "Host: $host"           -H "Connection: Upgrade" -H "Upgrade: websocket"           -H "Sec-WebSocket-Version: 13" -H "Sec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ=="           "http://localhost$path" || true)
+      else
+        code=$(curl -s -o /dev/null -w "%{http_code}" -H "Host: $host" "http://localhost$path" || true)
+      fi
+      [ "$code" = "$want" ] && { echo "$host$path OK (HTTP $code)"; return 0; }
+      echo "waiting for $host$path (got $code, want $want)..."
       sleep 2; tries=$((tries - 1))
     done
-    echo "DEPLOY FAILED: api-stage $what returned $code, expected $want, after the managed block"
+    echo "DEPLOY FAILED: $host$path returned $code, expected $want, after the managed block"
     return 1
   }
-  # Restore and reload if either gate fails. `nginx -t` passing only means the config parses --
-  # these two checks are the ones that can still find the edge broken, and by then it is already
-  # serving. Reverting the repo change would NOT undo it: the hand-written locations were stripped
-  # in the same pass that added the managed ones, so a later deploy without the route file leaves
-  # the vhost with no routes at all. The backup the block script writes before every edit is the
-  # only thing that puts the previous edge back.
+
+  # Restore and reload if any gate fails. `nginx -t` passing only means the config parses -- these
+  # checks are the ones that can still find the edge broken, and by then it is already serving.
+  # Reverting the repo change would NOT undo it: the hand-written locations were stripped in the
+  # same pass that added the managed ones, so a later deploy without the route file leaves the
+  # vhost with no routes at all. The backup the block script writes before every edit is the only
+  # thing that puts the previous edge back.
   restore_nginx() {
     local conf
-    conf=$(docker inspect "$NGINX_C" \
-      --format '{{range .Mounts}}{{if eq .Destination "/etc/nginx/nginx.conf"}}{{.Source}}{{end}}{{end}}')
+    conf=$(docker inspect "$NGINX_C"       --format '{{range .Mounts}}{{if eq .Destination "/etc/nginx/nginx.conf"}}{{.Source}}{{end}}{{end}}')
     if [ -n "$conf" ] && [ -f "$conf.clutch-block.bak" ]; then
       # cat, not mv: the container bind-mounts this path by inode.
       cat "$conf.clutch-block.bak" > "$conf"
@@ -324,6 +313,24 @@ if [ "$TREASURY" = "true" ]; then
       echo "NO BACKUP TO RESTORE at ${conf:-<unknown>}.clutch-block.bak — the edge is live as written"
     fi
   }
-  api_check health 200 || { restore_nginx; exit 1; }
-  api_check ws 101     || { restore_nginx; exit 1; }
+
+  # api-stage. A POST to /graphql is deliberately NOT checked: this vhost's `location /` proxies
+  # everything to the same upstream with the path preserved, so losing the /graphql block entirely
+  # would still answer correctly, and the typo it would catch `nginx -t` rejects at config load.
+  edge_check api-stage.clutchprotocol.io /health     200 || { restore_nginx; exit 1; }
+  edge_check api-stage.clutchprotocol.io /graphql/ws 101 ws || { restore_nginx; exit 1; }
+
+  # explorer-stage. /health reaches the explorer's Rust API; / is the React frontend, and a 200
+  # from it is what says the frontend upstream still resolves.
+  edge_check explorer-stage.clutchprotocol.io /health 200 || { restore_nginx; exit 1; }
+  edge_check explorer-stage.clutchprotocol.io /        200 || { restore_nginx; exit 1; }
+
+  # The three nodes. /metrics is what Prometheus scrapes, /ws is what the Hub API reads the chain
+  # over, and `location /` returning 404 is a route rather than an accident -- these hosts expose
+  # two endpoints and nothing else, so a 404 there is the correct answer and worth asserting.
+  for n in 1 2 3; do
+    edge_check "node${n}-stage.clutchprotocol.io" /metrics 200 || { restore_nginx; exit 1; }
+    edge_check "node${n}-stage.clutchprotocol.io" /ws      101 ws || { restore_nginx; exit 1; }
+    edge_check "node${n}-stage.clutchprotocol.io" /        404 || { restore_nginx; exit 1; }
+  done
 fi
