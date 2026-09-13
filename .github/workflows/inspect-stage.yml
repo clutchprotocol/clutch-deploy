@@ -20,6 +20,10 @@ on:
         description: "Address for the balance probe (ignored by other probes)"
         required: false
         default: ""
+      vhost:
+        description: "nginx probe only: dump this vhost's whole server block (*.clutchprotocol.io only — this log is public)"
+        required: false
+        default: ""
       probe:
         description: "What to inspect"
         type: choice
@@ -59,4 +63,4 @@ jobs:
             # Probes live in scripts/inspect-stage.sh. Inline, this broke three times: once
             # unparseable YAML (column-0 Python ends a literal block), twice a silent exit 1
             # mid-output. Keep this wrapper trivial.
-            PROBE="${{ inputs.probe }}" ADDRESS="${{ inputs.address }}" bash scripts/inspect-stage.sh
+            PROBE="${{ inputs.probe }}" ADDRESS="${{ inputs.address }}" VHOST="${{ inputs.vhost }}" bash scripts/inspect-stage.sh

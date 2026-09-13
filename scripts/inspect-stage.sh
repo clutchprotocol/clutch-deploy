@@ -4,6 +4,9 @@
 #
 #   PROBE=nginx|containers|git|treasury|sweeper|chain|metrics|bitcart|energy bash scripts/inspect-stage.sh
 #
+# VHOST=<name> with PROBE=nginx also dumps that vhost's whole server block. Only
+# *.clutchprotocol.io is allowed: this log is public and the same file serves v2ray's vhosts.
+#
 # A file, not an inline `script:` block, for the same reason deploy-stage.sh is: as inline YAML
 # this probe broke three times — once making the whole workflow unparseable (column-0 Python
 # inside a literal block terminates the block scalar), and twice exiting 1 mid-output with no
@@ -72,6 +75,45 @@ if [ "$PROBE" = "nginx" ]; then
         /etc/nginx/nginx.conf 2>/dev/null || true
     else
       echo "(no managed block in the LIVE config — routes are still hand-maintained)"
+    fi
+
+    # Readiness item G1, continued. Moving a vhost's routes into this repo means reading what is
+    # on the host first -- the /payment/ move proved the generator and the host agreed, but that
+    # was one route with a known generator behind it. The rest were written by hand.
+    #
+    # Restricted to *.clutchprotocol.io, and that restriction is the point rather than tidiness:
+    # this workflow's log is PUBLIC, and the file also serves v2ray's vhosts, whose paths are
+    # effectively credentials. A typo here must not be able to publish one.
+    #
+    # awk reads the config on stdin from `docker exec cat` rather than running inside the
+    # container. The brace-counting version that ran inside a `docker exec sh -c` silently matched
+    # nothing on 2026-09-13: the program had to survive YAML, the ssh-action and two shells. On
+    # stdin it survives one.
+    if [ -n "${VHOST:-}" ]; then
+      echo ""
+      echo "=== full server block for $VHOST ==="
+      case "$VHOST" in
+        *.clutchprotocol.io) ;;
+        *) echo "refusing: only *.clutchprotocol.io vhosts may be dumped to a public log"; VHOST="" ;;
+      esac
+    fi
+    if [ -n "${VHOST:-}" ]; then
+      docker exec "$LIVE" cat /etc/nginx/nginx.conf 2>/dev/null | awk -v want="$VHOST" '
+            !inblk && /^[[:space:]]*server[[:space:]]*\{/ {
+              inblk = 1; n = 0; depth = 0; hit = 0
+            }
+            inblk {
+              buf[++n] = $0
+              if (index($0, "server_name") && index($0, want)) hit = 1
+              depth += gsub(/{/, "{") - gsub(/}/, "}")
+              if (depth <= 0) {
+                if (hit) { for (i = 1; i <= n; i++) print buf[i]; found = 1 }
+                inblk = 0
+              }
+              next
+            }
+            END { if (!found) print "(no server block whose server_name mentions " want ")" }
+          '
     fi
 
     # An include pointing into the container's own filesystem loads nothing and passes nginx -t,
