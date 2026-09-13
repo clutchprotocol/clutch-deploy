@@ -34,6 +34,10 @@ fixture() {
   cat > "$1" <<'CONF'
 http {
     upstream somewhere { server 10.0.0.1:80; }
+    # a comment describing clutch_api
+    upstream clutch_api {
+        server clutch-hub-api:3000;
+    }
 
     server {
         listen 80;
@@ -82,8 +86,16 @@ CONF
 
 # A repo directory built per test, so each case states its own inputs.
 repo() {
-  rm -rf "$WORK/repo"
-  mkdir -p "$WORK/repo"
+  rm -rf "$WORK/repo" "$WORK/upstreams"
+  mkdir -p "$WORK/repo" "$WORK/upstreams"
+}
+# Declared per test. Empty by default, which is how the upstream half stays switched off for every
+# case that is not about it.
+upstream() {
+  printf 'upstream %s {
+    server %s;
+}
+' "$1" "$2" > "$WORK/upstreams/$1.conf"
 }
 route() {
   mkdir -p "$WORK/repo/$1"
@@ -91,7 +103,7 @@ route() {
 }
 
 run() {
-  CONF_OVERRIDE="$WORK/conf" REPO_DIR="$WORK/repo" SKIP_NGINX=1 bash "$SCRIPT" >"$WORK/out" 2>&1
+  CONF_OVERRIDE="$WORK/conf" REPO_DIR="$WORK/repo" UPSTREAM_DIR="$WORK/upstreams"     SKIP_NGINX=1 bash "$SCRIPT" >"$WORK/out" 2>&1
 }
 
 echo "== one vhost, migrating the legacy single block =="
@@ -164,6 +176,37 @@ grep -q 'THE-ADOPTED-COMMENT' "$WORK/conf" && fail "the comment above the adopte
 # A comment above a location nobody adopted is not ours to remove.
 grep -q 'THE-UNTOUCHED-COMMENT' "$WORK/conf" || fail "a comment on somebody else's location was eaten"
 ok "adopted location takes its comment; everyone else's comments stay"
+
+echo "== an upstream is taken over, and nobody else's is touched =="
+fixture "$WORK/conf"; repo
+route app-stage.clutchprotocol.io /payment/ http://payment-orchestrator:8091
+upstream clutch_api clutch-hub-api:3000
+run || { cat "$WORK/out"; fail "script exited non-zero"; }
+[ "$(grep -c '^[[:space:]]*upstream clutch_api' "$WORK/conf")" = "1" ]   || fail "expected exactly one clutch_api upstream, found $(grep -c '^[[:space:]]*upstream clutch_api' "$WORK/conf")"
+grep -q 'upstream somewhere' "$WORK/conf" || fail "somebody else's upstream was removed"
+grep -q 'a comment describing clutch_api' "$WORK/conf" && fail "the comment above the adopted upstream survived"
+grep -q 'managed upstreams' "$WORK/conf" || fail "no managed upstream block"
+grep -q '1 hand-written upstream(s) replaced' "$WORK/out" || { cat "$WORK/out"; fail "strip count wrong"; }
+ok "upstream adopted, its comment went with it, the other one untouched"
+
+echo "== a new upstream may be added, a lost one may not =="
+fixture "$WORK/conf"; repo
+route app-stage.clutchprotocol.io /payment/ http://payment-orchestrator:8091
+upstream clutch_api clutch-hub-api:3000
+upstream clutch_brand_new some-new-service:9000
+run || { cat "$WORK/out"; fail "adding an upstream should be allowed"; }
+grep -q 'upstream clutch_brand_new' "$WORK/conf" || fail "the new upstream was not added"
+ok "adding is allowed — that is what adding a service looks like"
+
+echo "== upstreams are inserted inside the http block, not before it =="
+fixture "$WORK/conf"; repo
+route app-stage.clutchprotocol.io /payment/ http://payment-orchestrator:8091
+upstream clutch_api clutch-hub-api:3000
+run || { cat "$WORK/out"; fail "script exited non-zero"; }
+http_line=$(grep -n '^http {' "$WORK/conf" | cut -d: -f1)
+up_line=$(grep -n 'clutch-deploy managed upstreams' "$WORK/conf" | head -1 | cut -d: -f1)
+[ "$up_line" -gt "$http_line" ] || fail "the upstream block landed outside the http block"
+ok "block sits inside http"
 
 echo "== a vhost the host does not serve is refused, and nothing is written =="
 fixture "$WORK/conf"; repo
