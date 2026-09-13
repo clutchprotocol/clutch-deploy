@@ -149,9 +149,12 @@ trap 'rm -f "$BLOCK" "$TMP" "$TMP.ins" "$TMP.clean" "$TMP.count" "$SIGS"' EXIT
 # describing a directive that no longer existed -- config nothing accounts for, which is the exact
 # drift this item exists to end. Matched on their own text, which is unique to those lines.
 # ---------------------------------------------------------------------------
-awk -v prefix="$MARK_PREFIX" '
-  index($0, prefix) { inblock = 1; next }
-  index($0, "# <<< clutch-deploy managed block") { inblock = 0; next }
+# Keyed on the prefix both marker kinds share, so this removes the per-vhost route blocks AND the
+# http-level upstream block. Without that the upstream block would survive the strip and the insert
+# below would add a second one -- a duplicate `upstream`, which nginx refuses outright.
+awk '
+  index($0, "# >>> clutch-deploy managed") { inblock = 1; next }
+  index($0, "# <<< clutch-deploy managed") { inblock = 0; next }
   !inblock { print }
 ' "$CONF" > "$TMP" || die "could not strip the existing managed blocks"
 
@@ -324,6 +327,126 @@ done
 blocks=$(grep -cF "$MARK_PREFIX" "$TMP" || true)
 [ "$blocks" = "${#vhost_dirs[@]}" ] \
   || die "expected ${#vhost_dirs[@]} managed block(s), found $blocks"
+
+# ---------------------------------------------------------------------------
+# The upstreams those routes resolve to.
+#
+# A route file cannot declare one. `location` blocks land inside a server; `upstream` blocks belong
+# to `http`, one level up — so this needs its own block, its own anchor and its own marker. Hence a
+# flat directory rather than a per-vhost one: an upstream is not owned by a vhost, and several
+# vhosts name the same one.
+#
+# Skipped entirely when the directory is absent, so a checkout without it behaves as before.
+# ---------------------------------------------------------------------------
+UPSTREAM_DIR="${UPSTREAM_DIR:-config/nginx/clutch.upstreams}"
+UP_MARK_PREFIX="# >>> clutch-deploy managed upstreams"
+UP_END_MARK="    # <<< clutch-deploy managed upstreams <<<"
+
+# Every upstream name in the file. The analogue of the server_name guard, and needed for the same
+# reason: nothing else in this script would notice an upstream disappearing, and every route that
+# names it would 502 while the config still passed nginx -t.
+upstream_names() {
+  grep -hoE '^[[:space:]]*upstream[[:space:]]+[^[:space:]{]+' "$1" \
+    | sed 's/.*upstream[[:space:]]*//' | sort -u
+}
+
+shopt -s nullglob
+up_files=("$UPSTREAM_DIR"/*.conf)
+shopt -u nullglob
+
+if [ ${#up_files[@]} -gt 0 ]; then
+  BEFORE_UPSTREAMS=$(upstream_names "$TMP")
+
+  for f in "${up_files[@]}"; do
+    awk '
+      { for (i = 1; i <= length($0); i++) {
+          ch = substr($0, i, 1)
+          if (ch == "{") d++
+          else if (ch == "}") { d--; if (d < 0) exit 2 }
+      } }
+      END { if (d != 0) exit 3 }
+    ' "$f" || die "$f closes or leaves open a block it did not open or close"
+  done
+
+  grep -hoE '^[[:space:]]*upstream[[:space:]]+[^[:space:]{]+' "${up_files[@]}" \
+    | sed 's/.*upstream[[:space:]]*//' | sed '/^$/d' > "$SIGS"
+  [ -s "$SIGS" ] || die "$UPSTREAM_DIR has .conf files but declares no upstream"
+
+  {
+    printf '    # >>> clutch-deploy managed upstreams >>>\n'
+    echo "    # Generated on each deploy from $UPSTREAM_DIR/. Edits here are overwritten."
+    for f in "${up_files[@]}"; do
+      echo "    # --- $(basename "$f") ---"
+      sed -e 's/^/    /' -e 's/[[:space:]]*$//' "$f"
+    done
+    echo "$UP_END_MARK"
+  } > "$BLOCK"
+
+  awk -v blockfile="$BLOCK" -v sigfile="$SIGS" -v budget=40 '
+    function name_of(line,   s) {
+      s = line
+      sub(/^[[:space:]]*upstream[[:space:]]+/, "", s)
+      sub(/[[:space:]]*\{.*$/, "", s)
+      sub(/[[:space:]]+$/, "", s)
+      return s
+    }
+    BEGIN { while ((getline s < sigfile) > 0) if (s != "") owned[s] = 1; close(sigfile) }
+
+    # Insert immediately after `http {`. Anywhere inside http would be valid nginx, but the top is
+    # the one position that is the same on every host and cannot land inside a server block.
+    !ins && /^[[:space:]]*http[[:space:]]*\{/ {
+      print
+      while ((getline line < blockfile) > 0) print line
+      close(blockfile)
+      ins = 1
+      next
+    }
+
+    dropping {
+      if (++used > budget) exit 4
+      depth += gsub(/{/, "{") - gsub(/}/, "}")
+      if (depth <= 0) dropping = 0
+      next
+    }
+
+    # A comment directly above an upstream describes it, and outlives it otherwise.
+    /^[[:space:]]*#/ { held[++nheld] = $0; next }
+
+    $0 ~ /^[[:space:]]*upstream[[:space:]]/ && owned[name_of($0)] {
+      nheld = 0
+      stripped++
+      used = 1
+      depth = gsub(/{/, "{") - gsub(/}/, "}")
+      dropping = (depth > 0)
+      next
+    }
+
+    { for (h = 1; h <= nheld; h++) print held[h]; nheld = 0; print }
+
+    END {
+      for (h = 1; h <= nheld; h++) print held[h]
+      if (!ins) exit 3
+      if (dropping) exit 4
+      print stripped + 0 > countfile
+    }
+  ' countfile="$TMP.count" "$TMP" > "$TMP.ins" \
+    || die "could not place the upstream block (no http block, or an upstream that never closed within 40 lines) — config untouched"
+  mv "$TMP.ins" "$TMP"
+  log "upstreams: block built from ${#up_files[@]} file(s), $(cat "$TMP.count") hand-written upstream(s) replaced"
+  rm -f "$TMP.count"
+
+  # Lost names only, unlike the server_name guard. That one refuses any change because this repo
+  # has no business declaring a vhost; adding an upstream, by contrast, is what adding a service
+  # looks like. The hazard is an upstream DISAPPEARING -- every route naming it 502s while the
+  # config still passes nginx -t.
+  AFTER_UPSTREAMS=$(upstream_names "$TMP")
+  LOST=$(comm -23 <(echo "$BEFORE_UPSTREAMS") <(echo "$AFTER_UPSTREAMS"))
+  if [ -n "$LOST" ]; then
+    echo "--- upstreams that would disappear ---"; echo "$LOST"
+    die "the patched config drops upstream(s) the host already had — nothing written"
+  fi
+  log "no upstream lost ($(echo "$AFTER_UPSTREAMS" | sed '/^$/d' | wc -l) names after)"
+fi
 
 if [ -n "${DRY_RUN:-}" ]; then
   log "DRY_RUN — managed blocks as they would be written:"

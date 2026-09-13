@@ -45,3 +45,15 @@ gh workflow run inspect-stage.yml -f probe=nginx -f vhost=<name>
 
 Then move the `location` blocks across verbatim, deploy, and check the route still answers what it
 answered before — not merely that nginx reloaded.
+
+## Upstreams live next door
+
+`config/nginx/clutch.upstreams/*.conf` holds the `upstream` blocks the routes here resolve to, and
+it is flat rather than per-vhost: an upstream is not owned by a vhost, and several vhosts name the
+same one.
+
+They cannot live in this directory. A `location` lands inside a `server`; an `upstream` belongs to
+`http`, one level up — so they get their own managed block, anchored at `http {`.
+
+Renaming an upstream there without changing every route that names it produces a config nginx
+rejects at load. That is the loud failure, and it is the one you want.
