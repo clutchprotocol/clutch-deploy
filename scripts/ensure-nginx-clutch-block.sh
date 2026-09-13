@@ -94,7 +94,9 @@ die() { echo "nginx-block: FAILED: $*" >&2; exit 1; }
 # pick up a server_name inside a comment, which is harmless: it appears in both the before and the
 # after set and cancels out.
 server_names() {
-  grep -hoE 'server_name[[:space:]]+[^;]+;' "$1" \
+  # `|| true` for the same reason as upstream_names below: no match exits 1, and the explicit
+  # "no server_name found" check further down would never get the chance to report it.
+  { grep -hoE 'server_name[[:space:]]+[^;]+;' "$1" || true; } \
     | sed -e 's/^server_name[[:space:]]*//' -e 's/;$//' \
     | tr ' ' '\n' | sed '/^$/d' | sort -u
 }
@@ -350,9 +352,16 @@ HTTP_END_MARK="    # <<< clutch-deploy managed http <<<"
 # Every upstream name in the file. The analogue of the server_name guard, and needed for the same
 # reason: nothing else in this script would notice an upstream disappearing, and every route that
 # names it would 502 while the config still passed nginx -t.
+# `|| true` is not defensive clutter. A grep that matches nothing exits 1, and under
+# `set -euo pipefail` inside a command substitution that kills the script with no message at all.
+# It happened here on the first deploy after the rename: the strip had just removed the managed
+# block the four upstreams lived in, so this ran against a file with none left and the deploy died
+# between two log lines. The local fixture had them hand-written rather than inside a block, which
+# is why it never reproduced. Same shape as the backup script's `env_get`, which died the same way
+# and went unnoticed for a day.
 upstream_names() {
-  grep -hoE '^[[:space:]]*upstream[[:space:]]+[^[:space:]{]+' "$1" \
-    | sed 's/.*upstream[[:space:]]*//' | sort -u
+  { grep -hoE '^[[:space:]]*upstream[[:space:]]+[^[:space:]{]+' "$1" || true; } \
+    | sed 's/.*upstream[[:space:]]*//' | sed '/^$/d' | sort -u
 }
 
 shopt -s nullglob
