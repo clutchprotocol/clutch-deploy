@@ -213,6 +213,31 @@ if [ "$PROBE" = "nginx" ]; then
   ss -lntp 2>/dev/null | grep -E ':80 |:443 ' || echo "(ss unavailable or nothing bound)"
 fi
 
+if [ "$PROBE" = "explorer" ]; then
+  # The explorer had no probe at all, which is why "the site shows no data" had to be diagnosed
+  # from the outside through its own API. The indexer is the part that goes quiet: it has no HTTP
+  # port, so the image's healthcheck can never pass and "unhealthy" says nothing either way.
+  echo "=== explorer containers ==="
+  docker ps -a --format '{{.Names}}	{{.Status}}' | grep -i explorer || echo "(none)"
+
+  echo ""
+  echo "=== indexer: what it is actually doing ==="
+  docker logs --tail 40 clutch-stage-clutch-explorer-indexer-1 2>&1 | tail -40 || echo "(no logs)"
+
+  echo ""
+  echo "=== how far it has got, from its own database ==="
+  docker exec clutch-stage-clutch-explorer-postgres-1 psql -U "${EXPLORER_POSTGRES_USER:-postgres}" -d "${EXPLORER_POSTGRES_DB:-clutch_explorer}"     -c "SELECT * FROM indexer_cursor;" 2>&1 | head -8 || echo "(could not read the cursor)"
+  docker exec clutch-stage-clutch-explorer-postgres-1 psql -U "${EXPLORER_POSTGRES_USER:-postgres}" -d "${EXPLORER_POSTGRES_DB:-clutch_explorer}"     -c "SELECT (SELECT COUNT(*) FROM blocks) blocks, (SELECT COUNT(*) FROM transactions) txs, (SELECT MAX(height) FROM blocks) top;" 2>&1 | head -6 || true
+
+  echo ""
+  echo "=== the head it is chasing (the metrics endpoint it scrapes, not RPC) ==="
+  docker exec clutch-stage-clutch-explorer-indexer-1 sh -c 'echo "$APP_NODE_METRICS_URL  $APP_NODE_WS_URL"' 2>/dev/null || true
+  for n in 1 2 3; do
+    printf "  node%s latest_block_index: " "$n"
+    docker exec "clutch-stage-node${n}-1" sh -c "wget -qO- http://127.0.0.1:300${n}/metrics 2>/dev/null | grep '^latest_block_index' || curl -s http://127.0.0.1:300${n}/metrics 2>/dev/null | grep '^latest_block_index' || echo '?'"
+  done
+fi
+
 if [ "$PROBE" = "containers" ]; then
   echo "=== all containers by compose project ==="
   docker ps -a --format '{{.Names}}\t{{.Status}}\t{{.Image}}' || true
