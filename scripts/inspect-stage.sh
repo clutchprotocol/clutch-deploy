@@ -160,6 +160,29 @@ if [ "$PROBE" = "nginx" ]; then
         }
       ' || echo "(could not read upstreams)"
 
+    # Readiness item E1. The edge limiter runs in dry run: nginx evaluates it and logs what it
+    # WOULD have refused while serving the request anyway. Those log lines are the measurement that
+    # decides the rate before enforcement is turned on, and there is no other way to see them --
+    # a dry run is invisible from outside by construction.
+    #
+    # Counts and server names only. Every one of those lines carries the client IP, and this log is
+    # public; the question here is "how often, and where", which needs neither.
+    echo ""
+    echo "=== edge rate limiter: what it would have refused (last 60m) ==="
+    if docker logs --since 60m "$LIVE" 2>&1 | grep -q 'limiting requests'; then
+      docker logs --since 60m "$LIVE" 2>&1 | grep 'limiting requests' > /tmp/clutch-limit.$$ || true
+      echo "  events: $(wc -l < /tmp/clutch-limit.$$)"
+      echo "  dry run (would have been refused): $(grep -c 'dry run' /tmp/clutch-limit.$$ || true)"
+      echo "  ENFORCED (actually refused): $(grep -vc 'dry run' /tmp/clutch-limit.$$ || true)"
+      echo "  by server:"
+      awk -F'server: ' 'NF>1 { split($2, a, ","); print "    " a[1] }' /tmp/clutch-limit.$$ \
+        | sort | uniq -c | sort -rn | head -10
+      echo "  distinct clients affected: $(awk -F'client: ' 'NF>1 { split($2, a, ","); print a[1] }' /tmp/clutch-limit.$$ | sort -u | wc -l)"
+      rm -f /tmp/clutch-limit.$$
+    else
+      echo "  (nothing in the last 60m -- either no client exceeded the rate, or the limiter is not loaded)"
+    fi
+
     # An include pointing into the container's own filesystem loads nothing and passes nginx -t,
     # so it is invisible unless asked for by name. One was shipped and removed on 2026-09-13.
     echo "--- stale clutch.d include (should be absent) ---"
