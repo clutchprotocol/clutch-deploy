@@ -260,6 +260,19 @@ grep -q 'shared/realip.conf' "$WORK/conf" || fail "the block does not say where 
 sed -n "/server_name de2/,/^    }/p" "$WORK/conf" | grep -q 'real_ip_header' && fail "the snippet reached somebody else's vhost"
 ok "one source, one copy per clutch vhost, none anywhere else"
 
+echo '== a log_format naming $server_name is not a vhost =='
+fixture "$WORK/conf"; repo
+route app-stage.clutchprotocol.io /payment/ http://payment-orchestrator:8091
+# The real case: the edge limiter's log_format carries the nginx VARIABLE $server_name. Read as a
+# declaration it invents vhost names that were never in the before-set, and the guard refuses to
+# write a config that is entirely correct. It did exactly that on a live deploy.
+cat > "$WORK/upstreams/logfmt.conf" <<'LOGFMT'
+log_format clutch_limit '$time_iso8601 $server_name $limit_req_status $status';
+LOGFMT
+run || { echo "--- script output ---"; cat "$WORK/out"; fail "the guard mistook an nginx variable for a vhost"; }
+grep -q 'log_format clutch_limit' "$WORK/conf" || fail "the log_format did not reach the config"
+ok "the variable is masked, the guard still sees only real declarations"
+
 echo "== a vhost the host does not serve is refused, and nothing is written =="
 fixture "$WORK/conf"; repo
 cp "$WORK/conf" "$WORK/conf.orig"
