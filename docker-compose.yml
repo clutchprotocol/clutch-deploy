@@ -239,7 +239,12 @@ services:
       - APP_LOG_LEVEL=info
       - APP_DATA_SOURCE=postgres
       - APP_DATABASE_URL=postgres://${EXPLORER_POSTGRES_USER:-postgres}:${EXPLORER_POSTGRES_PASSWORD:-postgres}@clutch-explorer-postgres:5432/${EXPLORER_POSTGRES_DB:-clutch_explorer}
-      - APP_NODE_METRICS_URL=http://node1:3001/metrics
+      # Both of these must name the SAME node. The indexer takes the chain head from the metrics
+      # endpoint and then fetches each block by height over the RPC; pointed at two different
+      # nodes it can only ever index up to the SLOWER one's height, and a head it cannot fetch
+      # a body for stalls the pass. This read node1's metrics while fetching from node3 — so the
+      # ~115,000-block gap between them capped the explorer at node1's height.
+      - APP_NODE_METRICS_URL=http://node3:3003/metrics
       # Pointed at node3. node1 is the p2p bootstrap and fell ~115,000 blocks behind; node2 then
       # turned out to be stuck near height 100 as well. Both answer get_chain_info cheerfully with
       # a stale height, so every service reading them saw a chain frozen near genesis while the
@@ -255,6 +260,14 @@ services:
     env_file:
       - .env
     restart: unless-stopped
+    # This service shares the backend's IMAGE but not its entrypoint, and the image's HEALTHCHECK
+    # curls /health on 8088 — which the indexer binary does not serve. So it reported `unhealthy`
+    # from its first probe onward, permanently, whether it was working or not. A status that is
+    # always red is worse than no status: it trains everyone to ignore the one column that would
+    # have shown this container had stopped ingesting. Indexer liveness is the "chain height not
+    # advancing" Prometheus alert instead.
+    healthcheck:
+      disable: true
     networks:
       - clutch-network
     volumes:

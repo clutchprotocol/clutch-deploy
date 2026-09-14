@@ -1,7 +1,7 @@
 # Alerting
 
-Readiness item **D3**. What the money path measures, what evaluates it, and what is still missing
-between "a condition is true" and "a human knows".
+Readiness items **D3** (the money path) and **D4** (the chain under it). What is measured, what
+evaluates it, and what is still missing between "a condition is true" and "a human knows".
 
 ## What exists
 
@@ -25,6 +25,26 @@ three groups:
 | `TreasurySweepingStalled` | more than 5 unswept addresses for 2h | warning |
 | `TreasuryChainOutboxStuck` | a failed outbox row persists 15m | warning |
 | `OrchestratorAddressesNeverPolled` | an address handed out has never been checked | warning |
+
+`rules/chain.yml` covers the chain those ten read from — readiness item **D4**, added after the
+stage halt of 2026-09-14, which ran for most of a day and was reported by a human as "the explorer
+has no data". Four rules:
+
+| Alert | Fires when | Severity |
+|---|---|---|
+| `ChainHeightNotAdvancing` | no node has produced a block in 5m | critical |
+| `ChainNodeDown` | a node stops answering scrapes for 3m | critical |
+| `ChainNodeBehind` | validators disagree on height by more than 50 blocks for 10m | warning |
+| `ChainLatestBlockHashMissing` | no node publishes `latest_block{block_hash}` for 10m | warning |
+
+Height is a usable liveness signal only because Aura authors an **empty** block every slot when
+there is nothing to include, so a quiet chain still climbs. A consensus that produced on demand
+would need a different signal entirely.
+
+`ChainNodeBehind` earns its place separately from the halt: node1 and node2 once sat ~115,000
+blocks behind while answering `get_chain_info` cheerfully, and every service reading them believed
+a chain frozen near genesis. A node that is behind is harder to notice than one that is down,
+because down is visible and behind answers.
 
 Prometheus loads them by globbing `/etc/prometheus/rules/*.yml`, and `docker-compose.yml` mounts
 the directory there. **The mount matters more than it looks**: a glob matching nothing is not an
