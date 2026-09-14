@@ -30,6 +30,7 @@ on:
         default: nginx
         options:
           - nginx
+          - explorer
           - containers
           - git
           - treasury
