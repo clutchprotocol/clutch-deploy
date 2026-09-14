@@ -47,36 +47,53 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Deploy via SSH
-        uses: appleboy/ssh-action@v1.2.0
-        with:
-          host: ${{ secrets.STAGE_HOST }}
-          username: ${{ secrets.STAGE_USER }}
-          password: ${{ secrets.STAGE_SSH_PASSWORD }}
-          script_stop: true
-          script: |
-            set -euo pipefail
-            cd "${{ secrets.STAGE_DEPLOY_PATH }}"
-            # `origin main`, not a bare pull. Without a refspec this host resolved FETCH_HEAD to
-            # every branch it had just fetched and died with "Cannot fast-forward to multiple
-            # branches" — so pushing two feature branches was enough to stop the host updating.
-            #
-            # And no `|| echo ... continuing`. It swallowed exactly that failure: the deploy went on
-            # to run whatever scripts and compose files the host already had, reported success, and
-            # the one line saying the pull had failed was three hundred lines up the log. A deploy
-            # that silently ships the previous commit is worse than a deploy that stops.
-            git pull --ff-only origin main
-            # Everything else lives in scripts/deploy-stage.sh. Keep this wrapper tiny.
-            #
-            # The deploy logic used to be an 11 KB inline block here. It failed three times in a
-            # row in ways that contradicted the source — exit 1 with no message and no ERR trap,
-            # twice, then a syntax error at "line 370" of a 208-line script that passes bash -n.
-            # What bash received was not what the workflow contained; the block had outgrown the
-            # trip through YAML, the ssh-action and `bash -c`, and the failure point moved every
-            # time the text grew. Two wrong fixes came out of reading it as a logic bug.
-            #
-            # Run with `bash`, not the exec bit: `chmod +x` on a tracked file reads as a local
-            # modification and silently blocks `git pull --ff-only` on this host, which once kept
-            # four fixes off the server for an hour.
-            #
-            # git pull stays here, above the call, so the script that runs is the one just pulled.
-            RESET_CHAIN="${{ inputs.reset_chain }}" bash scripts/deploy-stage.sh
+        env:
+          SSHPASS: ${{ secrets.STAGE_SSH_PASSWORD }}
+          CLUTCH_SSH_HOST: ${{ secrets.STAGE_HOST }}
+          CLUTCH_SSH_USER: ${{ secrets.STAGE_USER }}
+        run: |
+          # Plain ssh, not appleboy/ssh-action. That action downloads a drone-ssh binary from
+          # GitHub releases on EVERY run -- unconditionally, there is no skip-if-present -- and on
+          # 2026-09-14 that CDN answered 504 to all six attempts of the action's own `curl --retry 5`
+          # and failed a deploy. Its retry is the thing we watched lose, so retrying harder is not
+          # the fix; not depending on a runtime download is. `ssh` is already on the runner.
+          #
+          # The script travels as a FILE, never as an argument. The 11 KB inline block this repo
+          # used to carry failed three times in ways that contradicted its own source, because what
+          # bash received was not what the workflow contained. One quoting layer is better than two.
+          set -euo pipefail
+          command -v sshpass >/dev/null || { sudo apt-get update -qq && sudo apt-get install -y -qq sshpass; }
+          R="/tmp/clutch-ci-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
+          SSH_OPTS="-o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o ConnectTimeout=30 -o ServerAliveInterval=30"
+          cat > "$RUNNER_TEMP/clutch-remote.sh" <<'CLUTCH_REMOTE_EOF'
+          set -euo pipefail
+          cd "${{ secrets.STAGE_DEPLOY_PATH }}"
+          # `origin main`, not a bare pull. Without a refspec this host resolved FETCH_HEAD to
+          # every branch it had just fetched and died with "Cannot fast-forward to multiple
+          # branches" — so pushing two feature branches was enough to stop the host updating.
+          #
+          # And no `|| echo ... continuing`. It swallowed exactly that failure: the deploy went on
+          # to run whatever scripts and compose files the host already had, reported success, and
+          # the one line saying the pull had failed was three hundred lines up the log. A deploy
+          # that silently ships the previous commit is worse than a deploy that stops.
+          git pull --ff-only origin main
+          # Everything else lives in scripts/deploy-stage.sh. Keep this wrapper tiny.
+          #
+          # The deploy logic used to be an 11 KB inline block here. It failed three times in a
+          # row in ways that contradicted the source — exit 1 with no message and no ERR trap,
+          # twice, then a syntax error at "line 370" of a 208-line script that passes bash -n.
+          # What bash received was not what the workflow contained; the block had outgrown the
+          # trip through YAML, the ssh-action and `bash -c`, and the failure point moved every
+          # time the text grew. Two wrong fixes came out of reading it as a logic bug.
+          #
+          # Run with `bash`, not the exec bit: `chmod +x` on a tracked file reads as a local
+          # modification and silently blocks `git pull --ff-only` on this host, which once kept
+          # four fixes off the server for an hour.
+          #
+          # git pull stays here, above the call, so the script that runs is the one just pulled.
+          RESET_CHAIN="${{ inputs.reset_chain }}" bash scripts/deploy-stage.sh
+          CLUTCH_REMOTE_EOF
+          sshpass -e ssh $SSH_OPTS "$CLUTCH_SSH_USER@$CLUTCH_SSH_HOST" "cat > $R.sh" < "$RUNNER_TEMP/clutch-remote.sh"
+          # Old files from earlier runs are swept here rather than in a cleanup step that
+          # a cancelled job would skip.
+          timeout 10m sshpass -e ssh $SSH_OPTS "$CLUTCH_SSH_USER@$CLUTCH_SSH_HOST" "find /tmp -maxdepth 1 -name 'clutch-ci-*' -mtime +1 -delete 2>/dev/null; bash $R.sh"
