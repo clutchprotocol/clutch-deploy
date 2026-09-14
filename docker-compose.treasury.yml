@@ -347,6 +347,20 @@ services:
       - treasury-network   # reach the treasury's internal API
       - clutch-network     # reachable by users, Bitcart, nginx
 
+  # The explorer publishes the reserve position, and it can only do that where a treasury exists.
+  #
+  # Set HERE rather than in the base compose on purpose: the explorer's config defaults this to
+  # empty, which switches the section off, so a deployment without this overlay claims nothing
+  # rather than showing a broken panel. Both services sit on clutch-network, and treasury-service
+  # publishes no host port — the explorer reaches it the same way payment-orchestrator does.
+  #
+  # /public/reconciliation is the deliberately minimal endpoint: the four numbers a holder needs
+  # and nothing operational. NOT /internal/reserve-status, which carries the breaker state, the
+  # daily mint headroom and the outbox depth.
+  clutch-explorer-backend:
+    environment:
+      - APP_TREASURY_PUBLIC_RECONCILIATION_URL=http://treasury-service:8090/public/reconciliation
+
 networks:
   treasury-network:
     driver: bridge
