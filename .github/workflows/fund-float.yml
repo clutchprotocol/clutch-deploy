@@ -79,5 +79,5 @@ jobs:
           CLUTCH_REMOTE_EOF
           sshpass -e ssh $SSH_OPTS "$CLUTCH_SSH_USER@$CLUTCH_SSH_HOST" "cat > $R.sh" < "$RUNNER_TEMP/clutch-remote.sh"
           # Old files from earlier runs are swept here rather than in a cleanup step that
-          # a cancelled job would skip. `set -a` exports what the env file assigns.
+          # a cancelled job would skip.
           timeout 10m sshpass -e ssh $SSH_OPTS "$CLUTCH_SSH_USER@$CLUTCH_SSH_HOST" "find /tmp -maxdepth 1 -name 'clutch-ci-*' -mtime +1 -delete 2>/dev/null; bash $R.sh"

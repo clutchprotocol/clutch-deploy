@@ -92,5 +92,7 @@ jobs:
           CLUTCH_REMOTE_EOF
           sshpass -e ssh $SSH_OPTS "$CLUTCH_SSH_USER@$CLUTCH_SSH_HOST" "cat > $R.sh" < "$RUNNER_TEMP/clutch-remote.sh"
           # Old files from earlier runs are swept here rather than in a cleanup step that
-          # a cancelled job would skip. `set -a` exports what the env file assigns.
-          timeout 10m sshpass -e ssh $SSH_OPTS "$CLUTCH_SSH_USER@$CLUTCH_SSH_HOST" "find /tmp -maxdepth 1 -name 'clutch-ci-*' -mtime +1 -delete 2>/dev/null; set -a; . $R.env; set +a; rm -f $R.env; bash $R.sh"
+          # a cancelled job would skip. The sourcing runs under an explicit `bash -c` because
+          # `printf %q` emits bash quoting ($'...' for a newline), which the remote login shell
+          # is not guaranteed to be able to parse.
+          timeout 10m sshpass -e ssh $SSH_OPTS "$CLUTCH_SSH_USER@$CLUTCH_SSH_HOST" "find /tmp -maxdepth 1 -name 'clutch-ci-*' -mtime +1 -delete 2>/dev/null; bash -c 'set -a; . $R.env; set +a; rm -f $R.env; exec bash $R.sh'"
