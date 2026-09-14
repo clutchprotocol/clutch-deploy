@@ -88,7 +88,16 @@ Always pass the full `-f` list and `-p` on every command — omitting them targe
 
 ## Stage deploy
 
-`.github/workflows/deploy-stage.yml` SSHes to the VPS (secrets `STAGE_HOST/USER/SSH_PASSWORD/DEPLOY_PATH`), does `git pull`, `compose pull`, `up -d --force-recreate --remove-orphans` — **no `--build`**; stage consumes GHCR images published by each repo's CI. Triggers: manual, push to `main` touching compose/config files, or `repository_dispatch` type `deploy-stage` (sent by sibling repos after image publish — e.g. `clutch-hub-demo-app`'s `docker-publish.yml` does this in its `trigger-stage-deploy` job). VPS bootstrap steps: `docs/SSH-SERVER-SETUP.md`.
+`.github/workflows/deploy-stage.yml` SSHes to the VPS (secrets `STAGE_HOST/USER/SSH_PASSWORD/DEPLOY_PATH`), does `git pull --ff-only origin main`, `compose pull`, `up -d --force-recreate --remove-orphans` — **no `--build`**; stage consumes GHCR images published by each repo's CI. Triggers: manual, push to `main` touching compose/config files, or `repository_dispatch` type `deploy-stage` (sent by sibling repos after image publish — e.g. `clutch-hub-demo-app`'s `docker-publish.yml` does this in its `trigger-stage-deploy` job). VPS bootstrap steps: `docs/SSH-SERVER-SETUP.md`.
+
+**`origin main` on that pull is load-bearing, and a failed pull now fails the deploy.** A bare
+`git pull --ff-only` resolves `FETCH_HEAD` against every branch it just fetched, so pushing two
+feature branches was enough to stop the host updating with `fatal: Cannot fast-forward to multiple
+branches`. That failure used to be swallowed by `|| echo "... continuing"`, and the deploy went on
+to recreate containers from whatever the host already had and report success — for a stack whose
+deploy also rewrites the edge nginx config and restarts the services that mint. Readiness item G4.
+Every workflow here names the refspec now; `PROBE=git` reports branch, upstream and commits behind
+`origin/main`, none of which it used to.
 
 **Not every sibling repo sends that dispatch — `clutch-treasury` does not.** Its
 `docker-build-push.yml` only builds and pushes the three GHCR images; there is no
@@ -98,9 +107,32 @@ separately here: a push to this repo's `main` touching compose/config files, or 
 `deploy-stage` dispatch. Don't assume image-publish-implies-deploy without checking the
 publishing repo's own workflow first.
 
-**nginx on the stage VPS is not ours.** The `nginx-stage` container there belongs to the **`v2ray`** compose project and mounts `/home/v2ray-docker/config/nginx/nginx.stage.cloudflare-flex.conf` — a hand-maintained superset serving the clutch vhosts alongside v2ray's (`de2`, `de.wenda.ir`, `3x`, `sub`, `de-grpc`). It owns :80, so `docker-compose.stage.nginx.yml` cannot run there, and **editing `config/nginx/*.conf` in this repo does nothing on that host**. A `/payment/` route was added here, deployed, verified present on the server, and still 405'd for a full cycle before anyone checked which file was mounted. `deploy-stage.yml` now patches the mounted config in place each deploy (idempotent, `nginx -t` with rollback) and gates on `/payment/` returning 401 rather than 405.
+**nginx on the stage VPS is not ours — but every clutch route in it is.** The `nginx-stage` container there belongs to the **`v2ray`** compose project and mounts `/home/v2ray-docker/config/nginx/nginx.stage.cloudflare-flex.conf` — a hand-maintained superset serving the clutch vhosts alongside v2ray's (`de2`, `de.wenda.ir`, `3x`, `sub`, `de-grpc`). It owns :80, so `docker-compose.stage.nginx.yml` cannot run there, and **editing `config/nginx/*.conf` in this repo still does nothing on that host** — that path is mounted nowhere and always was.
 
-`.github/workflows/inspect-stage.yml` is a read-only probe for exactly this class of question — what is actually running and what is actually mounted. Reach for it before assuming the repo describes the host. Probes: `nginx`, `containers`, `git`, `treasury`, `sweeper`, `chain`, `bitcart`.
+What does reach the host, injected between markers by `scripts/ensure-nginx-clutch-block.sh` on every deploy (readiness item G1, closed 2026-09-13):
+
+| Directory | Holds | Lands |
+|---|---|---|
+| `config/nginx/clutch.d/<vhost>/*.conf` | `location` blocks, one subdirectory per vhost | inside that vhost's `server` block |
+| `config/nginx/clutch.http/*.conf` | `upstream`, `limit_req_zone`, `geo`, `map`, `log_format` | just after `http {` |
+| `config/nginx/clutch.shared/*.conf` | snippets every clutch vhost needs | copied into **each** clutch vhost, ahead of its own files |
+
+All six clutch vhosts and all four upstreams are repo-owned. Everything outside the markers is v2ray's and is never touched.
+
+**Things that will bite you here, each learned the expensive way:**
+
+- **Not an include.** Tried and shipped first; it cannot work. The container bind-mounts exactly ONE path, the single `nginx.conf`, so no host directory is visible inside it. A glob matching nothing is valid nginx, so it passed `nginx -t`, reloaded cleanly, and loaded nothing.
+- **A route file cannot declare an `upstream`** — `location` belongs to `server`, `upstream` to `http`. That is why `clutch.http/` exists as a separate injection point.
+- **Adopting a route deletes the hand-written copy in the same pass**, scoped to that one server block. nginx refuses a duplicate `location`, so a half-done takeover serves nothing rather than the old route. A comment directly above an adopted location goes with it.
+- **`$server_name` in a `log_format` is a variable, not a declaration.** The vhost guard masks it; unmasked it reads as a vhost and refuses a correct config.
+- **A `grep` matching nothing exits 1**, and under `set -euo pipefail` in a command substitution that kills the script between two log lines with no message. Three separate places in that script needed `|| true`. Suspect it first when a deploy dies silently.
+- The local `v2ray-docker` checkout has none of this and always drifts. Read the host, never either copy.
+
+Guards, in order: the `server_name` set must be unchanged, no upstream may disappear, `nginx -t`, then reload — with a restore from backup on failure. Then 18 post-reload gates across all six vhosts (`/health`, real WebSocket handshakes expecting 101, the nodes' `location /` expecting 404), any of which restores the previous config and fails the deploy. `scripts/test-nginx-clutch-block.sh` covers the block script against a fixture shaped like the host's config; CI runs it on any PR touching those paths.
+
+`.github/workflows/inspect-stage.yml` is a read-only probe for exactly this class of question — what is actually running and what is actually mounted. Reach for it before assuming the repo describes the host. Probes: `nginx`, `containers`, `git`, `treasury`, `sweeper`, `chain`, `metrics`, `balance`, `energy`, `bitcart`, `bitcart-daemon`.
+
+The `nginx` probe also takes `vhost=` — a comma-separated list, restricted to `*.clutchprotocol.io` because that run log is public and the same file serves v2ray's vhosts — and dumps each whole `server` block. It reports the nginx version, every upstream name with clutch bodies, both kinds of managed block, and what the edge rate limiter would have refused.
 
 **Read node heights from `chain`, and trust nothing else.** Two earlier ways of getting that number were wrong in ways that misdirected an investigation: grepping node logs returns the block numbers a node is SERVING to a syncing peer (node3 appeared to fall from 117,573 to 17,463 while it was feeding node1), and the JSON-RPC ports speak WebSocket only, so curling them returns nothing at all. The probe scrapes `latest_block_index` from the Prometheus endpoint on 3001-3003.
 
