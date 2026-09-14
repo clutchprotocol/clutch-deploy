@@ -54,6 +54,14 @@ does not exist. That is the same failure shape as the nginx config this repo alr
 Reload rules without a restart: `curl -X POST http://localhost:9090/-/reload` (the container runs
 with `--web.enable-lifecycle`).
 
+**Give it three minutes after a deploy before believing the probe.** Checked ~90 seconds after a
+deploy on 2026-09-14, the `metrics` probe reported `state=created`, no logs and no rules — the
+exact signature recorded in readiness D3 as "created and never started, so stage had no monitoring
+at all". Re-run 90 seconds later it was running with all fourteen rules healthy: this host takes
+around two minutes to replay the TSDB write-ahead log, and Docker reports `created` for the whole
+of it. So `created` immediately after a deploy is not evidence of anything. Check again before
+investigating, and read the timestamps in the container's own logs rather than the state word.
+
 ## What is missing
 
 **A destination.** These rules fire into Prometheus's own alert list and Grafana's UI, and stop
