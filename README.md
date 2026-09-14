@@ -98,6 +98,14 @@ Files:
 - Nginx (separate compose): `docker-compose.stage.nginx.yml`
 - Nginx config: `config/nginx/nginx.stage.cloudflare-flex.conf` (edit `server_name` to match your hostnames)
 
+> **These instructions are for a host where nothing else holds port 80.** They are *not* how
+> clutchprotocol's own stage runs. There, nginx belongs to a different compose project that already
+> owns :80, so `docker-compose.stage.nginx.yml` cannot start and the file above is mounted nowhere.
+> The Clutch routes there come from `config/nginx/clutch.d/`, `clutch.http/` and `clutch.shared/`,
+> which `scripts/ensure-nginx-clutch-block.sh` injects into the mounted config on every deploy. See
+> CLAUDE.md, and read the live config with `inspect-stage.yml`'s `nginx` probe rather than trusting
+> either checked-in copy.
+
 Start nginx after the app stack (same VPS):
 
 ```powershell
