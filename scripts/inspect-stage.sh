@@ -175,7 +175,9 @@ if [ "$PROBE" = "nginx" ]; then
     echo "  error_log level (dry-run notices need warn or lower):"
     docker exec "$LIVE" grep -hE '^[[:space:]]*error_log' /etc/nginx/nginx.conf 2>/dev/null       | sed 's/^/    /' || echo "    (none set — nginx defaults to error, which hides them)"
     if docker exec "$LIVE" test -s /var/log/nginx/clutch-limit.log 2>/dev/null; then
-      echo "  events: $(docker exec "$LIVE" wc -l < /var/log/nginx/clutch-limit.log 2>/dev/null || echo '?')"
+      # `wc -l FILE`, not `wc -l < FILE`: the redirect is performed by the HOST shell, which does
+      # not have that file. Same mistake as the nginx.conf line count, one probe above.
+      echo "  events: $(docker exec "$LIVE" wc -l /var/log/nginx/clutch-limit.log 2>/dev/null | awk '{print $1}' || echo '?')"
       echo "  by outcome and server:"
       docker exec "$LIVE" cat /var/log/nginx/clutch-limit.log 2>/dev/null         | awk '{ print "    " $3 "  " $2 }' | sort | uniq -c | sort -rn | head -10
       echo "  most recent:"
