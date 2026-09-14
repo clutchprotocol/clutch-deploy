@@ -44,20 +44,42 @@ jobs:
           exit 1
 
       - name: Halt via SSH
-        uses: appleboy/ssh-action@v1.2.0
         env:
-          # Through the action's env rather than interpolated into the script, so the reason
+          SSHPASS: ${{ secrets.STAGE_SSH_PASSWORD }}
+          CLUTCH_SSH_HOST: ${{ secrets.STAGE_HOST }}
+          CLUTCH_SSH_USER: ${{ secrets.STAGE_USER }}
+          # Forwarded as an environment value, never interpolated into the script, so the reason
           # cannot become part of the command that runs. The script validates it again on the
           # host, because a workflow input is not a trusted string.
           HALT_REASON: ${{ inputs.reason }}
-        with:
-          host: ${{ secrets.STAGE_HOST }}
-          username: ${{ secrets.STAGE_USER }}
-          password: ${{ secrets.STAGE_SSH_PASSWORD }}
-          envs: HALT_REASON
-          script_stop: true
-          script: |
-            set -euo pipefail
-            cd "${{ secrets.STAGE_DEPLOY_PATH }}"
-            git pull --ff-only origin main
-            REASON="$HALT_REASON" bash scripts/halt-minting.sh
+        run: |
+          # Plain ssh, not appleboy/ssh-action. That action downloads a drone-ssh binary from
+          # GitHub releases on EVERY run -- unconditionally, there is no skip-if-present -- and on
+          # 2026-09-14 that CDN answered 504 to all six attempts of the action's own `curl --retry 5`
+          # and failed a deploy. Its retry is the thing we watched lose, so retrying harder is not
+          # the fix; not depending on a runtime download is. `ssh` is already on the runner.
+          #
+          # The script travels as a FILE, never as an argument. The 11 KB inline block this repo
+          # used to carry failed three times in ways that contradicted its own source, because what
+          # bash received was not what the workflow contained. One quoting layer is better than two.
+          set -euo pipefail
+          command -v sshpass >/dev/null || { sudo apt-get update -qq && sudo apt-get install -y -qq sshpass; }
+          R="/tmp/clutch-ci-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
+          SSH_OPTS="-o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o ConnectTimeout=30 -o ServerAliveInterval=30"
+          # Values reach the host as a file of shell-quoted assignments and are sourced there --
+          # never interpolated into the command line. That is the property the action's `envs:`
+          # input gave us, kept deliberately: a workflow input must not be able to become part of
+          # the command that runs. The file is deleted on the host the moment it has been read.
+          : > "$RUNNER_TEMP/clutch-env.sh"
+          for v in HALT_REASON; do printf '%s=%q\n' "$v" "${!v-}" >> "$RUNNER_TEMP/clutch-env.sh"; done
+          sshpass -e ssh $SSH_OPTS "$CLUTCH_SSH_USER@$CLUTCH_SSH_HOST" "cat > $R.env" < "$RUNNER_TEMP/clutch-env.sh"
+          cat > "$RUNNER_TEMP/clutch-remote.sh" <<'CLUTCH_REMOTE_EOF'
+          set -euo pipefail
+          cd "${{ secrets.STAGE_DEPLOY_PATH }}"
+          git pull --ff-only origin main
+          REASON="$HALT_REASON" bash scripts/halt-minting.sh
+          CLUTCH_REMOTE_EOF
+          sshpass -e ssh $SSH_OPTS "$CLUTCH_SSH_USER@$CLUTCH_SSH_HOST" "cat > $R.sh" < "$RUNNER_TEMP/clutch-remote.sh"
+          # Old files from earlier runs are swept here rather than in a cleanup step that
+          # a cancelled job would skip. `set -a` exports what the env file assigns.
+          timeout 10m sshpass -e ssh $SSH_OPTS "$CLUTCH_SSH_USER@$CLUTCH_SSH_HOST" "find /tmp -maxdepth 1 -name 'clutch-ci-*' -mtime +1 -delete 2>/dev/null; set -a; . $R.env; set +a; rm -f $R.env; bash $R.sh"
