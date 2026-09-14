@@ -1,0 +1,77 @@
+# Alerting rules for chain liveness.
+#
+# Written after the stage halt of 2026-09-14, which ran for most of a day and was reported by a
+# human as "the explorer has no data". Ten rules already covered the money path and not one of
+# them covered the chain underneath it, so the single most consequential fact a validator set can
+# report — that it has stopped producing — was the one thing nothing evaluated.
+#
+# Aura gives a block every `60 / authorities` seconds, 20s on the three-node testnet, and authors
+# an empty block when there is nothing to include. So height advancing is a heartbeat rather than
+# a measure of traffic: a quiet chain still climbs, and a chain that stops climbing is broken.
+
+groups:
+  - name: chain-liveness
+    interval: 30s
+    rules:
+      # The property the whole stack rests on. `max` over the nodes because one node stalling is a
+      # different, less urgent condition (ChainNodeBehind below) — this fires only when NO node has
+      # advanced, which is the chain itself stopping.
+      #
+      # Five minutes is fifteen missed slots at 20s, far outside any plausible jitter, and the
+      # `for` doubles it: about ten minutes to fire. The failure this exists for lasted a day.
+      - alert: ChainHeightNotAdvancing
+        expr: max(delta(latest_block_index[5m])) == 0
+        for: 5m
+        labels:
+          severity: critical
+        annotations:
+          summary: "No node has produced a block in 5 minutes"
+          description: >-
+            The chain has halted. Nothing downstream can be correct while this is firing: the
+            explorer stops, the treasury reads a frozen supply and judges its reserve against it,
+            and deposits credit against a chain that is not moving. Read the authoring error from
+            EVERY node, not just node1 — the slot owner holds the real reason and the others only
+            report not being the author. The 2026-09-14 halt was a pooled transaction whose nonce
+            the chain had already consumed: it joined every candidate block, failed validation,
+            and could not be evicted by a restart, because only the import of a block carrying a
+            transaction removes it from the pool.
+
+      # node1 and node2 sat ~115,000 blocks behind while answering get_chain_info cheerfully, and
+      # every service reading them believed a chain frozen near genesis. A node that is behind is
+      # worse than one that is down: down is visible, behind answers.
+      - alert: ChainNodeBehind
+        expr: max(latest_block_index) - min(latest_block_index) > 50
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Validators disagree on the chain height by more than 50 blocks"
+          description: >-
+            One node is not keeping up. It will still answer RPC queries with its own stale height,
+            so check what reads it before assuming the impact is limited to that container.
+
+      - alert: ChainNodeDown
+        expr: up{job=~"node[0-9]+"} == 0
+        for: 3m
+        labels:
+          severity: critical
+        annotations:
+          summary: "{{ $labels.job }} is not answering scrapes"
+          description: >-
+            With three authorities, one missing node loses a third of the slots and the chain
+            still advances, more slowly. Two is a halt.
+
+      # The hash-labelled series is what the explorer's indexer requires alongside the index; it
+      # refuses the head and ingests nothing if either is missing. Absent means the node has not
+      # published a block since boot.
+      - alert: ChainLatestBlockHashMissing
+        expr: count(latest_block) == 0
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: "No node is publishing latest_block{block_hash}"
+          description: >-
+            The explorer's indexer reads both latest_block_index and latest_block{block_hash} and
+            refuses the chain head unless it has both, so while this is firing the explorer shows
+            nothing regardless of what the chain is doing.
