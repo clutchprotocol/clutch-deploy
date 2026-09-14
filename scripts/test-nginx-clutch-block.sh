@@ -86,9 +86,12 @@ CONF
 
 # A repo directory built per test, so each case states its own inputs.
 repo() {
-  rm -rf "$WORK/repo" "$WORK/upstreams"
-  mkdir -p "$WORK/repo" "$WORK/upstreams"
+  rm -rf "$WORK/repo" "$WORK/upstreams" "$WORK/shared"
+  mkdir -p "$WORK/repo" "$WORK/upstreams" "$WORK/shared"
 }
+# Snippets copied into every vhost's block. Empty unless a test asks for one.
+shared() { printf '%s
+' "$2" > "$WORK/shared/$1.conf"; }
 # Declared per test. Empty by default, which is how the upstream half stays switched off for every
 # case that is not about it.
 upstream() {
@@ -103,7 +106,7 @@ route() {
 }
 
 run() {
-  CONF_OVERRIDE="$WORK/conf" REPO_DIR="$WORK/repo" HTTP_DIR="$WORK/upstreams"     SKIP_NGINX=1 bash "$SCRIPT" >"$WORK/out" 2>&1
+  CONF_OVERRIDE="$WORK/conf" REPO_DIR="$WORK/repo" HTTP_DIR="$WORK/upstreams"     SHARED_DIR="$WORK/shared" SKIP_NGINX=1 bash "$SCRIPT" >"$WORK/out" 2>&1
 }
 
 echo "== one vhost, migrating the legacy single block =="
@@ -239,6 +242,23 @@ run && fail "should have refused to drop both upstreams"
 grep -q 'drops upstream(s) the host already had' "$WORK/out" || { cat "$WORK/out"; fail "wrong error"; }
 cmp -s "$WORK/conf" "$WORK/conf.orig" || fail "config was modified despite the refusal"
 ok "an upstream cannot be deleted out from under the routes that name it"
+
+echo "== a shared snippet lands in every vhost, ahead of that vhost's own files =="
+fixture "$WORK/conf"; repo
+route app-stage.clutchprotocol.io /payment/ http://payment-orchestrator:8091
+route api-stage.clutchprotocol.io /graphql http://clutch-hub-api:3000
+shared realip "real_ip_header CF-Connecting-IP;"
+run || { cat "$WORK/out"; fail "script exited non-zero"; }
+[ "$(grep -c 'real_ip_header CF-Connecting-IP' "$WORK/conf")" = "2" ]   || fail "expected the snippet once per vhost, found $(grep -c 'real_ip_header CF-Connecting-IP' "$WORK/conf")"
+# Ahead of the vhost's own routes, because a directive like set_real_ip_from has to be in effect
+# before anything that reads $remote_addr.
+rl=$(grep -n 'real_ip_header' "$WORK/conf" | head -1 | cut -d: -f1)
+pay=$(grep -n 'location /payment/' "$WORK/conf" | head -1 | cut -d: -f1)
+[ "$rl" -lt "$pay" ] || fail "the shared snippet landed after the vhost's own routes"
+grep -q 'shared/realip.conf' "$WORK/conf" || fail "the block does not say where the snippet came from"
+# And it must not leak into vhosts this repo does not own.
+sed -n "/server_name de2/,/^    }/p" "$WORK/conf" | grep -q 'real_ip_header' && fail "the snippet reached somebody else's vhost"
+ok "one source, one copy per clutch vhost, none anywhere else"
 
 echo "== a vhost the host does not serve is refused, and nothing is written =="
 fixture "$WORK/conf"; repo
