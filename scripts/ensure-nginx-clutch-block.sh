@@ -74,6 +74,7 @@ set -euo pipefail
 
 CONTAINER="${1:-nginx-stage}"
 REPO_DIR="${REPO_DIR:-config/nginx/clutch.d}"
+SHARED_DIR="${SHARED_DIR:-config/nginx/clutch.shared}"
 
 # Matched as a prefix when deleting, so it catches every vhost's block AND the single-block marker
 # used before this script grew a per-vhost form -- "(config/nginx/clutch.d)" rather than a hostname.
@@ -130,6 +131,7 @@ BEFORE_NAMES=$(server_names "$CONF")
 shopt -s nullglob
 vhost_dirs=("$REPO_DIR"/*/)
 stray=("$REPO_DIR"/*.conf)
+shared_files=("$SHARED_DIR"/*.conf)
 shopt -u nullglob
 
 # A .conf sitting directly in clutch.d has no vhost, so there is nowhere to put it. Before the
@@ -176,9 +178,15 @@ for dir in "${vhost_dirs[@]}"; do
   vhost_re=${vhost//./\\.}
 
   shopt -s nullglob
-  files=("$dir"*.conf)
+  own_files=("$dir"*.conf)
   shopt -u nullglob
-  [ ${#files[@]} -gt 0 ] || die "$dir has no .conf files — delete the directory rather than leaving an empty block"
+  [ ${#own_files[@]} -gt 0 ] || die "$dir has no .conf files — delete the directory rather than leaving an empty block"
+
+  # Shared snippets go into EVERY vhost's block, ahead of that vhost's own files. One source in the
+  # repo, six copies on the host -- which is the point: `set_real_ip_from` has to be repeated per
+  # server block to stay out of v2ray's vhosts, and twenty-five CIDRs maintained in six places is
+  # how one of them silently falls behind.
+  files=("${shared_files[@]}" "${own_files[@]}")
 
   # A route file that closes its server block early turns whatever follows into part of a different
   # one. That can still be valid nginx, so `nginx -t` would not catch it, and the server_name guard
@@ -219,7 +227,7 @@ for dir in "${vhost_dirs[@]}"; do
     printf '        # >>> clutch-deploy managed block (%s) >>>\n' "$vhost"
     echo "        # Generated on each deploy from $REPO_DIR/$vhost/. Edits here are overwritten."
     for f in "${files[@]}"; do
-      echo "        # --- $(basename "$f") ---"
+      case "$f" in "$SHARED_DIR"/*) echo "        # --- shared/$(basename "$f") ---" ;; *) echo "        # --- $(basename "$f") ---" ;; esac
       # Indent into the server block, and drop trailing whitespace while doing it: the same
       # indent applied to a blank separator line turns it into eight spaces of nothing.
       sed -e 's/^/        /' -e 's/[[:space:]]*$//' "$f"
@@ -321,7 +329,7 @@ for dir in "${vhost_dirs[@]}"; do
   ' "$TMP" > "$TMP.ins" \
     || die "$vhost: could not place the block (missing anchor, or a location block that never closed within 80 lines) — config untouched"
   mv "$TMP.ins" "$TMP"
-  log "$vhost: block built from ${#files[@]} route file(s), $(cat "$TMP.count") hand-written location(s) replaced"
+  log "$vhost: block built from ${#own_files[@]} route file(s) + ${#shared_files[@]} shared, $(cat "$TMP.count") hand-written location(s) replaced"
   rm -f "$TMP.count"
 done
 
