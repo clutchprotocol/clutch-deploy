@@ -168,7 +168,21 @@ if [ "$PROBE" = "nginx" ]; then
     # Counts and server names only. Every one of those lines carries the client IP, and this log is
     # public; the question here is "how often, and where", which needs neither.
     echo ""
-    echo "=== edge rate limiter: what it would have refused (last 60m) ==="
+    echo "=== edge rate limiter: what it would have refused ==="
+    # Its own log, not the error log: a dry-run refusal is reported at `warn`, and the default
+    # error_log level is `error`, so those lines never appeared. The level is printed here because
+    # that silence cost a round trip to work out.
+    echo "  error_log level (dry-run notices need warn or lower):"
+    docker exec "$LIVE" grep -hE '^[[:space:]]*error_log' /etc/nginx/nginx.conf 2>/dev/null       | sed 's/^/    /' || echo "    (none set — nginx defaults to error, which hides them)"
+    if docker exec "$LIVE" test -s /var/log/nginx/clutch-limit.log 2>/dev/null; then
+      echo "  events: $(docker exec "$LIVE" wc -l < /var/log/nginx/clutch-limit.log 2>/dev/null || echo '?')"
+      echo "  by outcome and server:"
+      docker exec "$LIVE" cat /var/log/nginx/clutch-limit.log 2>/dev/null         | awk '{ print "    " $3 "  " $2 }' | sort | uniq -c | sort -rn | head -10
+      echo "  most recent:"
+      docker exec "$LIVE" tail -3 /var/log/nginx/clutch-limit.log 2>/dev/null | sed 's/^/    /'
+    else
+      echo "  (clutch-limit.log absent or empty — no client has exceeded the rate since the last deploy)"
+    fi
     if docker logs --since 60m "$LIVE" 2>&1 | grep -q 'limiting requests'; then
       docker logs --since 60m "$LIVE" 2>&1 | grep 'limiting requests' > /tmp/clutch-limit.$$ || true
       echo "  events: $(wc -l < /tmp/clutch-limit.$$)"
