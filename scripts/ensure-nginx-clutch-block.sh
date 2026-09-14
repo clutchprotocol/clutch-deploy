@@ -97,7 +97,13 @@ die() { echo "nginx-block: FAILED: $*" >&2; exit 1; }
 server_names() {
   # `|| true` for the same reason as upstream_names below: no match exits 1, and the explicit
   # "no server_name found" check further down would never get the chance to report it.
-  { grep -hoE 'server_name[[:space:]]+[^;]+;' "$1" || true; } \
+  # `$server_name` is an nginx VARIABLE, not a declaration, and it appears in the limiter's
+  # log_format. Unmasked, the pattern below reads "log_format ... $server_name $limit_req_status
+  # $status';" as a vhost declaring two names, the after-set gains entries the before-set never had,
+  # and the guard refuses to write a config that is perfectly correct. It did exactly that.
+  # Masked first, because widening the pattern instead would risk missing a real one-line server
+  # block, which is the case this guard exists for.
+  { sed 's/\$server_name/_nginx_variable_/g' "$1"       | grep -oE 'server_name[[:space:]]+[^;]+;' || true; } \
     | sed -e 's/^server_name[[:space:]]*//' -e 's/;$//' \
     | tr ' ' '\n' | sed '/^$/d' | sort -u
 }
@@ -398,7 +404,11 @@ if [ ${#up_files[@]} -gt 0 ]; then
     ' "$f" || die "$f closes or leaves open a block it did not open or close"
   done
 
-  grep -hoE '^[[:space:]]*upstream[[:space:]]+[^[:space:]{]+' "${up_files[@]}" \
+  # `|| true` again, and the third place in this script that needed it. The comment below says an
+  # empty list is fine -- but without this the grep exits 1 on a directory whose files declare no
+  # upstream, `set -e` kills the script, and "fine" never happens. Found by a test for something
+  # else entirely, which put a lone log_format in here.
+  { grep -hoE '^[[:space:]]*upstream[[:space:]]+[^[:space:]{]+' "${up_files[@]}" || true; } \
     | sed 's/.*upstream[[:space:]]*//' | sed '/^$/d' > "$SIGS"
   # An empty list is fine now that this directory holds http-level directives generally rather than
   # upstreams only -- a file declaring just a `limit_req_zone` has no name to take over, and the
