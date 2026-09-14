@@ -613,6 +613,18 @@ if [ "$PROBE" = "chain" ]; then
   docker logs clutch-stage-node1-1 2>&1 | head -40 | sed 's/^/    /'
 
   echo ""
+  # Authoring state for EVERY node, not just node1.
+  #
+  # A stall is a property of the node that owns the current slot, and the probe only ever dumped
+  # node1 -- so a chain halted because node3 could not author showed node1 complaining that node3
+  # was the expected author, which is the normal message a non-owner logs every second.
+  echo ""
+  echo "=== per-node authoring: last success, and any stall warning ==="
+  for n in 1 2 3; do
+    echo "--- node$n"
+    docker logs --tail 400 "clutch-stage-node${n}-1" 2>&1       | grep -E "add_block_to_chain successfully|authored no block" | tail -3 | sed 's/^/    /'       || echo "    (nothing about authoring in the last 400 lines)"
+  done
+
   echo "=== volume creation time — the decisive one ==="
   # If a volume's CreatedAt is recent, it was DESTROYED and remade; the chain did not "reset", the
   # storage went away. If it is old and the chain is still short, the node is wiping its own data.
