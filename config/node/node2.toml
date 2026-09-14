@@ -43,6 +43,18 @@ faucet_address = "0x88f9c89f2e06410755b987bf9a6da20361ba7e7a"
 faucet_allocation = 0
 ride_request_referrer_fee_bps = 200
 ride_offer_referrer_fee_bps = 200
+
+# The ride-cancel auto-release window (readiness item H1). Past it, a RideCancel pays the unpaid
+# remainder to the DRIVER rather than refunding the passenger -- which is what stops a rider taking
+# the trip and getting the money back by cancelling. Genesis-committed like everything else in this
+# block: it decides who receives money, so a node with a different value computes a different
+# balance from the same block.
+#
+# 300 seconds here, NOT the 7200 of the decision of record. Two hours cannot be exercised on a
+# development chain -- nobody waits that long to test a cancel, so the rule would ship having never
+# executed against a real ride. Five minutes is reachable in one sitting. check-genesis.sh enforces
+# 7200 under MAINNET=1, so this value cannot leak into a mainnet genesis.
+ride_auto_release_secs = 300
 sync_enabled = true
 serve_metric_enabled = true
 serve_metric_addr = "0.0.0.0:3002"
