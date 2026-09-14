@@ -15,7 +15,12 @@ on:
     paths:
       - "scripts/ensure-nginx-clutch-block.sh"
       - "scripts/test-nginx-clutch-block.sh"
+      # Every directory the script reads, not just the first one it read. clutch.http/ and
+      # clutch.shared/ were added later and were not listed, so the rate-limit config went
+      # through with no checks run at all -- and an absent check reads exactly like a pass.
       - "config/nginx/clutch.d/**"
+      - "config/nginx/clutch.http/**"
+      - "config/nginx/clutch.shared/**"
       - ".github/workflows/test-nginx-block.yml"
   push:
     branches: [main]
@@ -23,6 +28,8 @@ on:
       - "scripts/ensure-nginx-clutch-block.sh"
       - "scripts/test-nginx-clutch-block.sh"
       - "config/nginx/clutch.d/**"
+      - "config/nginx/clutch.http/**"
+      - "config/nginx/clutch.shared/**"
   workflow_dispatch:
 
 jobs:
