@@ -98,6 +98,29 @@ groups:
           summary: "Chain outbox has failed rows"
           description: "A signed transaction the treasury meant to submit is not landing."
 
+      # The deposit watcher's cursor lives in Postgres and outlives the chain it was counting, so a
+      # reset or a deep reorg strands it ABOVE the head. `process_range` then returns None while
+      # `bound <= cursor` — silently, and for as long as it takes the chain to grow back past it,
+      # at which point the watcher resumes having skipped every block below.
+      #
+      # Observed on stage 2026-09-15: cursor 4083 against a head of 3993. The watcher credited
+      # nothing for hours and healed by accident. Nothing alerted, and nothing would have.
+      #
+      # `for` is short because this condition is never transient: the cursor only moves forward,
+      # so it cannot briefly overshoot and correct itself.
+      - alert: TreasuryWatcherCursorStranded
+        expr: clutch_treasury_chain_cursor_height > max(latest_block_index)
+        for: 2m
+        labels:
+          severity: critical
+        annotations:
+          summary: "The deposit watcher's cursor is above the chain head"
+          description: >-
+            The watcher is crediting nothing and will stay silent until the chain grows past its
+            cursor, then resume having skipped everything below. A mint submitted in that window
+            never becomes confirmed and reconciliation reads it as under-issuance. Almost always a
+            chain reset: the cursor is in Postgres and the chain it counted is gone.
+
   - name: orchestrator-deposits
     interval: 30s
     rules:
