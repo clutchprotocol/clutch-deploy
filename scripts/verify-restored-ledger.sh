@@ -116,7 +116,7 @@ echo ""
 echo "=== 4/4 verdict ==="
 case "$RECONCILE_RC" in
   0)
-    echo "  RECONCILED against the restored ledger."
+    echo "  RECONCILED CLEAN against the restored ledger."
     echo ""
     echo "  This is the verification readiness item D1 asks for. Record today's date under D1 in"
     echo "  clutch-treasury/docs/mainnet-readiness.md, naming the dump that was restored:"
@@ -129,6 +129,19 @@ case "$RECONCILE_RC" in
     echo "  the reconciliation_runs row this just wrote against the live database's latest run: if"
     echo "  live reconciles and the restore does not, the backup is losing data rather than the"
     echo "  reserve being short."
+    ;;
+  3)
+    echo "  RAN, BUT NOT CLEAN."
+    echo ""
+    echo "  The status above is one the mint gate tolerates -- over_backed_drift means the ledger"
+    echo "  counts more as issued than the chain holds, which is the safe direction -- but it is"
+    echo "  raised as a p1 and it is not a clean reserve. D1 asks for GREEN against the restored"
+    echo "  ledger, so this does not close it."
+    echo ""
+    echo "  Check whether LIVE reports the same status before suspecting the backup. Identical"
+    echo "  numbers on both sides mean the restore is faithful and the drift is a pre-existing"
+    echo "  ledger problem to fix on its own terms:"
+    echo "    curl -s https://explorer-stage.clutchprotocol.io/api/v1/reserve"
     ;;
   *)
     echo "  COULD NOT RUN (exit $RECONCILE_RC)."
