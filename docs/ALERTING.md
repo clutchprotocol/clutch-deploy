@@ -10,8 +10,8 @@ Both treasury services expose Prometheus metrics on their own ports, scraped eve
 reconciliation mismatch calls `ledger::alert`, which logs at error level and inserts a row into the
 `alerts` table, and `metrics.rs` gauges that table by severity.
 
-`config/monitoring/prometheus/rules/treasury.yml` turns those into alerting rules. Ten of them, in
-three groups:
+`config/monitoring/prometheus/rules/treasury.yml` turns those into alerting rules. Eleven of them,
+in three groups:
 
 | Alert | Fires when | Severity |
 |---|---|---|
@@ -24,9 +24,10 @@ three groups:
 | `TreasuryMintingHalted` | the breaker has been latched 5m | warning |
 | `TreasurySweepingStalled` | more than 5 unswept addresses for 2h | warning |
 | `TreasuryChainOutboxStuck` | a failed outbox row persists 15m | warning |
+| `TreasuryWatcherCursorStranded` | the deposit watcher's cursor sits above the chain head | critical |
 | `OrchestratorAddressesNeverPolled` | an address handed out has never been checked | warning |
 
-`rules/chain.yml` covers the chain those ten read from — readiness item **D4**, added after the
+`rules/chain.yml` covers the chain those eleven read from — readiness item **D4**, added after the
 stage halt of 2026-09-14, which ran for most of a day and was reported by a human as "the explorer
 has no data". Four rules:
 
@@ -57,7 +58,7 @@ with `--web.enable-lifecycle`).
 **Give it three minutes after a deploy before believing the probe.** Checked ~90 seconds after a
 deploy on 2026-09-14, the `metrics` probe reported `state=created`, no logs and no rules — the
 exact signature recorded in readiness D3 as "created and never started, so stage had no monitoring
-at all". Re-run 90 seconds later it was running with all fourteen rules healthy: this host takes
+at all". Re-run 90 seconds later it was running with all fifteen rules healthy: this host takes
 around two minutes to replay the TSDB write-ahead log, and Docker reports `created` for the whole
 of it. So `created` immediately after a deploy is not evidence of anything. Check again before
 investigating, and read the timestamps in the container's own logs rather than the state word.
@@ -101,6 +102,8 @@ move this threshold with it. The two numbers describe the same thing and have to
 - **Payout float balance.** A redemption landing on a dry float retries, which is the design. It
   becomes worth alerting on when redemption volume makes "retries for a while" a user-visible
   outage rather than a delay.
-- **Node block height.** Node metrics are scraped but `clutch-node`'s own gauges are not all
-  updated yet, so a height-based alert would fire on a stale gauge rather than on a stalled chain.
-  Read heights with `inspect-stage.yml`'s `chain` probe until that is fixed.
+~~**Node block height.**~~ This said a height alert would fire on a stale gauge rather than a
+  stalled chain, because `latest_block_index` was published only by `add_block_to_chain` and so
+  read 0 from boot until the next block arrived. clutch-node publishes it from the stored block at
+  startup now, and `ChainHeightNotAdvancing` in `rules/chain.yml` is exactly the alert this
+  paragraph declined to write. The chain then halted for most of a day with nothing watching it.
