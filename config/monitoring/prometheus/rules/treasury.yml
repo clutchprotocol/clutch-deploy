@@ -108,8 +108,15 @@ groups:
       #
       # `for` is short because this condition is never transient: the cursor only moves forward,
       # so it cannot briefly overshoot and correct itself.
+      #
+      # `scalar()` is load-bearing, not tidiness. Written as a bare `> max(latest_block_index)`
+      # this is a vector-to-vector comparison: the left side carries job and instance labels, the
+      # aggregate carries none, nothing matches, and the rule evaluates to empty for ever while
+      # reporting health: ok. It was shipped that way and caught by the metrics probe printing the
+      # same expression and answering "(no sample yet)" — which is the argument for querying an
+      # alert's own expression in the probe rather than trusting that it loaded.
       - alert: TreasuryWatcherCursorStranded
-        expr: clutch_treasury_chain_cursor_height > max(latest_block_index)
+        expr: clutch_treasury_chain_cursor_height > scalar(max(latest_block_index))
         for: 2m
         labels:
           severity: critical
