@@ -1,0 +1,81 @@
+# Put a stuck `submitted` mint back in the outbox queue.
+#
+# `submitted` is terminal in practice: the outbox retries `pending` and `failed`, nothing re-drives
+# `submitted`, nothing times it out, and nothing checks whether the transaction landed. Only the
+# watcher writes `confirmed`. So a submission that died — a nonce already consumed, a chain reset
+# underneath it, a reorg — leaves a row waiting for ever while reconciliation reports the amount as
+# under-issuance, also for ever. That is CLT a depositor paid for and never received.
+#
+# This cannot double-mint. `credit_ref` is UNIQUE and the chain holds `processed_ref_<credit_ref>`
+# as an exactly-once marker shared by Mint and Burn, so if the original transaction really did land
+# the resubmission is rejected by verify_state. The worst case is a wasted transaction.
+#
+# That is why this takes one typed confirmation rather than the two dispatches the four-eyes mint
+# needs: it cannot create CLT that was not already approved. It re-queues work the ledger has
+# already decided on.
+#
+# scripts/redrive-mint.sh refuses anything that is not currently `submitted`.
+
+name: Re-drive a stuck mint (stage)
+
+on:
+  workflow_dispatch:
+    inputs:
+      intent_id:
+        description: 'Mint intent UUID (from PROBE=sweeper, the "mint intents" table)'
+        required: true
+        type: string
+      confirm:
+        description: 'Type "redrive" to confirm re-queuing this mint for submission'
+        required: true
+        default: ""
+
+concurrency:
+  group: treasury-outbox
+  cancel-in-progress: false
+
+jobs:
+  redrive:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check the confirmation
+        run: |
+          if [ "${{ inputs.confirm }}" != "redrive" ]; then
+            echo "::error::confirm must be exactly 'redrive' — got '${{ inputs.confirm }}'"
+            exit 1
+          fi
+
+      - name: Re-drive via SSH
+        env:
+          SSHPASS: ${{ secrets.STAGE_SSH_PASSWORD }}
+          CLUTCH_SSH_HOST: ${{ secrets.STAGE_HOST }}
+          CLUTCH_SSH_USER: ${{ secrets.STAGE_USER }}
+          # Forwarded as an environment value, never interpolated into the script, so the id
+          # cannot become part of the command that runs. The script validates it as a UUID again
+          # on the host, because a workflow input is not a trusted string and this one reaches SQL.
+          INTENT_ID: ${{ inputs.intent_id }}
+        run: |
+          # Plain ssh, not appleboy/ssh-action: that action downloads a drone-ssh binary from
+          # GitHub releases on every run, and on 2026-09-14 that CDN 504'd six times and failed a
+          # deploy. The script travels as a FILE, which is also one fewer quoting layer.
+          set -euo pipefail
+          command -v sshpass >/dev/null || { sudo apt-get update -qq && sudo apt-get install -y -qq sshpass; }
+          R="/tmp/clutch-ci-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
+          SSH_OPTS="-o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o ConnectTimeout=30 -o ServerAliveInterval=30"
+          # Values reach the host as a file of shell-quoted assignments and are sourced there --
+          # never interpolated into the command line.
+          : > "$RUNNER_TEMP/clutch-env.sh"
+          for v in INTENT_ID; do printf '%s=%q\n' "$v" "${!v-}" >> "$RUNNER_TEMP/clutch-env.sh"; done
+          sshpass -e ssh $SSH_OPTS "$CLUTCH_SSH_USER@$CLUTCH_SSH_HOST" "cat > $R.env" < "$RUNNER_TEMP/clutch-env.sh"
+          cat > "$RUNNER_TEMP/clutch-remote.sh" <<'CLUTCH_REMOTE_EOF'
+          set -euo pipefail
+          cd "${{ secrets.STAGE_DEPLOY_PATH }}"
+          git pull --ff-only origin main
+          bash scripts/redrive-mint.sh
+          CLUTCH_REMOTE_EOF
+          sshpass -e ssh $SSH_OPTS "$CLUTCH_SSH_USER@$CLUTCH_SSH_HOST" "cat > $R.sh" < "$RUNNER_TEMP/clutch-remote.sh"
+          # Old files from earlier runs are swept here rather than in a cleanup step that
+          # a cancelled job would skip. The sourcing runs under an explicit `bash -c` because
+          # `printf %q` emits bash quoting ($'...' for a newline), which the remote login shell
+          # is not guaranteed to be able to parse.
+          timeout 10m sshpass -e ssh $SSH_OPTS "$CLUTCH_SSH_USER@$CLUTCH_SSH_HOST" "find /tmp -maxdepth 1 -name 'clutch-ci-*' -mtime +1 -delete 2>/dev/null; bash -c 'set -a; . $R.env; set +a; rm -f $R.env; exec bash $R.sh'"
