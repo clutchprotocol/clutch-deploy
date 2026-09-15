@@ -861,7 +861,7 @@ if [ "$PROBE" = "metrics" ]; then
     # probe sent nonsense". Encode it.
     enc=$(printf '%s' "$q" | sed 's/+/%2B/g')
     out=$(prom_get '/api/v1/query' "query=$enc" | tr ',' '
-' | grep -A1 '"value"' | tail -1 | tr -dc '0-9.')
+' | grep -A1 '"value"' | tail -1 | tr -dc '0-9.eE+-')
     printf '    %-96s %s
 ' "$q" "${out:-(no sample yet)}"
   done
