@@ -52,9 +52,20 @@ dependency.
 **Scope the credential to the one bucket, and expect the 403 that causes.** rclone verifies a
 bucket exists before uploading into it; a token scoped to a single bucket cannot list buckets
 account-wide, so rclone concludes the bucket is missing and attempts `CreateBucket`, which comes
-back as `403 AccessDenied` and reads exactly like a bad key. `--no-check-bucket` on both copies is
-the fix and is already in the script. Do not widen the token to admin to make it go away — that
-discards the reason for scoping it.
+back as `403 AccessDenied` and reads exactly like a bad key.
+
+Fix it on the remote, once:
+
+```bash
+rclone config update <remote> no_check_bucket true
+```
+
+Not with a flag in `backup-treasury-db.sh`. `no_check_bucket` is an **S3 backend** option — there
+is no generic `--no-check-bucket`, and the S3-prefixed flag would be an assumption about a backend
+that is deliberately the operator's choice. The script stays backend-agnostic; the remote carries
+what is true about the remote.
+
+Do not widen the token to admin to make the 403 go away — that discards the reason for scoping it.
 
 Grant delete only if something needs it; nothing here does. The script never runs `rclone sync`
 and its retention prune is a local `rm`, so a write-only credential means whoever owns the host
