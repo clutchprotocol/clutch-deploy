@@ -121,14 +121,14 @@ if [ -n "$BACKUP_REMOTE" ]; then
     echo "  BACKUP_REMOTE to keep local-only dumps (which do NOT satisfy readiness item D1)."
     exit 1
   fi
-  # --no-check-bucket because the destination credential is deliberately scoped to ONE bucket.
-  # rclone verifies the bucket before uploading, a scoped token cannot list buckets account-wide,
-  # so rclone concludes the bucket is missing and tries to CreateBucket -- which the provider
-  # refuses with a 403 that reads like an authentication failure. Widening the token to admin
-  # would clear it and discard the reason it was scoped. This backup never creates a bucket.
+  # No backend-specific flags here on purpose. If the copy fails with a 403 on CreateBucket, the
+  # destination credential is scoped to one bucket and rclone -- which verifies a bucket exists
+  # before uploading -- read "cannot list buckets" as "bucket missing" and tried to create it.
+  # The fix is `no_check_bucket = true` on that REMOTE, not a flag here: it is an S3 backend
+  # option, and which backend this is happens to be the operator's choice. See docs/BACKUP-RESTORE.md.
   echo "=== copying to $BACKUP_REMOTE ==="
-  rclone copy "$BACKUP_DIR/treasury-$STAMP.dump.enc" "$BACKUP_REMOTE" --no-traverse --no-check-bucket
-  rclone copy "$BACKUP_DIR/orchestrator-$STAMP.dump.enc" "$BACKUP_REMOTE" --no-traverse --no-check-bucket
+  rclone copy "$BACKUP_DIR/treasury-$STAMP.dump.enc" "$BACKUP_REMOTE" --no-traverse
+  rclone copy "$BACKUP_DIR/orchestrator-$STAMP.dump.enc" "$BACKUP_REMOTE" --no-traverse
   echo "  copied both dumps off host"
 else
   echo ""
