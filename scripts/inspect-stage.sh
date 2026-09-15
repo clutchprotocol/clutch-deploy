@@ -578,10 +578,37 @@ if [ "$PROBE" = "sweeper" ]; then
   # The watcher credits nothing while its cursor sits above the chain head: process_range returns
   # None when bound <= cursor, silently and forever. A chain reset leaves exactly that state, since
   # the cursor lives in Postgres and outlives the chain it was counting.
+  #
+  # Printed next to the chain head, because the number alone says nothing. Observed 2026-09-15:
+  # cursor 4083 against a head of 3993 — stranded by a testnet reset, and it un-stranded itself
+  # half an hour later when the chain grew past it, having silently skipped every block below.
+  # Nothing alerted, and nothing would have.
   tq "watcher chain cursor" "select last_processed_height from chain_cursor;"
+  CURSOR="$(docker exec clutch-stage-treasury-postgres-1 psql -U treasury -d treasury -tAc \
+    "select last_processed_height from chain_cursor limit 1;" 2>/dev/null | tr -d '[:space:]' || true)"
+  HEAD_H="$(docker exec clutch-stage-prometheus-1 wget -qO- \
+    'http://localhost:9090/api/v1/query?query=max(latest_block_index)' 2>/dev/null \
+    | grep -oE '"value":\[[0-9.]+,"[0-9]+"' | grep -oE '"[0-9]+"$' | tr -d '"' || true)"
+  if [ -n "$CURSOR" ] && [ -n "$HEAD_H" ]; then
+    echo "    cursor=$CURSOR  chain head=$HEAD_H"
+    if [ "$CURSOR" -gt "$HEAD_H" ]; then
+      echo "    STRANDED: the cursor is $((CURSOR - HEAD_H)) blocks ABOVE the head. The watcher is"
+      echo "      crediting nothing and will stay silent until the chain grows past it, at which"
+      echo "      point it resumes having skipped everything below. A mint submitted in that window"
+      echo "      never becomes 'confirmed', and reconciliation reads it as under-issuance."
+    fi
+  else
+    echo "    (could not compare cursor to head — one of the two reads failed)"
+  fi
 
+  # chain_tx_hash is on the INTENT, not on the outbox row. Without it a 'submitted' row cannot be
+  # chased: you cannot ask whether the transaction landed if nothing recorded which transaction it
+  # was. A hash that no longer exists on chain means the submission is dead rather than pending —
+  # which a chain reset guarantees, and which nothing re-drives, because only pending and failed
+  # rows are retried.
   tq "mint intents" \
      "select id, status, beneficiary, amount_clt, expected_amount_usdt, deposit_address,
+             left(chain_tx_hash, 18) as tx_hash,
              swept_at is not null as swept,
              created_at
       from mint_intents order by created_at desc limit 10;"
