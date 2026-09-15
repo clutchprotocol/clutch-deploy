@@ -53,7 +53,10 @@ case "$BASE" in
     exit 1 ;;
 esac
 
-TARGET="${DB}_restore_$(date -u +%Y%m%dT%H%M%SZ)"
+# RESTORE_TARGET lets a caller choose the name so it knows it afterwards, rather than scraping it
+# back out of this script's output. Used by verify-restored-ledger.sh, which has to point a service
+# at the restored database and then drop it.
+TARGET="${RESTORE_TARGET:-${DB}_restore_$(date -u +%Y%m%dT%H%M%SZ)}"
 
 if ! docker inspect "$CONTAINER" >/dev/null 2>&1; then
   echo "ABORT: container $CONTAINER not found."

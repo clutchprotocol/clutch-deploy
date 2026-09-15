@@ -75,39 +75,16 @@ jobs:
 
           if [ "${{ inputs.source }}" = "remote" ]; then
             # The disaster path, and the only version that proves anything about the backups that
-            # actually exist: read them back OUT of the remote and decrypt them with what is in
-            # .env. The synthetic run below proves the scripts execute; it cannot tell you that
-            # the passphrase on this host still opens the dumps sitting in the bucket, which is
-            # the single fact the whole item rests on.
+            # actually exist: read them back OUT of the remote, decrypt with .env's real
+            # passphrase, restore, and reconcile against the restored ledger. The synthetic run
+            # below proves the scripts execute; it cannot tell you that the passphrase on this
+            # host still opens the dumps sitting in the bucket, nor that what comes back out of
+            # them still adds up.
             #
-            # `|| true` on the grep: a key that is absent is an empty answer, not a failure, and
-            # under `set -euo pipefail` a grep matching nothing inside a command substitution
-            # kills the script with no output. That exact shape broke the first rehearsal.
-            REMOTE="$(grep -E '^BACKUP_REMOTE=' .env 2>/dev/null | head -1 | cut -d= -f2- || true)"
-            if [ -z "$REMOTE" ]; then
-              echo "ABORT: BACKUP_REMOTE is not set, so there is no off-host copy to restore."
-              exit 1
-            fi
-
-            echo "=== restoring the newest OFF-HOST dumps from $REMOTE, with the real passphrase ==="
-            for prefix in treasury orchestrator; do
-              # Names carry a sortable UTC stamp, so lexical order is chronological order.
-              NAME="$(rclone lsf "$REMOTE" --include "$prefix-*.dump.enc" | sort | tail -1)"
-              if [ -z "$NAME" ]; then
-                echo "ABORT: no $prefix dump in $REMOTE. Run the backup workflow first."
-                exit 1
-              fi
-              echo ""
-              echo "--- $NAME"
-              rclone copy "$REMOTE/$NAME" "$REHEARSAL_DIR" --no-traverse
-              # No BACKUP_PASSPHRASE override: the script takes it from .env, which is the point.
-              DROP_AFTER=1 bash scripts/restore-treasury-db.sh "$REHEARSAL_DIR/$NAME"
-            done
-
-            echo ""
-            echo "=== off-host restore complete ==="
-            echo "Proven: the dumps in the remote are fetchable, and .env's passphrase decrypts them."
-            echo "Still open for D1: reconciliation run green against a restored ledger."
+            # The work lives in scripts/ deliberately. Inline blocks here have failed three times
+            # in ways that contradicted their own source, because what bash received was not what
+            # the workflow contained.
+            bash scripts/verify-restored-ledger.sh
             exit 0
           fi
 
