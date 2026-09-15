@@ -49,6 +49,24 @@ Setting up `rclone` on the host is a one-time `rclone config` against whatever o
 prefer. rclone rather than a provider CLI so the destination stays a decision rather than a
 dependency.
 
+**Scope the credential to the one bucket, and expect the 403 that causes.** rclone verifies a
+bucket exists before uploading into it; a token scoped to a single bucket cannot list buckets
+account-wide, so rclone concludes the bucket is missing and attempts `CreateBucket`, which comes
+back as `403 AccessDenied` and reads exactly like a bad key. `--no-check-bucket` on both copies is
+the fix and is already in the script. Do not widen the token to admin to make it go away — that
+discards the reason for scoping it.
+
+Grant delete only if something needs it; nothing here does. The script never runs `rclone sync`
+and its retention prune is a local `rm`, so a write-only credential means whoever owns the host
+can add backups but not erase the ones already off it. The remote then grows unbounded, which at
+roughly 45 KB a day is about 16 MB a year.
+
+Stage uses Cloudflare R2 (`r2:clutch-treasury-backups`, account API token, Object Read & Write
+scoped to that bucket). Two notes for anyone reproducing it: the endpoint rclone wants is
+`https://<account-id>.r2.cloudflarestorage.com` with **no** bucket path, though the dashboard
+displays it with one; and `rclone config` must run as the same user the deploy SSHes in as, since
+the config lives in that user's home.
+
 ## The rehearsal, which is what actually closes D1
 
 A dump nobody has restored is a hypothesis. Run this, then record the date in
