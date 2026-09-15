@@ -20,6 +20,14 @@ on:
       confirm:
         description: 'Type "rehearse" to run the backup and restore rehearsal'
         required: true
+      source:
+        description: 'synthetic = fresh dump, ephemeral passphrase (tests the scripts). remote = newest off-host dump, real passphrase (tests the backups that exist).'
+        required: false
+        default: synthetic
+        type: choice
+        options:
+          - synthetic
+          - remote
 
 concurrency:
   group: rehearse-restore
@@ -60,12 +68,51 @@ jobs:
           cd "${{ secrets.STAGE_DEPLOY_PATH }}"
           git pull --ff-only origin main
 
-          # Ephemeral, never echoed, never written to .env. Lives for this shell only.
-          REHEARSAL_PASSPHRASE="$(openssl rand -base64 48)"
           REHEARSAL_DIR="$(mktemp -d)"
           # Remove the dumps even if a step below fails, so an encrypted copy of the whole
           # ledger is never left lying in a temp directory.
           trap 'rm -rf "$REHEARSAL_DIR"' EXIT
+
+          if [ "${{ inputs.source }}" = "remote" ]; then
+            # The disaster path, and the only version that proves anything about the backups that
+            # actually exist: read them back OUT of the remote and decrypt them with what is in
+            # .env. The synthetic run below proves the scripts execute; it cannot tell you that
+            # the passphrase on this host still opens the dumps sitting in the bucket, which is
+            # the single fact the whole item rests on.
+            #
+            # `|| true` on the grep: a key that is absent is an empty answer, not a failure, and
+            # under `set -euo pipefail` a grep matching nothing inside a command substitution
+            # kills the script with no output. That exact shape broke the first rehearsal.
+            REMOTE="$(grep -E '^BACKUP_REMOTE=' .env 2>/dev/null | head -1 | cut -d= -f2- || true)"
+            if [ -z "$REMOTE" ]; then
+              echo "ABORT: BACKUP_REMOTE is not set, so there is no off-host copy to restore."
+              exit 1
+            fi
+
+            echo "=== restoring the newest OFF-HOST dumps from $REMOTE, with the real passphrase ==="
+            for prefix in treasury orchestrator; do
+              # Names carry a sortable UTC stamp, so lexical order is chronological order.
+              NAME="$(rclone lsf "$REMOTE" --include "$prefix-*.dump.enc" | sort | tail -1)"
+              if [ -z "$NAME" ]; then
+                echo "ABORT: no $prefix dump in $REMOTE. Run the backup workflow first."
+                exit 1
+              fi
+              echo ""
+              echo "--- $NAME"
+              rclone copy "$REMOTE/$NAME" "$REHEARSAL_DIR" --no-traverse
+              # No BACKUP_PASSPHRASE override: the script takes it from .env, which is the point.
+              DROP_AFTER=1 bash scripts/restore-treasury-db.sh "$REHEARSAL_DIR/$NAME"
+            done
+
+            echo ""
+            echo "=== off-host restore complete ==="
+            echo "Proven: the dumps in the remote are fetchable, and .env's passphrase decrypts them."
+            echo "Still open for D1: reconciliation run green against a restored ledger."
+            exit 0
+          fi
+
+          # Ephemeral, never echoed, never written to .env. Lives for this shell only.
+          REHEARSAL_PASSPHRASE="$(openssl rand -base64 48)"
 
           echo "=== 1/3 backup into a temp directory ==="
           BACKUP_PASSPHRASE="$REHEARSAL_PASSPHRASE" \
