@@ -835,6 +835,15 @@ if [ "$PROBE" = "metrics" ]; then
   # glob matching nothing is not an error, so a missing mount reports zero rules and no complaint.
   # Zero groups here means every alert in config/monitoring/prometheus/rules/ silently does not
   # exist — the same failure the nginx config taught this repo to check for rather than assume.
+  echo "=== Alertmanager container state ==="
+  # Same treatment Prometheus gets, and for the same reason: a rules file that evaluates perfectly
+  # and an Alertmanager that will not start are indistinguishable from outside, and both read as
+  # "no alerts". Its own log is the only thing that says which.
+  docker inspect clutch-stage-alertmanager-1     --format '    state={{.State.Status}} exit={{.State.ExitCode}} restarts={{.RestartCount}} error={{.State.Error}}' 2>/dev/null     || echo "    (no alertmanager container)"
+  echo "    --- last 15 log lines ---"
+  docker logs --tail 15 clutch-stage-alertmanager-1 2>&1 | sed 's/^/    /' || true
+
+  echo ""
   echo "=== alerting rules Prometheus has loaded ==="
   prom_get '/api/v1/rules' | tr ',' '
 ' | grep -E '"name"|"state"|"health"' | sed 's/^/    /' \

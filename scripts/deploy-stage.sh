@@ -133,7 +133,11 @@ if [ -n "$ALERT_TELEGRAM_BOT_TOKEN" ] && [ -n "$ALERT_TELEGRAM_CHAT_ID" ]; then
   echo "Alertmanager: Telegram destination configured from .env"
 else
   printf '%s' 'placeholder-no-telegram-bot-token-configured' > config/monitoring/alertmanager/telegram-token
-  sed "s/__TELEGRAM_CHAT_ID__/0/"     config/monitoring/alertmanager/alertmanager.yml.tpl     > config/monitoring/alertmanager/alertmanager.yml
+  # Delete the whole telegram block rather than rendering a placeholder chat_id into it. A
+  # receiver with no integrations is valid and drops silently; a chat_id of 0 is refused by
+  # Alertmanager's own config validation, which crash-loops the container and makes "nobody has
+  # chosen a destination yet" look like an outage. Shipped that way once.
+  sed '/__TELEGRAM_BEGIN__/,/__TELEGRAM_END__/d'     config/monitoring/alertmanager/alertmanager.yml.tpl     > config/monitoring/alertmanager/alertmanager.yml
   echo "Alertmanager: ALERT_TELEGRAM_BOT_TOKEN/CHAT_ID not set in .env — rules will fire and reach nobody."
   echo "  Readiness item D3 is not closed by having the rules. Set them, then force a failure to test."
 fi
