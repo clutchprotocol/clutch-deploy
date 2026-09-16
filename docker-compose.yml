@@ -134,6 +134,30 @@ services:
       - "--web.enable-lifecycle"
     restart: unless-stopped
 
+  # Delivers what Prometheus evaluates. Readiness items D3 and D4.
+  #
+  # Nothing depends on this and it depends on nothing: a monitoring container must never be able to
+  # take the money stack with it, and an unconfigured destination must never look like an outage.
+  # Unreachable, alerts pile up in Prometheus exactly as they did before it existed.
+  #
+  # The webhook URL is NOT in the image or the config. `alertmanager.yml` reads it from
+  # /etc/alertmanager/webhook-url, which deploy-stage.sh writes from the host's ALERT_WEBHOOK_URL.
+  # Routing stays in git, the secret stays in .env.
+  alertmanager:
+    image: prom/alertmanager:v0.27.0
+    networks:
+      - clutch-network
+    ports:
+      - "9093:9093"
+    volumes:
+      - alertmanager-data:/alertmanager
+      - ./config/monitoring/alertmanager/alertmanager.yml:/etc/alertmanager/alertmanager.yml:ro
+      - ./config/monitoring/alertmanager/webhook-url:/etc/alertmanager/webhook-url:ro
+    command:
+      - "--config.file=/etc/alertmanager/alertmanager.yml"
+      - "--storage.path=/alertmanager"
+    restart: unless-stopped
+
   # Grafana - dashboards 
   grafana:
     image: grafana/grafana
@@ -318,6 +342,9 @@ volumes:
   grafana-data:
     driver: local
   prometheus-data:
+    driver: local
+  # Silences and the notification log, so a restart does not re-send every firing alert.
+  alertmanager-data:
     driver: local
   clutch-explorer-postgres-data:
     driver: local

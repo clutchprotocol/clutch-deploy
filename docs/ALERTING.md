@@ -63,24 +63,50 @@ around two minutes to replay the TSDB write-ahead log, and Docker reports `creat
 of it. So `created` immediately after a deploy is not evidence of anything. Check again before
 investigating, and read the timestamps in the container's own logs rather than the state word.
 
-## What is missing
+## Delivery
 
-**A destination.** These rules fire into Prometheus's own alert list and Grafana's UI, and stop
-there. Nothing pages anybody. Two ways to finish it, and the choice is about what you already
-carry a pager for:
+**Alertmanager is wired in.** Prometheus posts firing rules to `alertmanager:9093`
+(`alerting.alertmanagers` in `prometheus.yml`), and `config/monitoring/alertmanager/alertmanager.yml`
+routes them. Grafana contact points were the alternative; Alertmanager won because the routing is
+reviewable in git and survives losing the Grafana volume.
 
-1. **Grafana contact points.** Grafana is already running and already has Prometheus as a
-   datasource. Add a contact point (email, Slack, webhook, Telegram) and a notification policy in
-   the UI, then point the alert rules at it. Least new infrastructure; the configuration lives in
-   Grafana's database rather than in this repo, which is the trade.
-2. **Alertmanager.** A fourth monitoring container, an `alerting.alertmanagers` block in
-   `prometheus.yml`, and a routing config in this repo. More moving parts, but the routing is
-   reviewable in git and survives a Grafana volume being lost.
+What the routing does, and why:
 
-Either way, **test it by forcing a failure**, which is what closes D3. An alert route nobody has
-seen deliver is in exactly the same state the metrics were in before these rules existed. The
-cheapest forcing function: stop `treasury-service` for four minutes and confirm
-`TreasuryServiceDown` reaches you.
+- **One receiver.** A routing tree with branches nobody has tested is a way to send a critical
+  alert somewhere nobody reads. Split it when a second destination has been confirmed to receive.
+- **Grouped by alertname and severity**, not per-instance, so three nodes going down arrive as one
+  notification naming three instances.
+- **Criticals repeat hourly, everything else every four hours.** Long enough that a week-long
+  condition does not train you to filter the sender, short enough that a critical does not fall out
+  of mind after one message.
+- **Resolved notifications are sent.** Without them every alert has to be chased by hand to find
+  out whether it is still true.
+- **Two inhibit rules.** A service that is not answering scrapes drags its own derived alerts with
+  it — staleness, outbox depth, reconciliation age — so the notification should say "the service is
+  down", not bury that among its consequences. Same for a halted chain and every chain-derived
+  alert.
+
+**The destination is not in the repo.** `alertmanager.yml` reads it with `url_file` from a file
+`deploy-stage.sh` writes out of `.env`'s `ALERT_WEBHOOK_URL`. Alertmanager does no environment
+substitution, so a file is the only way to keep the routing in git and the URL — which is a
+credential for whatever it points at — in the one place this repo keeps secrets. Same split as the
+rclone remote for the backups.
+
+Any endpoint that accepts Alertmanager's POST body works: a Slack or Discord incoming webhook, an
+ntfy topic, a Telegram bridge, your own handler.
+
+Unset, the deploy writes a placeholder that resolves nowhere, Alertmanager starts normally, and
+delivery fails visibly in its own log. That is deliberate — a monitoring container that crash-loops
+because nobody has picked a destination would let the alerting stack look like an outage. It hangs
+off nothing else in the compose file for the same reason, and its port is `!reset` on stage because
+Alertmanager's UI takes no authentication and can create silences.
+
+## What is still missing
+
+**A forced failure.** Wiring is not delivery. An alert route nobody has seen deliver is in exactly
+the same state the metrics were in before these rules existed, and D3 closes on evidence rather
+than on configuration. The cheapest forcing function: stop `treasury-service` for four minutes and
+confirm `TreasuryServiceDown` reaches you.
 
 ## One threshold that encodes a capacity limit
 
