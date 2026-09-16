@@ -104,28 +104,40 @@ if [ "$TREASURY" = "true" ] && grep -q '^USDT_CONTRACT=TXLAQ63Xg1NAzckPwKHvzw7CS
   exit 1
 fi
 
-# Alertmanager's destination, written from .env into the file its config reads with `url_file`.
+# Alertmanager's destination. Telegram needs a bot token AND a chat id, and only the token can be
+# read from a file (`bot_token_file`) -- `chat_id` has to sit in the config itself. So the config is
+# a TEMPLATE here and the rendered alertmanager.yml is gitignored, which keeps both values out of a
+# public repository while the routing stays reviewable in git.
 #
-# This shape keeps the routing — which alert goes where, how often it repeats — reviewable in git
-# while the URL, which is a credential for whatever it points at, stays in the one place this repo
-# keeps secrets. Alertmanager does no environment substitution of its own, so a file is the only
-# way to have both.
-#
-# Always written, even unset: the mount is declared in compose, and a missing bind source makes
-# Docker create a DIRECTORY at that path, after which Alertmanager fails to start for a reason that
-# reads nothing like "nobody has chosen a destination yet". The placeholder resolves nowhere, so
-# delivery fails visibly in Alertmanager's own log instead.
-ALERT_WEBHOOK_URL="$(grep -E '^ALERT_WEBHOOK_URL=' .env 2>/dev/null | head -1 | cut -d= -f2- | sed -e 's/^"//' -e 's/"$//' || true)"
+# Both are always written, even unset. A missing bind source makes Docker create a DIRECTORY at that
+# path, after which Alertmanager fails to start for a reason that reads nothing like "nobody has
+# chosen a destination yet". Placeholders fail visibly in Alertmanager's own log instead.
+env_value() {
+  grep -E "^$1=" .env 2>/dev/null | head -1 | cut -d= -f2- | sed -e 's/^"//' -e 's/"$//' || true
+}
+ALERT_TELEGRAM_BOT_TOKEN="$(env_value ALERT_TELEGRAM_BOT_TOKEN)"
+ALERT_TELEGRAM_CHAT_ID="$(env_value ALERT_TELEGRAM_CHAT_ID)"
 mkdir -p config/monitoring/alertmanager
-if [ -n "$ALERT_WEBHOOK_URL" ]; then
-  printf '%s' "$ALERT_WEBHOOK_URL" > config/monitoring/alertmanager/webhook-url
-  echo "Alertmanager: destination configured from .env"
+
+if [ -n "$ALERT_TELEGRAM_BOT_TOKEN" ] && [ -n "$ALERT_TELEGRAM_CHAT_ID" ]; then
+  printf '%s' "$ALERT_TELEGRAM_BOT_TOKEN" > config/monitoring/alertmanager/telegram-token
+  # A chat id is digits and an optional leading minus (groups are negative). Validated because it is
+  # substituted into a config file, and because a malformed one makes Alertmanager refuse to start
+  # -- which would take the alerting stack down over a typo.
+  if ! printf '%s' "$ALERT_TELEGRAM_CHAT_ID" | grep -qE '^-?[0-9]+$'; then
+    echo "DEPLOY ABORTED — ALERT_TELEGRAM_CHAT_ID is not a number: $ALERT_TELEGRAM_CHAT_ID"
+    echo "  Telegram chat ids are digits, negative for groups. Nothing was changed."
+    exit 1
+  fi
+  sed "s/__TELEGRAM_CHAT_ID__/$ALERT_TELEGRAM_CHAT_ID/"     config/monitoring/alertmanager/alertmanager.yml.tpl     > config/monitoring/alertmanager/alertmanager.yml
+  echo "Alertmanager: Telegram destination configured from .env"
 else
-  printf '%s' 'http://alerts-have-no-destination.invalid/' > config/monitoring/alertmanager/webhook-url
-  echo "Alertmanager: ALERT_WEBHOOK_URL is not set in .env — rules will fire and reach nobody."
-  echo "  Readiness item D3 is not closed by having the rules. Set it, then force a failure to test."
+  printf '%s' 'placeholder-no-telegram-bot-token-configured' > config/monitoring/alertmanager/telegram-token
+  sed "s/__TELEGRAM_CHAT_ID__/0/"     config/monitoring/alertmanager/alertmanager.yml.tpl     > config/monitoring/alertmanager/alertmanager.yml
+  echo "Alertmanager: ALERT_TELEGRAM_BOT_TOKEN/CHAT_ID not set in .env — rules will fire and reach nobody."
+  echo "  Readiness item D3 is not closed by having the rules. Set them, then force a failure to test."
 fi
-chmod 600 config/monitoring/alertmanager/webhook-url
+chmod 600 config/monitoring/alertmanager/telegram-token
 
 # The stage overlay MUST stay last of the port-bearing files: compose MERGES port
 # lists, and its `ports: !reset []` entries are what keep the orchestrator (8091) off

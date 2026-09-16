@@ -86,17 +86,34 @@ What the routing does, and why:
   down", not bury that among its consequences. Same for a halted chain and every chain-derived
   alert.
 
-**The destination is not in the repo.** `alertmanager.yml` reads it with `url_file` from a file
-`deploy-stage.sh` writes out of `.env`'s `ALERT_WEBHOOK_URL`. Alertmanager does no environment
-substitution, so a file is the only way to keep the routing in git and the URL — which is a
-credential for whatever it points at — in the one place this repo keeps secrets. Same split as the
-rclone remote for the backups.
+**The destination is Telegram, and neither value is in the repo.** `alertmanager.yml.tpl` is the
+committed config; `deploy-stage.sh` renders `alertmanager.yml` from it with the chat id substituted
+from `.env`, and writes the bot token to its own file for `bot_token_file`. Both outputs are
+gitignored.
 
-Any endpoint that accepts Alertmanager's POST body works: a Slack or Discord incoming webhook, an
-ntfy topic, a Telegram bridge, your own handler.
+A template rather than one secret file beside a committed config, because Telegram needs two values
+and only the token can be read from a file — `chat_id` has to sit in the config itself. Neither
+belongs in a public repository: the token lets anyone post as the bot, and the chat id identifies
+the operator's own chat.
 
-Unset, the deploy writes a placeholder that resolves nowhere, Alertmanager starts normally, and
-delivery fails visibly in its own log. That is deliberate — a monitoring container that crash-loops
+Getting the two values: message `@BotFather`, `/newbot`, keep the token. Then send your new bot any
+message and read `chat.id` from `https://api.telegram.org/bot<TOKEN>/getUpdates` — negative for a
+group. **The bot cannot message you until you have written to it first**, which is Telegram's
+design and the most common reason a correct-looking setup delivers nothing.
+
+**`parse_mode` is empty on purpose.** Under HTML or Markdown, Telegram *rejects* a message
+containing an unescaped `<`, `>` or `_` — and these descriptions contain all three ("more than 5
+unswept addresses", `latest_block{block_hash}`, `bound <= cursor`). A rejected message is an alert
+that does not arrive, which is the single failure this file exists to prevent. Bold text is not
+worth it.
+
+A raw Slack or Discord incoming webhook does **not** work with `webhook_configs`, which was the
+first shape tried here: Alertmanager posts its own `{"receiver":…,"alerts":[…]}` document and Slack
+answers `invalid_payload` because it wants `{"text":…}`. Those platforms need Alertmanager's native
+`slack_configs`, not a generic URL.
+
+Unset, the deploy renders placeholders, Alertmanager starts normally, and delivery fails visibly in
+its own log. That is deliberate — a monitoring container that crash-loops
 because nobody has picked a destination would let the alerting stack look like an outage. It hangs
 off nothing else in the compose file for the same reason, and its port is `!reset` on stage because
 Alertmanager's UI takes no authentication and can create silences.
