@@ -62,6 +62,16 @@ route:
 
 receivers:
   - name: default
+    # Everything between the markers is deleted by deploy-stage.sh when no Telegram credentials are
+    # set, leaving a receiver with no integrations at all. That is a valid Alertmanager receiver and
+    # it drops silently, which is the correct unconfigured behaviour: alerts still evaluate, still
+    # show in Prometheus, and reach nobody.
+    #
+    # The first attempt rendered a placeholder chat_id instead, and Alertmanager refused the config
+    # and crash-looped — turning "nobody has picked a destination yet" into a container that looks
+    # like an outage, which is the exact thing the header comment says must not happen. A
+    # placeholder has to satisfy validation to be a placeholder.
+    # __TELEGRAM_BEGIN__
     telegram_configs:
       - bot_token_file: /etc/alertmanager/telegram-token
         chat_id: __TELEGRAM_CHAT_ID__
@@ -82,6 +92,7 @@ receivers:
           {{ .Annotations.description }}{{ end }}{{ if .Labels.instance }}
           instance: {{ .Labels.instance }}{{ end }}
           {{ end }}
+    # __TELEGRAM_END__
 
 inhibit_rules:
   # A service that is not answering scrapes will drag its own derived alerts with it: staleness,
