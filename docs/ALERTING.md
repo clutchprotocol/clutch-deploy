@@ -118,12 +118,44 @@ because nobody has picked a destination would let the alerting stack look like a
 off nothing else in the compose file for the same reason, and its port is `!reset` on stage because
 Alertmanager's UI takes no authentication and can create silences.
 
+## Delivery is proven, 2026-09-16
+
+A synthetic alert sent with `test-alert-route.yml` arrived on Telegram, FIRING and then RESOLVED.
+That covers every silent failure mode in the receiver half: bot reachability, chat id, token,
+message format, file permissions.
+
+**It took three attempts, and each failure was invisible from outside.**
+
+1. A placeholder `chat_id: 0` crash-looped the container. Visible only in container state.
+2. A generic `webhook_configs` could never have worked with Slack or Discord — Alertmanager posts
+   its own JSON document and those want `{"text":…}`.
+3. `chmod 600` owned by root, against an image that runs as `nobody` (65534): `permission denied`
+   on every notification. Visible only in Alertmanager's own log — which the `metrics` probe had
+   been printing for exactly one commit when it was needed.
+
+Alert accepted, alert active, nothing delivered, no error anywhere anyone looks. That is the whole
+argument for a workflow that sends something through the real route rather than trusting that the
+configuration is right.
+
 ## What is still missing
 
-**A forced failure.** Wiring is not delivery. An alert route nobody has seen deliver is in exactly
-the same state the metrics were in before these rules existed, and D3 closes on evidence rather
-than on configuration. The cheapest forcing function: stop `treasury-service` for four minutes and
-confirm `TreasuryServiceDown` reaches you.
+**A real firing rule.** The test alert is posted straight to Alertmanager's API, *past* Prometheus's
+rule evaluation, so it says nothing about whether Prometheus delivers when a rule actually fires.
+`PROBE=metrics` now lists the alertmanagers Prometheus has discovered, which proves the wiring
+exists; it does not prove a POST happens.
+
+The forcing function is two commands on the host, and needs no workflow:
+
+```bash
+docker stop clutch-stage-treasury-service-1   # wait 4 minutes
+docker start clutch-stage-treasury-service-1
+```
+
+`TreasuryServiceDown` has `for: 3m`, so four minutes clears it with margin. A `FIRING` message
+followed by a `RESOLVED` one closes the delivery half of D3 and D4 completely.
+
+Deliberately not a workflow: a tool that stops production services would be dangerous shaped, and
+this is a one-time verification an operator with SSH can do in two lines.
 
 ## One threshold that encodes a capacity limit
 
