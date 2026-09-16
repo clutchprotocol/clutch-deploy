@@ -1,0 +1,61 @@
+# Send one synthetic alert through the real route, to prove it delivers.
+#
+# Readiness items D3 and D4 close on a TESTED route, not a configured one. Every failure in this
+# path is silent from outside: a Telegram bot that has never been messaged first simply refuses to
+# deliver, a chat id off by a digit goes nowhere, a revoked token fails quietly, and a message with
+# an unescaped character is rejected rather than sent. None of them surface where anyone looks.
+#
+# Worth re-running after anything that touches the alerting path, and periodically regardless — a
+# route that worked once and has since been silently broken is the same as no route, and the only
+# way to tell them apart is to send something.
+#
+# Touches nothing in the stack. The alert resolves itself after four minutes.
+
+name: Test the alert route (stage)
+
+on:
+  workflow_dispatch:
+    inputs:
+      confirm:
+        description: 'Type "test" to send a synthetic alert to whatever the alert route points at'
+        required: true
+        default: ""
+
+concurrency:
+  group: test-alert-route
+  cancel-in-progress: false
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check the confirmation
+        run: |
+          if [ "${{ inputs.confirm }}" != "test" ]; then
+            echo "::error::confirm must be exactly 'test' — got '${{ inputs.confirm }}'"
+            exit 1
+          fi
+
+      - name: Send via SSH
+        env:
+          SSHPASS: ${{ secrets.STAGE_SSH_PASSWORD }}
+          CLUTCH_SSH_HOST: ${{ secrets.STAGE_HOST }}
+          CLUTCH_SSH_USER: ${{ secrets.STAGE_USER }}
+        run: |
+          # Plain ssh, not appleboy/ssh-action: that action downloads a drone-ssh binary from
+          # GitHub releases on every run, and on 2026-09-14 that CDN 504'd six times and failed a
+          # deploy. The script travels as a FILE, which is also one fewer quoting layer.
+          set -euo pipefail
+          command -v sshpass >/dev/null || { sudo apt-get update -qq && sudo apt-get install -y -qq sshpass; }
+          R="/tmp/clutch-ci-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
+          SSH_OPTS="-o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o ConnectTimeout=30 -o ServerAliveInterval=30"
+          cat > "$RUNNER_TEMP/clutch-remote.sh" <<'CLUTCH_REMOTE_EOF'
+          set -euo pipefail
+          cd "${{ secrets.STAGE_DEPLOY_PATH }}"
+          git pull --ff-only origin main
+          bash scripts/test-alert-route.sh
+          CLUTCH_REMOTE_EOF
+          sshpass -e ssh $SSH_OPTS "$CLUTCH_SSH_USER@$CLUTCH_SSH_HOST" "cat > $R.sh" < "$RUNNER_TEMP/clutch-remote.sh"
+          # Old files from earlier runs are swept here rather than in a cleanup step that
+          # a cancelled job would skip.
+          timeout 10m sshpass -e ssh $SSH_OPTS "$CLUTCH_SSH_USER@$CLUTCH_SSH_HOST" "find /tmp -maxdepth 1 -name 'clutch-ci-*' -mtime +1 -delete 2>/dev/null; bash $R.sh"
