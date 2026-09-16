@@ -140,9 +140,9 @@ services:
   # take the money stack with it, and an unconfigured destination must never look like an outage.
   # Unreachable, alerts pile up in Prometheus exactly as they did before it existed.
   #
-  # The webhook URL is NOT in the image or the config. `alertmanager.yml` reads it from
-  # /etc/alertmanager/webhook-url, which deploy-stage.sh writes from the host's ALERT_WEBHOOK_URL.
-  # Routing stays in git, the secret stays in .env.
+  # Neither Telegram value is in the image or in git. deploy-stage.sh renders alertmanager.yml from
+  # the committed .tpl (substituting the chat id) and writes the bot token to its own file, both
+  # from the host's .env. Routing stays reviewable in git; the credentials stay in .env.
   alertmanager:
     image: prom/alertmanager:v0.27.0
     networks:
@@ -152,7 +152,7 @@ services:
     volumes:
       - alertmanager-data:/alertmanager
       - ./config/monitoring/alertmanager/alertmanager.yml:/etc/alertmanager/alertmanager.yml:ro
-      - ./config/monitoring/alertmanager/webhook-url:/etc/alertmanager/webhook-url:ro
+      - ./config/monitoring/alertmanager/telegram-token:/etc/alertmanager/telegram-token:ro
     command:
       - "--config.file=/etc/alertmanager/alertmanager.yml"
       - "--storage.path=/alertmanager"

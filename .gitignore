@@ -22,6 +22,8 @@ Thumbs.db
 # whole off-chain ledger — never committable.
 backups/
 
-# Written by deploy-stage.sh from ALERT_WEBHOOK_URL. Holds a URL, which is a credential for
-# whatever it points at, so it is never committed.
-config/monitoring/alertmanager/webhook-url
+# Both written by deploy-stage.sh from .env. The token lets anyone post as the bot; the rendered
+# config carries the chat id, which identifies the operator's own chat. The .tpl beside them is the
+# committed one.
+config/monitoring/alertmanager/telegram-token
+config/monitoring/alertmanager/alertmanager.yml
