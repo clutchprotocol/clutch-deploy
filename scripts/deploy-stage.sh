@@ -141,7 +141,22 @@ else
   echo "Alertmanager: ALERT_TELEGRAM_BOT_TOKEN/CHAT_ID not set in .env — rules will fire and reach nobody."
   echo "  Readiness item D3 is not closed by having the rules. Set them, then force a failure to test."
 fi
+# The token file has to be readable BY ALERTMANAGER, which runs as nobody (65534) in the official
+# image — not by whoever ran the deploy. Mode 600 owned by root is the obvious hardening and it
+# makes the container fail with "permission denied" on every notification, which reads as a broken
+# route rather than as a permissions mistake. Found exactly that way.
+#
+# chown keeps the file unreadable to other users on the host. It needs root, so a deploy running as
+# anything else falls back to 644 and says what that costs: the token becomes readable by any local
+# user, which at worst lets them post fake alerts to the one chat it can reach.
 chmod 600 config/monitoring/alertmanager/telegram-token
+if chown 65534:65534 config/monitoring/alertmanager/telegram-token 2>/dev/null; then
+  :
+else
+  chmod 644 config/monitoring/alertmanager/telegram-token
+  echo "Alertmanager: could not chown the token to uid 65534, fell back to mode 644."
+  echo "  Any local user on this host can now read the bot token. Re-run the deploy as root to fix."
+fi
 
 # The stage overlay MUST stay last of the port-bearing files: compose MERGES port
 # lists, and its `ports: !reset []` entries are what keep the orchestrator (8091) off
