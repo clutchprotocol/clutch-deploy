@@ -18,6 +18,11 @@ services:
   prometheus:
     ports: !reset []
 
+  # Alertmanager's UI takes no authentication and can create silences, so a published 9093 is
+  # a public mute button on every alert this stack raises.
+  alertmanager:
+    ports: !reset []
+
   grafana:
     ports: !reset []
     environment:

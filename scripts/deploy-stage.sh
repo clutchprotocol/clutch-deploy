@@ -104,6 +104,29 @@ if [ "$TREASURY" = "true" ] && grep -q '^USDT_CONTRACT=TXLAQ63Xg1NAzckPwKHvzw7CS
   exit 1
 fi
 
+# Alertmanager's destination, written from .env into the file its config reads with `url_file`.
+#
+# This shape keeps the routing — which alert goes where, how often it repeats — reviewable in git
+# while the URL, which is a credential for whatever it points at, stays in the one place this repo
+# keeps secrets. Alertmanager does no environment substitution of its own, so a file is the only
+# way to have both.
+#
+# Always written, even unset: the mount is declared in compose, and a missing bind source makes
+# Docker create a DIRECTORY at that path, after which Alertmanager fails to start for a reason that
+# reads nothing like "nobody has chosen a destination yet". The placeholder resolves nowhere, so
+# delivery fails visibly in Alertmanager's own log instead.
+ALERT_WEBHOOK_URL="$(grep -E '^ALERT_WEBHOOK_URL=' .env 2>/dev/null | head -1 | cut -d= -f2- | sed -e 's/^"//' -e 's/"$//' || true)"
+mkdir -p config/monitoring/alertmanager
+if [ -n "$ALERT_WEBHOOK_URL" ]; then
+  printf '%s' "$ALERT_WEBHOOK_URL" > config/monitoring/alertmanager/webhook-url
+  echo "Alertmanager: destination configured from .env"
+else
+  printf '%s' 'http://alerts-have-no-destination.invalid/' > config/monitoring/alertmanager/webhook-url
+  echo "Alertmanager: ALERT_WEBHOOK_URL is not set in .env — rules will fire and reach nobody."
+  echo "  Readiness item D3 is not closed by having the rules. Set it, then force a failure to test."
+fi
+chmod 600 config/monitoring/alertmanager/webhook-url
+
 # The stage overlay MUST stay last of the port-bearing files: compose MERGES port
 # lists, and its `ports: !reset []` entries are what keep the orchestrator (8091) off
 # this box's public interface.
