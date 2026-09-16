@@ -23,11 +23,23 @@ note() { printf '  %s\n' "$1"; }
 ok()   { printf 'OK    %s\n' "$1"; }
 bad()  { printf 'FAIL  %s\n' "$1"; fail=1; }
 
-# .env if present, else the compose default. Read by grep rather than sourced: sourcing executes
-# whatever is in .env and would pull DEPOSIT_MNEMONIC into this script's environment for no reason.
+# The process environment first, then .env, then the compose default.
+#
+# The environment comes first so a cap set can be checked BEFORE the host that will run it exists:
+#
+#   PER_TX_MINT_CAP_CLT=1000000000 DAILY_MINT_CAP_CLT=2000000000 #     MAX_REDEMPTION_CLT=200000000 PER_TX_PAYOUT_CAP_USDT=200000000 #     MIN_REDEMPTION_CLT=25000000 bash scripts/check-cap-invariants.sh
+#
+# That is what readiness item B4 needs and could not have: the mainnet numbers are decided long
+# before there is a mainnet `.env` to put them in, and "we will check the relationships when we
+# provision it" is how a set gets provisioned unchecked.
+#
+# .env is read by grep rather than sourced: sourcing executes whatever is in it and would pull
+# DEPOSIT_MNEMONIC into this script's environment for no reason.
 val() {
   local name="$1" default="$2" v=""
-  if [ -f .env ]; then
+  # Indirect expansion, empty if unset — so an exported value wins without `set -u` killing us.
+  v="${!name-}"
+  if [ -z "$v" ] && [ -f .env ]; then
     v=$(grep -E "^$name=" .env | head -1 | cut -d= -f2- | sed -e 's/^"//' -e 's/"$//' || true)
   fi
   printf '%s' "${v:-$default}"
