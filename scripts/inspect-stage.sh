@@ -856,6 +856,12 @@ if [ "$PROBE" = "metrics" ]; then
   #
   # Read them as: blocks produced in 5m (0 is the halt condition), the spread between the fastest
   # and slowest node, how many nodes publish the hash-labelled series, and how many are down.
+  #
+  # `or vector(0)` on the last one is not decoration. `count()` over an empty vector returns
+  # EMPTY, not zero, so "every node is up" printed as "(no sample yet)" — identical to the output
+  # of a rule that can never match, which is the exact ambiguity these lines exist to remove. The
+  # rule itself is fine: ChainNodeDown selects `up == 0` directly and that shape was watched firing
+  # for TreasuryServiceDown on 2026-09-17.
   echo "=== alertmanagers Prometheus has discovered ==="
   docker exec clutch-stage-prometheus-1 wget -qO- http://localhost:9090/api/v1/alertmanagers 2>/dev/null     | tr ',' '
 ' | grep -E 'url|activeAlertmanagers' | sed 's/^/    /'     || echo "    (could not ask Prometheus)"
@@ -881,7 +887,7 @@ if [ "$PROBE" = "metrics" ]; then
   # "unreachable" on its own pipeline quirk while the target list says the target is up.
   # The same expressions the Grafana Treasury row uses, so this probe and the dashboard cannot
   # drift into disagreeing about what the numbers are.
-  for q in clutch_treasury_up clutch_treasury_minting_halted            'clutch_treasury_clt_liability / 1000000'            'clutch_treasury_custody_usdt / 1000000'            '100 * clutch_treasury_custody_usdt / clamp_min(clutch_treasury_clt_liability, 1)'            'clutch_treasury_mint_intents{status="credited"}'            'sum(clutch_treasury_mint_intents{status="needs_manual"}) + sum(clutch_orchestrator_deposit_intents{status="needs_manual"})'            clutch_treasury_unswept_deposit_addresses            'clutch_treasury_reconciliation_status{status="ok"}'            clutch_treasury_reconciliation_age_seconds            'sum(increase(clutch_treasury_alerts_total{severity="p1"}[24h])) + sum(increase(clutch_orchestrator_alerts_total{severity="p1"}[24h]))'            clutch_orchestrator_up            clutch_orchestrator_addresses_never_polled            clutch_treasury_chain_cursor_height            'max(latest_block_index)'            'clutch_treasury_chain_cursor_height - scalar(max(latest_block_index))'            'max(delta(latest_block_index[5m]))'            'max(latest_block_index) - min(latest_block_index)'            'count(latest_block)'            'count(up{job=~"node[0-9]+"} == 0)'; do
+  for q in clutch_treasury_up clutch_treasury_minting_halted            'clutch_treasury_clt_liability / 1000000'            'clutch_treasury_custody_usdt / 1000000'            '100 * clutch_treasury_custody_usdt / clamp_min(clutch_treasury_clt_liability, 1)'            'clutch_treasury_mint_intents{status="credited"}'            'sum(clutch_treasury_mint_intents{status="needs_manual"}) + sum(clutch_orchestrator_deposit_intents{status="needs_manual"})'            clutch_treasury_unswept_deposit_addresses            'clutch_treasury_reconciliation_status{status="ok"}'            clutch_treasury_reconciliation_age_seconds            'sum(increase(clutch_treasury_alerts_total{severity="p1"}[24h])) + sum(increase(clutch_orchestrator_alerts_total{severity="p1"}[24h]))'            clutch_orchestrator_up            clutch_orchestrator_addresses_never_polled            clutch_treasury_chain_cursor_height            'max(latest_block_index)'            'clutch_treasury_chain_cursor_height - scalar(max(latest_block_index))'            'max(delta(latest_block_index[5m]))'            'max(latest_block_index) - min(latest_block_index)'            'count(latest_block)'            'count(up{job=~"node[0-9]+"} == 0) or vector(0)'; do
     # '+' is a SPACE in form-encoded data, so any expression adding two terms arrived at
     # Prometheus mangled and came back empty -- which read as "no such metric" rather than "this
     # probe sent nonsense". Encode it.
