@@ -844,6 +844,15 @@ if [ "$PROBE" = "metrics" ]; then
   docker logs --tail 15 clutch-stage-alertmanager-1 2>&1 | sed 's/^/    /' || true
 
   echo ""
+  # The one link the alert-route test cannot prove: it posts straight to Alertmanager's API, past
+  # rule evaluation, so it says nothing about whether Prometheus knows where to send a rule that
+  # fires. An empty list here means every rule evaluates correctly and goes nowhere -- which looks
+  # exactly like no alerts, and is the same shape as a rules directory that was never mounted.
+  echo "=== alertmanagers Prometheus has discovered ==="
+  docker exec clutch-stage-prometheus-1 wget -qO- http://localhost:9090/api/v1/alertmanagers 2>/dev/null     | tr ',' '
+' | grep -E 'url|activeAlertmanagers' | sed 's/^/    /'     || echo "    (could not ask Prometheus)"
+
+  echo ""
   echo "=== alerting rules Prometheus has loaded ==="
   prom_get '/api/v1/rules' | tr ',' '
 ' | grep -E '"name"|"state"|"health"' | sed 's/^/    /' \
