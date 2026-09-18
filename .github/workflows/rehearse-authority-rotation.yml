@@ -52,11 +52,14 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      # Several services in the base file use `env_file: .env`, and compose parses the WHOLE file
-      # even when only some services are named. An empty one is enough; the node services read
-      # `environment:`, not `env_file:`.
-      - name: Give compose an .env to parse
-        run: touch .env
+      # Compose interpolates the WHOLE file even when only three services are named, so the two
+      # variables marked required (`:?`) must have values or it refuses to start anything. Neither
+      # is read by a node -- they belong to clutch-hub-api and grafana, which this never starts.
+      # Junk is the correct value here, and naming them junk keeps anyone from copying them.
+      - name: Give compose the variables it insists on
+        run: |
+          printf 'JWT_SECRET=not-a-real-secret-rotation-rehearsal-only\n' > .env
+          printf 'GRAFANA_ADMIN_PASSWORD=not-a-real-password-rotation-rehearsal-only\n' >> .env
 
       # latest_block_index off the Prometheus endpoint on 3001-3003 is the ONLY correct height
       # source, for the reasons clutch-deploy/CLAUDE.md records: node logs report the blocks a node
