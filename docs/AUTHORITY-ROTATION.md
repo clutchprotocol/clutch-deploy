@@ -26,6 +26,29 @@ block from a departed authority and rejects one from a new authority, so it will
 rest of the network accepts. **The set must change on every node together. Rotation is a
 coordinated restart, not a rolling one.**
 
+**That node does not stop, and this is the part that bites.** It rejects, over and over, and
+carries on running. Rehearsed on 2026-09-18 with one node's list merely reordered: it logged
+
+```
+Failed to add block to blockchain: "Block author verification failed:
+expected author 0x6fc11ba4..., but found 0x9b6e8aff..."
+```
+
+ten times in three minutes — and stayed level with the network the whole time, on the same chain.
+Every height compared by block hash was identical to the others', in both rehearsal runs. It did
+not fall behind, it did not halt, and it did not fork.
+
+So **the only signal is that log line.** No metric counts these rejections; `latest_block_index`
+kept climbing normally throughout. A container running a half-finished rotation looks healthy in
+the probe, in Grafana, and in the height figures, and only its own log says otherwise. Check
+`docker logs` for `author verification failed` after any rotation, and do not treat healthy
+heights as evidence the rotation landed.
+
+One caveat worth keeping in mind rather than relying on: this was two runs of a three-node network
+where the other two nodes agreed with each other. A mismatch that splits the set more evenly has
+not been rehearsed, and convergence should not be assumed to be guaranteed by anything — it is
+what was observed, not a property anyone designed.
+
 **2. The set size sets the block cadence.**
 `step_duration = 60 / authorities.len()` seconds. Three authorities own 20-second slots; five own
 12; six own 10. So adding or removing an authority is a consensus-timing change, not a roster edit.
@@ -50,7 +73,14 @@ Cadence is unchanged, so this is the simpler case.
    `up -d --force-recreate` — that restarts all nodes, which is what "coordinated" requires here.
    **Do not** restart nodes one at a time.
 5. Verify with `inspect-stage.yml`:
-   - `chain` — all three heights advancing, and agreeing.
+   - **`docker logs` on each node for `author verification failed`.** This is the check that
+     actually catches a half-finished rotation, and the only one that does. Heights keep climbing
+     on a node whose list is wrong.
+   - `chain` — all three heights advancing, and its "do they hold the SAME block" section
+     reporting OK. Equal heights are not by themselves agreement, so that section compares head
+     hashes; it has never caught a divergence, and it is there because the comparison is cheap and
+     the assumption that equal heights mean equal chains is not one worth making on a redeemable
+     token.
    - `containers` — no node restarting in a loop.
 
 ## Adding or removing an authority
@@ -66,19 +96,31 @@ Everything above, plus:
 
 ## The rehearsal, which is what closes C3
 
-Do this on a throwaway network, not on stage, and not for the first time during an incident.
+**Done 2026-09-18.** It is now `.github/workflows/rehearse-authority-rotation.yml` rather than a
+list to follow by hand, so it can be re-run before each real rotation instead of read. It runs on
+dispatch and on any pull request touching `config/node/**`, `docker-compose.yml` or itself. A
+GitHub runner is the throwaway network the rehearsal needs: it exists for one job and is destroyed
+after, and it is not stage.
 
-1. Bring up a local stack: `docker compose -p clutch-rot -f docker-compose.yml -f docker-compose.dev.yml up -d --build`.
-2. Let it produce blocks. Note the height.
-3. Rotate one authority by the procedure above and redeploy.
-4. Confirm all nodes resume authoring and agree on height, and that the chain did **not** reset —
-   height should continue, not restart from zero. If it restarted, something in `ChainInit` changed
-   when it should not have.
-5. Then rehearse the failure you are actually guarding against: change the list on **one** node
-   only, and watch it reject blocks. Knowing what that looks like in the logs is the point of the
-   rehearsal.
+It asserts four things, in this order:
 
-Record the date here when done.
+1. The chain **continues** across a rotation — height does not go backwards when one authority is
+   replaced at the same index on all three nodes and all three restart together. If it restarted,
+   something in `ChainInit` changed when it should not have.
+2. All three hold the **same block** at the same height afterwards, compared by hash.
+3. A node with **no data at all** can still sync the whole history. This one is not obvious and is
+   the reason the rehearsal is worth running: existing blocks were authored by the key that was
+   just rotated out, and a fresh node validates that history against the *current* list. It passes
+   — but had it not, rotation would work for every running node and silently break every new one,
+   which you would discover on the day you add a server. That is the same day you rotate.
+4. A node given a **different order** rejects blocks and says so in its log, as described above.
+   That is the failure this whole procedure guards against, and the rehearsal is where you get to
+   see it once with nothing at stake.
+
+Assertion 4 is the reason to run this rather than read it. It was first written as "must fall
+behind", which failed — the node kept pace. Then as "must fork", which also failed — the chains
+were identical at every height compared by hash. Only the log line held. Two plausible failure
+modes were nearly written into this document as fact before the runs contradicted them both.
 
 ## What this does not cover
 
