@@ -26,20 +26,28 @@ block from a departed authority and rejects one from a new authority, so it will
 rest of the network accepts. **The set must change on every node together. Rotation is a
 coordinated restart, not a rolling one.**
 
-**That node does not stop, and this is the part that bites.** Rejecting is only half of what it
-does. For every slot its own list wrongly says it owns, it authors its own block and appends that
-instead. So it keeps perfect pace with the network at the **same height on a different chain**.
-Rehearsed on 2026-09-18: node1 and node2 both ran 12 → 16 while holding different blocks at 14 and
-16, node2 logging
+**That node does not stop, and this is the part that bites.** It rejects, over and over, and
+carries on running. Rehearsed on 2026-09-18 with one node's list merely reordered: it logged
 
 ```
 Failed to add block to blockchain: "Block author verification failed:
 expected author 0x6fc11ba4..., but found 0x9b6e8aff..."
 ```
 
-for each one it threw away. Nothing about the height shows this. **A half-finished rotation looks
-exactly like a healthy network to any check that compares heights** — which is what every check
-here did until that rehearsal.
+ten times in three minutes — and stayed level with the network the whole time, on the same chain.
+Every height compared by block hash was identical to the others', in both rehearsal runs. It did
+not fall behind, it did not halt, and it did not fork.
+
+So **the only signal is that log line.** No metric counts these rejections; `latest_block_index`
+kept climbing normally throughout. A container running a half-finished rotation looks healthy in
+the probe, in Grafana, and in the height figures, and only its own log says otherwise. Check
+`docker logs` for `author verification failed` after any rotation, and do not treat healthy
+heights as evidence the rotation landed.
+
+One caveat worth keeping in mind rather than relying on: this was two runs of a three-node network
+where the other two nodes agreed with each other. A mismatch that splits the set more evenly has
+not been rehearsed, and convergence should not be assumed to be guaranteed by anything — it is
+what was observed, not a property anyone designed.
 
 **2. The set size sets the block cadence.**
 `step_duration = 60 / authorities.len()` seconds. Three authorities own 20-second slots; five own
@@ -65,9 +73,14 @@ Cadence is unchanged, so this is the simpler case.
    `up -d --force-recreate` — that restarts all nodes, which is what "coordinated" requires here.
    **Do not** restart nodes one at a time.
 5. Verify with `inspect-stage.yml`:
-   - `chain` — all three heights advancing, **and its "do they hold the SAME block" section
-     reporting OK**. Advancing, agreeing heights are not enough on their own: that is exactly what
-     a forked node produces. The section compares head hashes at a height all three have reached.
+   - **`docker logs` on each node for `author verification failed`.** This is the check that
+     actually catches a half-finished rotation, and the only one that does. Heights keep climbing
+     on a node whose list is wrong.
+   - `chain` — all three heights advancing, and its "do they hold the SAME block" section
+     reporting OK. Equal heights are not by themselves agreement, so that section compares head
+     hashes; it has never caught a divergence, and it is there because the comparison is cheap and
+     the assumption that equal heights mean equal chains is not one worth making on a redeemable
+     token.
    - `containers` — no node restarting in a loop.
 
 ## Adding or removing an authority
@@ -100,12 +113,14 @@ It asserts four things, in this order:
    just rotated out, and a fresh node validates that history against the *current* list. It passes
    — but had it not, rotation would work for every running node and silently break every new one,
    which you would discover on the day you add a server. That is the same day you rotate.
-4. A node given a **different order** forks rather than lagging, as described above. That is the
-   failure this whole procedure guards against, and the rehearsal is where you get to see it once
-   with nothing at stake.
+4. A node given a **different order** rejects blocks and says so in its log, as described above.
+   That is the failure this whole procedure guards against, and the rehearsal is where you get to
+   see it once with nothing at stake.
 
-The first run of it is what corrected this document: assertion 4 was originally written as "must
-fall behind" and failed, because the node kept pace at an identical height on its own chain.
+Assertion 4 is the reason to run this rather than read it. It was first written as "must fall
+behind", which failed — the node kept pace. Then as "must fork", which also failed — the chains
+were identical at every height compared by hash. Only the log line held. Two plausible failure
+modes were nearly written into this document as fact before the runs contradicted them both.
 
 ## What this does not cover
 

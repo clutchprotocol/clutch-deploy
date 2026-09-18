@@ -685,14 +685,18 @@ if [ "$PROBE" = "chain" ]; then
 
   echo ""
   echo "=== do they hold the SAME block, not just the same height? ==="
-  # Equal heights are NOT agreement, and this probe used to report only heights. A node whose
-  # `authorities` list differs from the rest -- the exact state a half-finished rotation leaves
-  # behind -- authors its own block for every slot its list wrongly says it owns. It rejects the
-  # others' blocks and replaces them with its own, so it keeps perfect pace at the SAME HEIGHT on
-  # a DIFFERENT CHAIN. Rehearsed 2026-09-18 in rehearse-authority-rotation.yml: node1 and node2
-  # both ran 12 to 16 while holding different blocks at 14 and 16.
+  # Equal heights are NOT agreement, and this probe used to report only heights. The comparison is
+  # cheap, so it is worth making rather than assuming -- but be clear about what it has and has
+  # not shown. Rehearsed twice on 2026-09-18 (rehearse-authority-rotation.yml) against a node
+  # whose `authorities` list was reordered, the exact state a half-finished rotation leaves
+  # behind: that node rejected blocks continuously and still stayed on the SAME chain, identical
+  # at every height compared. This check has never caught a divergence.
   #
-  # Two things make this awkward to check, and both were got wrong first:
+  # The thing that DOES catch a half-finished rotation is the rejection itself, and it appears
+  # only in the node's log -- no metric counts it, and `latest_block_index` climbs normally
+  # throughout. See the log scan below.
+  #
+  # Two things make the hash comparison awkward, and both were got wrong first:
   #
   # 1. Only the CURRENT head is published. add_block_to_chain calls LATEST_BLOCK.clear() before
   #    setting the new one, so `latest_block` holds exactly one series and a node's past heads
@@ -733,12 +737,35 @@ if [ "$PROBE" = "chain" ]; then
     echo "    INCONCLUSIVE: no height was seen on two or more nodes during sampling."
     echo "    Either the chain is not advancing, or the nodes are too far apart to compare."
   elif [ "$forked" -gt 0 ]; then
-    echo "    *** FORKED: the nodes hold DIFFERENT blocks at ${forked} of ${checked} heights. ***"
-    echo "    Heights alone cannot show this -- a forked node keeps pace at an identical height."
-    echo "    First thing to check is whether the \`authorities\` list is byte-identical and in"
-    echo "    the same order on all three nodes."
+    echo "    *** DIVERGED: the nodes hold DIFFERENT blocks at ${forked} of ${checked} heights. ***"
+    echo "    Heights alone cannot show this. First thing to check is whether the \`authorities\`"
+    echo "    list is byte-identical and in the same order on all three nodes."
   else
     echo "    OK: same block at every one of the ${checked} heights compared."
+  fi
+
+  echo ""
+  echo "=== is any node rejecting blocks? (the half-finished-rotation signal) ==="
+  # A node whose `authorities` list does not match the others rejects their blocks and logs it
+  # here -- and only here. It keeps running and its height keeps climbing, so every other check
+  # on this page reports it as healthy. Rehearsed 2026-09-18: ten rejections in three minutes
+  # from a node nothing else could distinguish from a working one.
+  any_reject=0
+  for n in 1 2 3; do
+    c=$(docker logs --since 30m "clutch-stage-node${n}-1" 2>&1 | grep -ac 'author verification failed' || true)
+    if [ "${c:-0}" -gt 0 ]; then
+      any_reject=$((any_reject + 1))
+      echo "    node${n}: ${c} rejection(s) in the last 30m"
+      docker logs --since 30m "clutch-stage-node${n}-1" 2>&1 \
+        | grep -a 'author verification failed' | tail -2 | sed 's/^/        /' || true
+    else
+      echo "    node${n}: none"
+    fi
+  done
+  if [ "$any_reject" -gt 0 ]; then
+    echo "    *** ${any_reject} node(s) are refusing blocks the rest of the network accepts. ***"
+    echo "    Compare \`authorities\` in config/node/node{1,2,3}.toml: it must be byte-identical"
+    echo "    and in the same ORDER on every node. See docs/AUTHORITY-ROTATION.md."
   fi
 
   echo ""

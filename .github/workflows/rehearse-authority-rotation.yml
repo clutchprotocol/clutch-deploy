@@ -250,22 +250,23 @@ jobs:
           echo "node2 resynced to $synced from an empty database"
           echo "PASS: history authored by the rotated-out key still validates under the new list."
 
-      # The failure this guards against, made visible on purpose -- and it does NOT look the way
-      # AUTHORITY-ROTATION.md said it would. A reordered list is neither empty nor duplicated, so
-      # the node starts fine (those two ARE refused at startup). It then rejects the blocks it
-      # should reject, exactly as documented:
+      # The failure this guards against, made visible on purpose. A reordered list is neither empty
+      # nor duplicated, so the node starts fine -- those two ARE refused at startup -- and then
+      # disagrees about who may author each slot. What it does about that is the thing worth
+      # having seen once:
       #
       #   Failed to add block to blockchain: "Block author verification failed:
       #   expected author 0x6fc11ba4..., but found 0x9b6e8aff..."
       #
-      # but it does not stop. For every slot its reordered list says it owns, it authors its OWN
-      # block instead. So it keeps perfect pace at the SAME HEIGHT on a DIFFERENT CHAIN. Measured
-      # in run 35385404002: node1 and node2 both went 12 to 16, while node2 rejected node1's
-      # blocks 14 and 16 and authored its own.
+      # It rejects, repeatedly and loudly, in the log and NOWHERE ELSE. No metric counts it. The
+      # node keeps running, keeps pace, and in both rehearsal runs still converged on the same
+      # chain as everyone else -- every height compared by hash was identical. So the only signal
+      # that a rotation is half-finished is this log line.
       #
-      # This is why the assertion is on the head HASH and not on height: a fork here is invisible
-      # to any height-based check, including the `chain` probe's and step 5 of the rotation doc.
-      - name: A node with a DIFFERENT list must fork, not merely lag
+      # That is what the assertion below is on. An earlier version asserted the node would fall
+      # behind, and another that it would fork; neither happened, and asserting either would have
+      # written a failure mode into the docs that nobody had observed.
+      - name: A node with a DIFFERENT list must reject blocks, loudly
         run: |
           set -euo pipefail
           python3 - <<'PY'
@@ -288,11 +289,6 @@ jobs:
           sleep 30
           n1a="$(/tmp/height.sh 1 || true)"
 
-          # Sample over MANY heights rather than checking one. Swapping two entries of a
-          # three-entry list leaves the third index agreeing, so one slot in three still produces
-          # an identical block on both nodes. An earlier version of this assertion compared only
-          # the head, drew block 19 -- an agreeing slot -- and reported no fork on a network that
-          # was plainly forked.
           /tmp/collect.sh 180
           n1b="$(/tmp/height.sh 1 || true)"
           echo "node1: ${n1a:-none} -> ${n1b:-none}"
@@ -304,24 +300,35 @@ jobs:
             exit 1
           fi
 
+          # THE assertion: the rejection is visible, and it is visible only in the log.
+          rejects="$($COMPOSE logs node2 2>/dev/null | grep -ac 'author verification failed' || true)"
+          echo "node2 logged $rejects author-verification rejections"
+          if [ "$rejects" -lt 1 ]; then
+            echo "::error::node2 accepted everything despite a different authorities ORDER."
+            echo "::error::Author order is then not enforced at all, and a half-finished rotation"
+            echo "::error::would leave no trace anywhere."
+            exit 1
+          fi
+          echo "--- the operator-visible signal, in full ---"
+          $COMPOSE logs node2 2>/dev/null | grep -a 'author verification failed' | tail -3 || true
+
+          # Reported, NOT asserted. Both runs converged: every shared height matched by hash. A
+          # divergence here would be a worse failure than the rejections and is worth seeing, but
+          # asserting either outcome would be asserting something that has not held twice.
+          echo "--- did the two chains stay identical while this was happening? ---"
           cmp="$(/tmp/compare.sh /tmp/n1.txt /tmp/n2.txt)"
           printf '%s\n' "$cmp" | sed 's/^/  block /'
           compared="$(printf '%s\n' "$cmp" | grep -c . || true)"
           differ="$(printf '%s\n' "$cmp" | grep -ac ' DIFF ' || true)"
-
           if [ "$compared" -lt 2 ]; then
-            echo "::error::only $compared shared heights observed, which proves nothing either way."
-            exit 1
+            echo "  (only $compared shared heights seen -- says nothing either way)"
+          elif [ "$differ" -gt 0 ]; then
+            echo "  DIVERGED at $differ of $compared shared heights. Worth investigating: both"
+            echo "  earlier runs converged, so this is new behaviour, not the documented one."
+          else
+            echo "  No: identical at all $compared shared heights, as in every run so far."
           fi
-          if [ "$differ" -eq 0 ]; then
-            echo "::error::node2 agreed with node1 at all $compared shared heights despite a"
-            echo "::error::different authorities ORDER. Author order is then not enforced the way"
-            echo "::error::the rotation doc assumes, and a half-finished rotation would go"
-            echo "::error::completely unnoticed."
-            exit 1
-          fi
-          echo "PASS: node2 forked -- different blocks at $differ of $compared shared heights,"
-          echo "      while keeping pace. Nothing about the height would have told you that."
+          echo "PASS: the mismatch is visible in node2's log and nowhere else."
           echo "--- what that looks like in node2's log ---"
           $COMPOSE logs --tail 40 node2 | grep -a "author verification failed" | tail -3 || true
 
