@@ -1,0 +1,250 @@
+# Readiness item C3: rehearse rotating an Aura authority, on a throwaway network.
+#
+# docs/AUTHORITY-ROTATION.md says to do this "on a throwaway network, not on stage, and not for
+# the first time during an incident." A GitHub runner IS a throwaway network: it exists for one
+# job and is destroyed after. Nothing here touches the stage host.
+#
+# What this proves, and why each part is here:
+#
+#   1. The chain does NOT reset when an authority is replaced. This is the claim the whole
+#      "launch on one server now, move to real servers when there is income" plan rests on
+#      (readiness C2, decided 2026-09-18). `authorities` is not one of the eight genesis-committed
+#      ChainInit fields, so rotating it should need no new chain -- should, until it is watched.
+#   2. A node that has NEVER seen the old set can still sync the full history afterwards. This is
+#      not in AUTHORITY-ROTATION.md's five steps and is the risk they do not cover: blocks already
+#      on the chain were authored by the rotated-OUT key, and a fresh node validates history with
+#      the CURRENT list. If that rejects, rotation quietly breaks new nodes rather than running
+#      ones, and you find out the first time you add a server -- precisely when you are rotating.
+#   3. A node with a DIFFERENT list stops keeping up. Knowing what that looks like is the point of
+#      rehearsing, per the doc: the set must change on every node together, so the failure of not
+#      doing that should be something you have seen before.
+#
+# Uses the published GHCR image rather than building from source: this rehearses an OPERATION, not
+# a code change, so the image stage actually runs is the right thing to rehearse against.
+name: Rehearse authority rotation (C3)
+
+on:
+  workflow_dispatch:
+  # So the PR that adds this can run it, and so that any later change to the validator configs or
+  # to the rehearsal itself re-proves rotation still works. Nothing else in the repo triggers it.
+  pull_request:
+    paths:
+      - '.github/workflows/rehearse-authority-rotation.yml'
+      - 'config/node/**'
+      - 'docker-compose.yml'
+
+jobs:
+  rehearse:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    env:
+      COMPOSE: docker compose -p clutch-rot -f docker-compose.yml
+      # Throwaway testnet keypairs already committed in config/node/*.toml and clutch-node's tests
+      # -- never real keys. The replacement is a genuinely matched pair (address derived from the
+      # secret via secp256k1), lifted from clutch-node tests/mint_burn.rs so that nothing here has
+      # to generate key material.
+      OLD_AUTH: "0xc4f3f661a43e099aedb8e396d9de1a831a1b4adc"
+      OLD_SECRET: "2d75bdfabbbaa65d7a182968e579adf2566fbb6931411752dd834c56bbf092c9"
+      NEW_AUTH: "0x8f19077627cde4848b090c53c83b12956837d5e9"
+      NEW_SECRET: "e74e3f87268132c7b3ddb24600716fc362f4519bf9986a9436aa8a1be58c7150"
+
+    steps:
+      - uses: actions/checkout@v4
+
+      # Several services in the base file use `env_file: .env`, and compose parses the WHOLE file
+      # even when only some services are named. An empty one is enough; the node services read
+      # `environment:`, not `env_file:`.
+      - name: Give compose an .env to parse
+        run: touch .env
+
+      # latest_block_index off the Prometheus endpoint on 3001-3003 is the ONLY correct height
+      # source, for the reasons clutch-deploy/CLAUDE.md records: node logs report the blocks a node
+      # is SERVING to a syncing peer (which once made node3 look like it fell from 117,573 to
+      # 17,463 while it was feeding node1), and the JSON-RPC ports speak WebSocket only, so curling
+      # them returns nothing. inspect-stage.yml's `chain` probe reads the same gauge.
+      - name: Height helpers
+        run: |
+          cat > /tmp/height.sh <<'EOF'
+          #!/usr/bin/env bash
+          # height <node-number> -> integer height, or nothing at all if the node is not answering
+          v="$(curl -fsS --max-time 5 "http://localhost:300$1/metrics" 2>/dev/null \
+            | grep -aE '^latest_block_index' | awk '{print $2}' | head -1)"
+          [ -n "$v" ] || exit 0
+          # The gauge is a float: normalise "5", "5.0" and "5e+00" to one integer form.
+          printf '%.0f\n' "$v" 2>/dev/null
+          EOF
+
+          cat > /tmp/wait_height.sh <<'EOF'
+          #!/usr/bin/env bash
+          # wait_height <node-number> <minimum> <seconds> -> prints the height once it reaches minimum
+          n="$1"; want="$2"; deadline=$(( $(date +%s) + $3 )); h=""
+          while [ "$(date +%s)" -lt "$deadline" ]; do
+            h="$(/tmp/height.sh "$n" || true)"
+            if [ -n "$h" ] && [ "$h" -ge "$want" ]; then echo "$h"; exit 0; fi
+            sleep 5
+          done
+          echo "TIMEOUT: node$n never reached height $want (last seen: ${h:-no answer})" >&2
+          exit 1
+          EOF
+          chmod +x /tmp/height.sh /tmp/wait_height.sh
+
+      - name: Start three nodes
+        run: |
+          set -euo pipefail
+          $COMPOSE up -d node1 node2 node3
+          $COMPOSE ps
+
+      # Three authorities own 20-second slots (step_duration = 60 / authorities.len()), so a few
+      # blocks takes a couple of minutes. The point of this step is a baseline to compare against,
+      # not a long chain.
+      - name: Produce blocks, record the baseline height
+        id: baseline
+        run: |
+          set -euo pipefail
+          H1="$(/tmp/wait_height.sh 1 3 300)"
+          echo "baseline height: $H1"
+          echo "h1=$H1" >> "$GITHUB_OUTPUT"
+
+      # The rotation itself, as docs/AUTHORITY-ROTATION.md describes it for the same-set-size case:
+      # the replacement goes at the SAME INDEX in every node's list, so the slot schedule is
+      # otherwise untouched, and only the replaced node's own keys change.
+      #
+      # One sed does both jobs because they are the same string: the old authority's address
+      # appears in all three `authorities` lists AND as node3's own author_public_key.
+      - name: Rotate one authority
+        run: |
+          set -euo pipefail
+          for n in 1 2 3; do
+            sed -i "s/${OLD_AUTH}/${NEW_AUTH}/g" "config/node/node${n}.toml"
+          done
+          sed -i "s/${OLD_SECRET}/${NEW_SECRET}/" config/node/node3.toml
+
+          echo "--- authorities now ---"
+          grep -A 4 '^authorities' config/node/node1.toml
+          echo "--- node3 identity now ---"
+          grep -E '^author_public_key|^author_secret_key' config/node/node3.toml
+
+          if grep -rq "${OLD_AUTH}" config/node/; then
+            echo "::error::the old authority is still present somewhere in config/node/"
+            exit 1
+          fi
+          if ! grep -q "${NEW_SECRET}" config/node/node3.toml; then
+            echo "::error::node3 kept its old secret -- it would sign as an authority that no longer exists"
+            exit 1
+          fi
+
+      # Coordinated restart, not a rolling one -- the set must change on every node together.
+      - name: Restart all three together
+        run: |
+          set -euo pipefail
+          $COMPOSE up -d --force-recreate node1 node2 node3
+          $COMPOSE ps
+
+      - name: The chain must CONTINUE, not reset
+        run: |
+          set -euo pipefail
+          H1="${{ steps.baseline.outputs.h1 }}"
+          H2="$(/tmp/wait_height.sh 1 "$((H1 + 1))" 300)"
+          echo "before rotation: $H1"
+          echo "after rotation:  $H2"
+          if [ "$H2" -lt "$H1" ]; then
+            echo "::error::height went BACKWARDS ($H1 to $H2). The chain reset, so the authorities"
+            echo "::error::list is not outside the genesis hash the way the docs claim."
+            exit 1
+          fi
+          echo "PASS: the chain kept its history across an authority rotation."
+
+      - name: All three nodes must agree
+        run: |
+          set -euo pipefail
+          sleep 45
+          a="$(/tmp/height.sh 1 || true)"; b="$(/tmp/height.sh 2 || true)"; c="$(/tmp/height.sh 3 || true)"
+          echo "node1=${a:-none} node2=${b:-none} node3=${c:-none}"
+          for h in "$a" "$b" "$c"; do
+            if [ -z "$h" ]; then echo "::error::a node stopped answering after the rotation"; exit 1; fi
+          done
+          # A couple of blocks of spread is normal -- the three are read a moment apart.
+          lo="$(printf '%s\n' "$a" "$b" "$c" | sort -n | head -1)"
+          hi="$(printf '%s\n' "$a" "$b" "$c" | sort -n | tail -1)"
+          if [ "$((hi - lo))" -gt 3 ]; then
+            echo "::error::nodes disagree by $((hi - lo)) blocks -- the rotated-in node is not authoring"
+            exit 1
+          fi
+          echo "PASS: all three agree after the rotation."
+
+      # NOT one of AUTHORITY-ROTATION.md's five steps, and the reason this is a workflow rather than
+      # a checklist: history was authored by a key that is no longer an authority, and a node
+      # syncing from genesis validates that history against the CURRENT list.
+      - name: A node with no data must still sync the old history
+        run: |
+          set -euo pipefail
+          before="$(/tmp/height.sh 1 || true)"
+          echo "chain is at ${before:-unknown}; wiping node2 and resyncing it from nothing"
+
+          $COMPOSE rm -sf node2
+          vol="$(docker volume ls -q | grep -E 'clutch-rot.*node2-data' || true)"
+          if [ -z "$vol" ]; then echo "::error::could not find node2's data volume to remove"; exit 1; fi
+          docker volume rm "$vol"
+
+          $COMPOSE up -d node2
+          synced="$(/tmp/wait_height.sh 2 "$before" 360)"
+          echo "node2 resynced to $synced from an empty database"
+          echo "PASS: history authored by the rotated-out key still validates under the new list."
+
+      # The failure this guards against, made visible on purpose. A reordered list is neither empty
+      # nor duplicated, so the node starts fine (those two ARE refused at startup) and then
+      # disagrees about who may author each slot -- it rejects blocks the others accept.
+      - name: A node with a DIFFERENT list must fall behind
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import re, pathlib
+          p = pathlib.Path("config/node/node2.toml")
+          s = p.read_text()
+          m = re.search(r"^authorities = \[\n(.*?)^\]", s, re.S | re.M)
+          if not m:
+              raise SystemExit("could not find the authorities array in node2.toml")
+          lines = [l for l in m.group(1).strip().splitlines() if l.strip()]
+          if len(lines) != 3:
+              raise SystemExit(f"expected 3 authorities, found {len(lines)}")
+          lines = [lines[1], lines[0], lines[2]]   # same members, different order
+          p.write_text(s[:m.start(1)] + "\n".join(lines) + "\n" + s[m.end(1):])
+          PY
+          echo "--- node2's list is now in a different ORDER, same members ---"
+          grep -A 4 '^authorities' config/node/node2.toml
+
+          $COMPOSE up -d --force-recreate node2
+          sleep 30
+          n1a="$(/tmp/height.sh 1 || true)"; n2a="$(/tmp/height.sh 2 || true)"
+          sleep 120
+          n1b="$(/tmp/height.sh 1 || true)"; n2b="$(/tmp/height.sh 2 || true)"
+          echo "node1: ${n1a:-none} -> ${n1b:-none}"
+          echo "node2: ${n2a:-none} -> ${n2b:-none}   (this one should be stuck)"
+
+          if [ -z "$n1a" ] || [ -z "$n1b" ] || [ -z "$n2a" ] || [ -z "$n2b" ]; then
+            echo "::error::a node stopped answering during the negative test"; exit 1
+          fi
+          if [ "$n1b" -le "$n1a" ]; then
+            echo "::error::node1 stopped advancing -- the whole network stalled, which is not what this tests"
+            exit 1
+          fi
+          if [ "$n2b" -gt "$n2a" ]; then
+            echo "::error::node2 kept importing blocks despite a different authorities ORDER."
+            echo "::error::Author order is then not enforced the way AUTHORITY-ROTATION.md assumes,"
+            echo "::error::and a half-finished rotation would go unnoticed instead of stalling loudly."
+            exit 1
+          fi
+          echo "PASS: the odd node out stopped following the chain, as it should."
+          echo "--- what that looks like in node2's log ---"
+          $COMPOSE logs --tail 40 node2
+
+      - name: Logs, on failure
+        if: failure()
+        run: |
+          $COMPOSE ps || true
+          for n in 1 2 3; do echo "=== node$n ==="; $COMPOSE logs --tail 60 "node$n" || true; done
+
+      - name: Tear the throwaway network down
+        if: always()
+        run: $COMPOSE down -v || true
