@@ -699,25 +699,41 @@ $(printf '%s\n' "$m" | sed -n 's/^latest_block{block_hash="\([^"]*\)"} \(.*\)$/'
 
   echo ""
   echo "=== do they hold the SAME block, not just the same height? ==="
+  # Check a WINDOW of heights, never a single one. With three authorities, a list that is merely
+  # REORDERED still agrees on one index in three, so a forked node produces an identical block
+  # every third slot -- and checking only the head lands on one of those a third of the time and
+  # calls a forked network healthy. Checked on 2026-09-18 against exactly that mistake.
   common=$(printf '%s\n' "$heads" | awk 'NF==2 && $2 ~ /^[0-9]+$/ {print $2}' | sort -n | head -1)
   if [ -z "$common" ]; then
     echo "    (no node reported a height, so there is nothing to compare)"
   else
-    found=$(printf '%s\n' "$heads" | awk -v i="$common" 'NF==3 && $2 == i {print $1" "$3}')
-    n_nodes=$(printf '%s\n' "$found" | grep -c . || true)
-    n_hashes=$(printf '%s\n' "$found" | awk '{print $2}' | sort -u | grep -c . || true)
-    if [ -n "$found" ]; then
-      printf '%s\n' "$found" | sed 's/^/    node/' | sed 's/ /: /'
-    fi
-    if [ "$n_nodes" -lt 3 ]; then
-      echo "    INCONCLUSIVE: only ${n_nodes} of 3 nodes published block ${common}."
+    forked=0; checked=0; thin=0
+    for i in $(seq $((common - 5)) "$common"); do
+      if [ "$i" -lt 1 ]; then continue; fi
+      found=$(printf '%s\n' "$heads" | awk -v i="$i" 'NF==3 && $2 == i {print $1" "$3}')
+      n_nodes=$(printf '%s\n' "$found" | grep -c . || true)
+      if [ "$n_nodes" -lt 2 ]; then thin=$((thin + 1)); continue; fi
+      checked=$((checked + 1))
+      n_hashes=$(printf '%s\n' "$found" | awk '{print $2}' | sort -u | grep -c . || true)
+      if [ "$n_hashes" -gt 1 ]; then
+        forked=$((forked + 1))
+        echo "    block ${i}: ${n_nodes} nodes, ${n_hashes} DIFFERENT blocks"
+        printf '%s\n' "$found" | sed 's/^/        node/' | sed 's/ /: /'
+      else
+        echo "    block ${i}: ${n_nodes} nodes agree"
+      fi
+    done
+
+    if [ "$checked" -eq 0 ]; then
+      echo "    INCONCLUSIVE: no height was published by two or more nodes (${thin} skipped)."
       echo "    A node republishes its head on restart, so give a just-restarted node a block or two."
-    elif [ "$n_hashes" -gt 1 ]; then
-      echo "    *** FORKED: the nodes hold DIFFERENT blocks at height ${common}. ***"
-      echo "    Heights alone cannot show this. First thing to check is whether the"
-      echo "    \`authorities\` list is byte-identical and in the same order on all three nodes."
+    elif [ "$forked" -gt 0 ]; then
+      echo "    *** FORKED: the nodes hold DIFFERENT blocks at ${forked} of ${checked} heights. ***"
+      echo "    Heights alone cannot show this -- a forked node keeps pace at an identical height."
+      echo "    First thing to check is whether the \`authorities\` list is byte-identical and in"
+      echo "    the same order on all three nodes."
     else
-      echo "    OK: all three hold the same block at height ${common}."
+      echo "    OK: same block at every one of the ${checked} heights compared."
     fi
   fi
 

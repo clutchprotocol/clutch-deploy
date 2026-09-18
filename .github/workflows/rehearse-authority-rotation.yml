@@ -266,26 +266,47 @@ jobs:
             exit 1
           fi
 
-          # Compare at a height both have reached, so a one-block lag cannot masquerade as a fork.
+          # Compare over a WINDOW, not at the head. Swapping two entries of a three-entry list
+          # leaves the third index agreeing, so one slot in three still produces an identical
+          # block on both nodes -- and the head lands on one of those a third of the time. The
+          # first attempt at this assertion compared only the head, drew block 19 (an agreeing
+          # slot) and reported no fork on a network that was plainly forked.
+          #
+          # Comparing at a height both have reached also keeps a one-block lag from reading as a
+          # fork, which is the mistake in the other direction.
           idx="$n1b"; if [ "$n2b" -lt "$idx" ]; then idx="$n2b"; fi
-          h1="$(/tmp/hash_at.sh 1 "$idx" || true)"
-          h2="$(/tmp/hash_at.sh 2 "$idx" || true)"
-          echo "block $idx on node1: ${h1:-<not published>}"
-          echo "block $idx on node2: ${h2:-<not published>}"
+          differ=0; compared=0
+          for i in $(seq $((idx - 3)) "$idx"); do
+            if [ "$i" -lt 1 ]; then continue; fi
+            a="$(/tmp/hash_at.sh 1 "$i" || true)"
+            b="$(/tmp/hash_at.sh 2 "$i" || true)"
+            if [ -z "$a" ] || [ -z "$b" ]; then
+              echo "  block $i: not published by both nodes, skipping"
+              continue
+            fi
+            compared=$((compared + 1))
+            if [ "$a" = "$b" ]; then
+              echo "  block $i: SAME  $a"
+            else
+              differ=$((differ + 1))
+              echo "  block $i: node1=$a"
+              echo "  block $i: node2=$b   <-- different block, same height"
+            fi
+          done
 
-          if [ -z "$h1" ] || [ -z "$h2" ]; then
-            echo "::error::could not read a head hash for block $idx from both nodes, so this"
-            echo "::error::proves nothing either way."
+          if [ "$compared" -lt 2 ]; then
+            echo "::error::only compared $compared blocks, which proves nothing either way."
             exit 1
           fi
-          if [ "$h1" = "$h2" ]; then
-            echo "::error::node2 agreed with node1 at block $idx despite a different authorities"
-            echo "::error::ORDER. Author order is then not enforced the way the rotation doc"
-            echo "::error::assumes, and a half-finished rotation would go completely unnoticed."
+          if [ "$differ" -eq 0 ]; then
+            echo "::error::node2 agreed with node1 on all $compared compared blocks despite a"
+            echo "::error::different authorities ORDER. Author order is then not enforced the way"
+            echo "::error::the rotation doc assumes, and a half-finished rotation would go"
+            echo "::error::completely unnoticed."
             exit 1
           fi
-          echo "PASS: node2 forked. Same height $idx, different block -- and nothing about the"
-          echo "      height would have told you that."
+          echo "PASS: node2 forked -- $differ of $compared compared blocks differ, at heights both"
+          echo "      nodes reached. Nothing about the height would have told you that."
           echo "--- what that looks like in node2's log ---"
           $COMPOSE logs --tail 40 node2 | grep -a "author verification failed" | tail -3 || true
 
