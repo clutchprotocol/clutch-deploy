@@ -1,0 +1,123 @@
+# KEY-CEREMONY.md step 4: prove the mint authority's address belongs to the key in the vault.
+#
+# Step 3 derived that address from coordinates a human copied out of `az keyvault key show`. If one
+# character of that copy was wrong, the base64 still decodes and still yields *an* address — just
+# not the key's. Nothing in step 3 can tell the difference, and the value goes into the genesis
+# hash where it cannot be corrected without starting a new chain. This step is the check.
+#
+# It builds the real `AzureKmsSigner`, which fetches the key from the vault itself, then signs a
+# fixed synthetic digest and confirms the signature recovers to that address. Two different routes
+# to the same value: agreement means what was written down is what will sign.
+#
+# WHY ON THE STAGE HOST, and not on a runner. Signing needs the client secret. The stage host has
+# to hold that secret anyway to mint on mainnet (readiness C2 puts the mainnet validators here), so
+# running it here adds no new place the secret lives. Putting it in GitHub Actions secrets would
+# make GitHub a second holder of a credential that can mint, for one command.
+#
+# The secret is never passed on a command line and never reaches this log: the container is given
+# the host's own .env with --env-file, so the values are read by Docker on the host and go straight
+# into the container's environment.
+name: Ceremony — verify the mint key (step 4)
+
+on:
+  workflow_dispatch:
+    inputs:
+      expected_address:
+        description: "The address step 3 produced. The run FAILS if the vault disagrees with it."
+        required: true
+      confirm:
+        description: "Type VERIFY to run"
+        required: true
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check the confirmation
+        env:
+          CONFIRM: ${{ inputs.confirm }}
+        run: |
+          set -euo pipefail
+          [ "$CONFIRM" = "VERIFY" ] || { echo "::error::type VERIFY to run"; exit 1; }
+
+      - uses: actions/checkout@v4
+
+      - name: Sign with the vault key and compare the address
+        env:
+          # Passed through the environment, never interpolated into the script: a `${{ }}`
+          # expression spliced into a run block is executed by the shell.
+          EXPECTED: ${{ inputs.expected_address }}
+          STAGE_HOST: ${{ secrets.STAGE_HOST }}
+          STAGE_USER: ${{ secrets.STAGE_USER }}
+          STAGE_SSH_PASSWORD: ${{ secrets.STAGE_SSH_PASSWORD }}
+          DEPLOY_PATH: ${{ secrets.DEPLOY_PATH }}
+        run: |
+          set -euo pipefail
+          sudo apt-get update -qq && sudo apt-get install -y -qq sshpass >/dev/null
+
+          # `set -x` is deliberately NOT used anywhere below: the .env this reads holds the
+          # deposit mnemonic and the mint credentials, and a trace would print them.
+          remote=$(cat <<'REMOTE'
+          set -euo pipefail
+          cd "$DEPLOY_PATH_R"
+
+          if [ ! -f .env ]; then
+            echo "::error::no .env on the host"; exit 1
+          fi
+          missing=""
+          for v in AZURE_TENANT_ID AZURE_CLIENT_ID AZURE_CLIENT_SECRET AZURE_VAULT_URL AZURE_KEY_NAME AZURE_KEY_VERSION; do
+            grep -q "^${v}=" .env || missing="$missing $v"
+          done
+          if [ -n "$missing" ]; then
+            echo "::error::the host .env is missing:$missing"
+            echo "Add them to the .env on the stage host, then run this again. They are read"
+            echo "there and never travel through GitHub."
+            echo ""
+            echo "Write the values UNQUOTED. Docker's --env-file does not strip quotes, so"
+            echo 'AZURE_CLIENT_SECRET="abc" arrives at the program as the 5 characters "abc"'
+            echo "including the quote marks, and authentication fails for a reason nothing says."
+            exit 1
+          fi
+
+          image=$(docker inspect -f '{{.Config.Image}}' clutch-stage-treasury-1 2>/dev/null || true)
+          [ -n "$image" ] || image="ghcr.io/clutchprotocol/clutch-treasury:latest"
+          echo "image: $image"
+          docker pull -q "$image" >/dev/null || true
+
+          # --env-file, so the secret is read by Docker on this host and never appears in a command
+          # line, in `ps`, or in the workflow log.
+          docker run --rm --env-file .env "$image" ceremony-check azure
+          REMOTE
+          )
+
+          # Captured, then printed unconditionally. Under `set -e` a failing ssh would otherwise
+          # kill this script with the remote's explanation still sitting unprinted in $out — and
+          # the explanation is the entire value of a failure here.
+          set +e
+          out=$(sshpass -p "$STAGE_SSH_PASSWORD" ssh -o StrictHostKeyChecking=no \
+                  "$STAGE_USER@$STAGE_HOST" \
+                  "DEPLOY_PATH_R='$DEPLOY_PATH' bash -s" <<< "$remote" 2>&1)
+          rc=$?
+          set -e
+          echo "$out"
+          [ "$rc" -eq 0 ] || exit "$rc"
+
+          echo ""
+          echo "=== comparing the two routes ==="
+          from_vault=$(printf '%s\n' "$out" | sed -n 's/^address: *//p' | head -1)
+          if [ -z "$from_vault" ]; then
+            echo "::error::the signer printed no address, so nothing was verified"
+            exit 1
+          fi
+          echo "step 3, from the copied coordinates: $EXPECTED"
+          echo "step 4, from the vault itself:       $from_vault"
+
+          if [ "$(printf '%s' "$from_vault" | tr 'A-Z' 'a-z')" != "$(printf '%s' "$EXPECTED" | tr 'A-Z' 'a-z')" ]; then
+            echo "::error::THE ADDRESSES DIFFER. The address from step 3 is not this key's."
+            echo "::error::Do NOT put it in a genesis. Re-read the coordinates from the vault and"
+            echo "::error::redo step 3 — a mistyped character in the copy is the likely cause."
+            exit 1
+          fi
+          echo ""
+          echo "MATCH. $from_vault is the key's address, proved by a signature that recovers to it."
+          echo "This is the mainnet mint_authority. Record the r, s and v above in the register."
