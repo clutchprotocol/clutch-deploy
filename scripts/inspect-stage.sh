@@ -676,6 +676,15 @@ if [ "$PROBE" = "chain" ]; then
   # And NOT grepped from the logs either: a node serving blocks to a syncing peer logs THAT peer's
   # block numbers, which made node3 look like it fell from 117,573 to 17,463 while it was feeding
   # node1, and sent an investigation the wrong way for an hour.
+  for n in 1 2 3; do
+    mport=$((3000 + n))
+    h=$(docker exec clutch-stage-tron-signer-1 sh -c "curl -fsS --max-time 8 http://node${n}:${mport}/metrics" 2>/dev/null | grep -aE '^latest_block_index' | awk '{print $2}' | head -1)
+    echo "    node${n}: height=${h:-<no answer on :${mport}>}"
+    echo "            started $(docker inspect -f '{{.State.StartedAt}}' "clutch-stage-node${n}-1" 2>/dev/null || echo '?')"
+  done
+
+  echo ""
+  echo "=== do they hold the SAME block, not just the same height? ==="
   # Equal heights are NOT agreement, and this probe used to report only heights. A node whose
   # `authorities` list differs from the rest -- the exact state a half-finished rotation leaves
   # behind -- authors its own block for every slot its list wrongly says it owns. It rejects the
@@ -683,58 +692,53 @@ if [ "$PROBE" = "chain" ]; then
   # a DIFFERENT CHAIN. Rehearsed 2026-09-18 in rehearse-authority-rotation.yml: node1 and node2
   # both ran 12 to 16 while holding different blocks at 14 and 16.
   #
-  # So read the head's HASH too. `latest_block` is a labelled family, so every head a node has
-  # held is still a series and the nodes can be compared at a height they have all reached.
-  heads=""
-  for n in 1 2 3; do
-    mport=$((3000 + n))
-    m=$(docker exec clutch-stage-tron-signer-1 sh -c "curl -fsS --max-time 8 http://node${n}:${mport}/metrics" 2>/dev/null)
-    h=$(printf '%s\n' "$m" | grep -aE '^latest_block_index' | awk '{print $2}' | head -1)
-    echo "    node${n}: height=${h:-<no answer on :${mport}>}"
-    echo "            started $(docker inspect -f '{{.State.StartedAt}}' "clutch-stage-node${n}-1" 2>/dev/null || echo '?')"
-    heads="${heads}${n} ${h:-none}
-$(printf '%s\n' "$m" | sed -n 's/^latest_block{block_hash="\([^"]*\)"} \(.*\)$/'"${n}"' \2 \1/p')
-"
-  done
-
-  echo ""
-  echo "=== do they hold the SAME block, not just the same height? ==="
-  # Check a WINDOW of heights, never a single one. With three authorities, a list that is merely
-  # REORDERED still agrees on one index in three, so a forked node produces an identical block
-  # every third slot -- and checking only the head lands on one of those a third of the time and
-  # calls a forked network healthy. Checked on 2026-09-18 against exactly that mistake.
-  common=$(printf '%s\n' "$heads" | awk 'NF==2 && $2 ~ /^[0-9]+$/ {print $2}' | sort -n | head -1)
-  if [ -z "$common" ]; then
-    echo "    (no node reported a height, so there is nothing to compare)"
-  else
-    forked=0; checked=0; thin=0
-    for i in $(seq $((common - 5)) "$common"); do
-      if [ "$i" -lt 1 ]; then continue; fi
-      found=$(printf '%s\n' "$heads" | awk -v i="$i" 'NF==3 && $2 == i {print $1" "$3}')
-      n_nodes=$(printf '%s\n' "$found" | grep -c . || true)
-      if [ "$n_nodes" -lt 2 ]; then thin=$((thin + 1)); continue; fi
-      checked=$((checked + 1))
-      n_hashes=$(printf '%s\n' "$found" | awk '{print $2}' | sort -u | grep -c . || true)
-      if [ "$n_hashes" -gt 1 ]; then
-        forked=$((forked + 1))
-        echo "    block ${i}: ${n_nodes} nodes, ${n_hashes} DIFFERENT blocks"
-        printf '%s\n' "$found" | sed 's/^/        node/' | sed 's/ /: /'
-      else
-        echo "    block ${i}: ${n_nodes} nodes agree"
-      fi
+  # Two things make this awkward to check, and both were got wrong first:
+  #
+  # 1. Only the CURRENT head is published. add_block_to_chain calls LATEST_BLOCK.clear() before
+  #    setting the new one, so `latest_block` holds exactly one series and a node's past heads
+  #    cannot be looked up after the fact. Hence sampling over time rather than one scrape.
+  # 2. A merely REORDERED list still agrees on one index in three, so a forked node produces an
+  #    identical block every third slot. Checking one height calls a forked network healthy a
+  #    third of the time. Hence comparing every height two nodes were both seen holding.
+  sample_dir=$(mktemp -d)
+  # ~45s of sampling against 20s slots: a few heads each, seen from more than one node.
+  for _ in $(seq 1 15); do
+    for n in 1 2 3; do
+      docker exec clutch-stage-tron-signer-1 sh -c "curl -fsS --max-time 4 http://node${n}:$((3000 + n))/metrics" 2>/dev/null \
+        | sed -n 's/^latest_block{block_hash="\([^"]*\)"} \(.*\)$/\2 \1/p' \
+        | awk -v n="$n" 'NF==2 {printf "%d %s %s\n", $1, n, $2; exit}' >> "${sample_dir}/all" || true
     done
+    sleep 3
+  done
+  sort -u -o "${sample_dir}/all" "${sample_dir}/all" 2>/dev/null || true
 
-    if [ "$checked" -eq 0 ]; then
-      echo "    INCONCLUSIVE: no height was published by two or more nodes (${thin} skipped)."
-      echo "    A node republishes its head on restart, so give a just-restarted node a block or two."
-    elif [ "$forked" -gt 0 ]; then
-      echo "    *** FORKED: the nodes hold DIFFERENT blocks at ${forked} of ${checked} heights. ***"
-      echo "    Heights alone cannot show this -- a forked node keeps pace at an identical height."
-      echo "    First thing to check is whether the \`authorities\` list is byte-identical and in"
-      echo "    the same order on all three nodes."
+  forked=0; checked=0
+  for i in $(awk '{print $1}' "${sample_dir}/all" 2>/dev/null | sort -un); do
+    found=$(awk -v i="$i" '$1 == i {print $2" "$3}' "${sample_dir}/all")
+    n_nodes=$(printf '%s\n' "$found" | grep -c . || true)
+    if [ "$n_nodes" -lt 2 ]; then continue; fi
+    checked=$((checked + 1))
+    n_hashes=$(printf '%s\n' "$found" | awk '{print $2}' | sort -u | grep -c . || true)
+    if [ "$n_hashes" -gt 1 ]; then
+      forked=$((forked + 1))
+      echo "    block ${i}: ${n_nodes} nodes, ${n_hashes} DIFFERENT blocks"
+      printf '%s\n' "$found" | sed 's/^/        node/' | sed 's/ /: /'
     else
-      echo "    OK: same block at every one of the ${checked} heights compared."
+      echo "    block ${i}: ${n_nodes} nodes agree"
     fi
+  done
+  rm -rf "${sample_dir}"
+
+  if [ "$checked" -eq 0 ]; then
+    echo "    INCONCLUSIVE: no height was seen on two or more nodes during sampling."
+    echo "    Either the chain is not advancing, or the nodes are too far apart to compare."
+  elif [ "$forked" -gt 0 ]; then
+    echo "    *** FORKED: the nodes hold DIFFERENT blocks at ${forked} of ${checked} heights. ***"
+    echo "    Heights alone cannot show this -- a forked node keeps pace at an identical height."
+    echo "    First thing to check is whether the \`authorities\` list is byte-identical and in"
+    echo "    the same order on all three nodes."
+  else
+    echo "    OK: same block at every one of the ${checked} heights compared."
   fi
 
   echo ""

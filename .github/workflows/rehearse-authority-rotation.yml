@@ -78,13 +78,38 @@ jobs:
           printf '%.0f\n' "$v" 2>/dev/null
           EOF
 
-          cat > /tmp/hash_at.sh <<'EOF'
+          cat > /tmp/head.sh <<'EOF'
           #!/usr/bin/env bash
-          # hash_at <node-number> <index> -> the block hash that node had as its head at <index>
-          # `latest_block` is a labelled family, so every head a node has held is still a series.
+          # head <node-number> -> "<index> <hash>" of that node's CURRENT head block.
+          # Only the current head is ever published: add_block_to_chain calls LATEST_BLOCK.clear()
+          # before setting the new one, so `latest_block` holds exactly one series at a time and
+          # a node's past heads cannot be looked up after the fact. Hence the sampler below.
           curl -fsS --max-time 5 "http://localhost:300$1/metrics" 2>/dev/null \
             | sed -n 's/^latest_block{block_hash="\([^"]*\)"} \(.*\)$/\2 \1/p' \
-            | awk -v want="$2" '$1 == want {print $2; exit}'
+            | awk 'NF==2 {printf "%.0f %s\n", $1, $2; exit}'
+          EOF
+
+          cat > /tmp/collect.sh <<'EOF'
+          #!/usr/bin/env bash
+          # collect <seconds> -- sample every node's head into /tmp/nN.txt as "<index> <hash>".
+          # Polling at 5s against 20s slots catches each head several times, so the two nodes can
+          # be compared at every height they were both seen holding.
+          secs="$1"; deadline=$(( $(date +%s) + secs ))
+          : > /tmp/n1.txt; : > /tmp/n2.txt; : > /tmp/n3.txt
+          while [ "$(date +%s)" -lt "$deadline" ]; do
+            for n in 1 2 3; do /tmp/head.sh "$n" >> "/tmp/n${n}.txt" 2>/dev/null || true; done
+            sleep 5
+          done
+          for n in 1 2 3; do sort -u -o "/tmp/n${n}.txt" "/tmp/n${n}.txt"; done
+          EOF
+
+          cat > /tmp/compare.sh <<'EOF'
+          #!/usr/bin/env bash
+          # compare <fileA> <fileB> -> one line per height BOTH were seen holding:
+          #   "<index> SAME <hash>"  or  "<index> DIFF <hashA> <hashB>"
+          awk 'NR==FNR { a[$1] = $2; next }
+               ($1 in a) { if (a[$1] == $2) print $1" SAME "$2; else print $1" DIFF "a[$1]" "$2 }' \
+            "$1" "$2" | sort -n
           EOF
 
           cat > /tmp/wait_height.sh <<'EOF'
@@ -99,7 +124,7 @@ jobs:
           echo "TIMEOUT: node$n never reached height $want (last seen: ${h:-no answer})" >&2
           exit 1
           EOF
-          chmod +x /tmp/height.sh /tmp/wait_height.sh /tmp/hash_at.sh
+          chmod +x /tmp/height.sh /tmp/wait_height.sh /tmp/head.sh /tmp/collect.sh /tmp/compare.sh
 
       - name: Start three nodes
         run: |
@@ -186,16 +211,25 @@ jobs:
 
           # Equal heights are NOT agreement -- see the fork the last step in this workflow
           # produces. Agreement is the same BLOCK at the same height.
-          f1="$(/tmp/hash_at.sh 1 "$lo" || true)"
-          f2="$(/tmp/hash_at.sh 2 "$lo" || true)"
-          f3="$(/tmp/hash_at.sh 3 "$lo" || true)"
-          echo "block $lo: node1=${f1:-none} node2=${f2:-none} node3=${f3:-none}"
-          if [ -z "$f1" ] || [ "$f1" != "$f2" ] || [ "$f1" != "$f3" ]; then
-            echo "::error::the nodes hold DIFFERENT blocks at height $lo. The rotation split the"
-            echo "::error::network instead of moving it."
+          /tmp/collect.sh 90
+          c12="$(/tmp/compare.sh /tmp/n1.txt /tmp/n2.txt)"
+          c13="$(/tmp/compare.sh /tmp/n1.txt /tmp/n3.txt)"
+          echo "--- node1 vs node2 ---"; printf '%s\n' "$c12"
+          echo "--- node1 vs node3 ---"; printf '%s\n' "$c13"
+
+          both="$(printf '%s\n%s\n' "$c12" "$c13" | grep -a . || true)"
+          shared="$(printf '%s\n' "$both" | grep -c . || true)"
+          split="$(printf '%s\n' "$both" | grep -ac ' DIFF ' || true)"
+          if [ "$shared" -lt 2 ]; then
+            echo "::error::only $shared shared heights observed, so agreement was never tested."
             exit 1
           fi
-          echo "PASS: all three hold the same block at height $lo after the rotation."
+          if [ "$split" -gt 0 ]; then
+            echo "::error::the nodes hold DIFFERENT blocks at $split of $shared shared heights."
+            echo "::error::The rotation split the network instead of moving it."
+            exit 1
+          fi
+          echo "PASS: same block at every one of the $shared shared heights after the rotation."
 
       # NOT one of AUTHORITY-ROTATION.md's five steps, and the reason this is a workflow rather than
       # a checklist: history was authored by a key that is no longer an authority, and a node
@@ -253,60 +287,41 @@ jobs:
           $COMPOSE up -d --force-recreate node2
           sleep 30
           n1a="$(/tmp/height.sh 1 || true)"
-          sleep 150
-          n1b="$(/tmp/height.sh 1 || true)"; n2b="$(/tmp/height.sh 2 || true)"
-          echo "node1: ${n1a:-none} -> ${n1b:-none}"
-          echo "node2: ${n2b:-none}"
 
-          if [ -z "$n1a" ] || [ -z "$n1b" ] || [ -z "$n2b" ]; then
-            echo "::error::a node stopped answering during the negative test"; exit 1
+          # Sample over MANY heights rather than checking one. Swapping two entries of a
+          # three-entry list leaves the third index agreeing, so one slot in three still produces
+          # an identical block on both nodes. An earlier version of this assertion compared only
+          # the head, drew block 19 -- an agreeing slot -- and reported no fork on a network that
+          # was plainly forked.
+          /tmp/collect.sh 180
+          n1b="$(/tmp/height.sh 1 || true)"
+          echo "node1: ${n1a:-none} -> ${n1b:-none}"
+          if [ -z "$n1a" ] || [ -z "$n1b" ]; then
+            echo "::error::node1 stopped answering during the negative test"; exit 1
           fi
           if [ "$n1b" -le "$n1a" ]; then
             echo "::error::node1 stopped advancing -- the whole network stalled, which is not what this tests"
             exit 1
           fi
 
-          # Compare over a WINDOW, not at the head. Swapping two entries of a three-entry list
-          # leaves the third index agreeing, so one slot in three still produces an identical
-          # block on both nodes -- and the head lands on one of those a third of the time. The
-          # first attempt at this assertion compared only the head, drew block 19 (an agreeing
-          # slot) and reported no fork on a network that was plainly forked.
-          #
-          # Comparing at a height both have reached also keeps a one-block lag from reading as a
-          # fork, which is the mistake in the other direction.
-          idx="$n1b"; if [ "$n2b" -lt "$idx" ]; then idx="$n2b"; fi
-          differ=0; compared=0
-          for i in $(seq $((idx - 3)) "$idx"); do
-            if [ "$i" -lt 1 ]; then continue; fi
-            a="$(/tmp/hash_at.sh 1 "$i" || true)"
-            b="$(/tmp/hash_at.sh 2 "$i" || true)"
-            if [ -z "$a" ] || [ -z "$b" ]; then
-              echo "  block $i: not published by both nodes, skipping"
-              continue
-            fi
-            compared=$((compared + 1))
-            if [ "$a" = "$b" ]; then
-              echo "  block $i: SAME  $a"
-            else
-              differ=$((differ + 1))
-              echo "  block $i: node1=$a"
-              echo "  block $i: node2=$b   <-- different block, same height"
-            fi
-          done
+          cmp="$(/tmp/compare.sh /tmp/n1.txt /tmp/n2.txt)"
+          printf '%s\n' "$cmp" | sed 's/^/  block /'
+          compared="$(printf '%s\n' "$cmp" | grep -c . || true)"
+          differ="$(printf '%s\n' "$cmp" | grep -ac ' DIFF ' || true)"
 
           if [ "$compared" -lt 2 ]; then
-            echo "::error::only compared $compared blocks, which proves nothing either way."
+            echo "::error::only $compared shared heights observed, which proves nothing either way."
             exit 1
           fi
           if [ "$differ" -eq 0 ]; then
-            echo "::error::node2 agreed with node1 on all $compared compared blocks despite a"
+            echo "::error::node2 agreed with node1 at all $compared shared heights despite a"
             echo "::error::different authorities ORDER. Author order is then not enforced the way"
             echo "::error::the rotation doc assumes, and a half-finished rotation would go"
             echo "::error::completely unnoticed."
             exit 1
           fi
-          echo "PASS: node2 forked -- $differ of $compared compared blocks differ, at heights both"
-          echo "      nodes reached. Nothing about the height would have told you that."
+          echo "PASS: node2 forked -- different blocks at $differ of $compared shared heights,"
+          echo "      while keeping pace. Nothing about the height would have told you that."
           echo "--- what that looks like in node2's log ---"
           $COMPOSE logs --tail 40 node2 | grep -a "author verification failed" | tail -3 || true
 
