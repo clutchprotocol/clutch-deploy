@@ -14,7 +14,7 @@ services:
   # Demo app: run Vite dev server with hot reload from local source
   clutch-hub-demo-app:
     image: node:20-alpine
-    working_dir: /app
+    working_dir: /workspace/apps/demo
     # Install deps only when missing; retry npm ci for transient registry/DNS errors.
     # Use -f (file exists), not -x: Docker Desktop Windows bind mounts often drop the
     # executable bit, so .bin/vite looks "missing" and npm ci loops forever.
@@ -35,20 +35,12 @@ services:
         echo \"npm ci failed in $$dir after 5 attempts\";
         return 1;
       };
-      ensure_sdk_deps() {
-        if [ -f /clutch-hub-sdk-js/node_modules/typescript/bin/tsc ] || [ -f /clutch-hub-sdk-js/node_modules/.bin/tsc ]; then
-          echo \"SDK deps already present; skipping npm ci\";
+      ensure_deps() {
+        if [ -f /workspace/node_modules/vite/bin/vite.js ] && [ -d /workspace/node_modules/@rollup/rollup-linux-x64-musl ]; then
+          echo \"Workspace deps already present; skipping npm ci\";
         else
-          echo \"SDK deps missing; running npm ci\";
-          npm_ci_or_retry /clutch-hub-sdk-js;
-        fi;
-      };
-      ensure_app_deps() {
-        if [ -f /app/node_modules/vite/bin/vite.js ] && [ -d /app/node_modules/@rollup/rollup-linux-x64-musl ]; then
-          echo \"App deps already present; skipping npm ci\";
-        else
-          echo \"App deps missing or incomplete; running npm ci\";
-          npm_ci_or_retry /app;
+          echo \"Workspace deps missing or incomplete; running npm ci\";
+          npm_ci_or_retry /workspace;
         fi;
       };
       npm config set fetch-retries 5;
@@ -57,13 +49,14 @@ services:
       npm config set fetch-timeout 600000;
       npm config set prefer-offline true;
       npm config set registry \"$$NPM_CONFIG_REGISTRY\";
-      ensure_sdk_deps;
-      ensure_app_deps;
-      cd /app;
-      if [ ! -f ./node_modules/vite/bin/vite.js ]; then
-        echo \"vite not found after install (expected ./node_modules/vite/bin/vite.js)\"; exit 1;
+      ensure_deps;
+      cd /workspace;
+      npm run build --workspace=clutch-hub-sdk-js;
+      cd /workspace/apps/demo;
+      if [ ! -f /workspace/node_modules/vite/bin/vite.js ]; then
+        echo \"vite not found after install (expected /workspace/node_modules/vite/bin/vite.js)\"; exit 1;
       fi;
-      exec node ./node_modules/vite/bin/vite.js --host 0.0.0.0 --port 80"
+      exec node /workspace/node_modules/vite/bin/vite.js --host 0.0.0.0 --port 80"
     environment:
       VITE_API_URL: http://127.0.0.1:3000
       # payment-orchestrator's published host port (docker-compose.treasury.yml) — same
@@ -80,11 +73,17 @@ services:
     dns:
       - 1.1.1.1
       - 8.8.8.8
+    # One mount of the whole workspace. The SDK and the demo app were merged into
+    # clutch-hub-sdk-js on 2026-09-18 (packages/sdk and apps/demo), so ../clutch-hub-demo-app no
+    # longer exists and there is one lockfile instead of two.
     volumes:
-      - ../clutch-hub-demo-app:/app
-      - ../clutch-hub-sdk-js:/clutch-hub-sdk-js
-      - clutch-hub-demo-app-node-modules:/app/node_modules
-      - clutch-hub-sdk-js-node-modules:/clutch-hub-sdk-js/node_modules
+      - ../clutch-hub-sdk-js:/workspace
+      # npm workspaces hoists almost everything to the root node_modules; the per-package ones
+      # hold only what cannot hoist (platform rollup binaries). They stay named volumes for the
+      # same reason as before: Docker Desktop Windows bind mounts drop the executable bit.
+      - clutch-hub-node-modules:/workspace/node_modules
+      - clutch-hub-demo-app-node-modules:/workspace/apps/demo/node_modules
+      - clutch-hub-sdk-js-node-modules:/workspace/packages/sdk/node_modules
       - clutch-hub-demo-app-npm-cache:/root/.npm
 
   # Explorer backend from local source
@@ -203,6 +202,7 @@ volumes:
   clutch-hub-demo-app-npm-cache:
   clutch-hub-demo-app-node-modules:
   clutch-hub-sdk-js-node-modules:
+  clutch-hub-node-modules:
   clutch-explorer-frontend-node-modules:
   clutch-explorer-frontend-npm-cache:
   clutch-explorer-postgres-data:
