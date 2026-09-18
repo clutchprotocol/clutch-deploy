@@ -78,6 +78,15 @@ jobs:
           printf '%.0f\n' "$v" 2>/dev/null
           EOF
 
+          cat > /tmp/hash_at.sh <<'EOF'
+          #!/usr/bin/env bash
+          # hash_at <node-number> <index> -> the block hash that node had as its head at <index>
+          # `latest_block` is a labelled family, so every head a node has held is still a series.
+          curl -fsS --max-time 5 "http://localhost:300$1/metrics" 2>/dev/null \
+            | sed -n 's/^latest_block{block_hash="\([^"]*\)"} \(.*\)$/\2 \1/p' \
+            | awk -v want="$2" '$1 == want {print $2; exit}'
+          EOF
+
           cat > /tmp/wait_height.sh <<'EOF'
           #!/usr/bin/env bash
           # wait_height <node-number> <minimum> <seconds> -> prints the height once it reaches minimum
@@ -90,7 +99,7 @@ jobs:
           echo "TIMEOUT: node$n never reached height $want (last seen: ${h:-no answer})" >&2
           exit 1
           EOF
-          chmod +x /tmp/height.sh /tmp/wait_height.sh
+          chmod +x /tmp/height.sh /tmp/wait_height.sh /tmp/hash_at.sh
 
       - name: Start three nodes
         run: |
@@ -174,7 +183,19 @@ jobs:
             echo "::error::nodes disagree by $((hi - lo)) blocks -- the rotated-in node is not authoring"
             exit 1
           fi
-          echo "PASS: all three agree after the rotation."
+
+          # Equal heights are NOT agreement -- see the fork the last step in this workflow
+          # produces. Agreement is the same BLOCK at the same height.
+          f1="$(/tmp/hash_at.sh 1 "$lo" || true)"
+          f2="$(/tmp/hash_at.sh 2 "$lo" || true)"
+          f3="$(/tmp/hash_at.sh 3 "$lo" || true)"
+          echo "block $lo: node1=${f1:-none} node2=${f2:-none} node3=${f3:-none}"
+          if [ -z "$f1" ] || [ "$f1" != "$f2" ] || [ "$f1" != "$f3" ]; then
+            echo "::error::the nodes hold DIFFERENT blocks at height $lo. The rotation split the"
+            echo "::error::network instead of moving it."
+            exit 1
+          fi
+          echo "PASS: all three hold the same block at height $lo after the rotation."
 
       # NOT one of AUTHORITY-ROTATION.md's five steps, and the reason this is a workflow rather than
       # a checklist: history was authored by a key that is no longer an authority, and a node
@@ -195,10 +216,22 @@ jobs:
           echo "node2 resynced to $synced from an empty database"
           echo "PASS: history authored by the rotated-out key still validates under the new list."
 
-      # The failure this guards against, made visible on purpose. A reordered list is neither empty
-      # nor duplicated, so the node starts fine (those two ARE refused at startup) and then
-      # disagrees about who may author each slot -- it rejects blocks the others accept.
-      - name: A node with a DIFFERENT list must fall behind
+      # The failure this guards against, made visible on purpose -- and it does NOT look the way
+      # AUTHORITY-ROTATION.md said it would. A reordered list is neither empty nor duplicated, so
+      # the node starts fine (those two ARE refused at startup). It then rejects the blocks it
+      # should reject, exactly as documented:
+      #
+      #   Failed to add block to blockchain: "Block author verification failed:
+      #   expected author 0x6fc11ba4..., but found 0x9b6e8aff..."
+      #
+      # but it does not stop. For every slot its reordered list says it owns, it authors its OWN
+      # block instead. So it keeps perfect pace at the SAME HEIGHT on a DIFFERENT CHAIN. Measured
+      # in run 35385404002: node1 and node2 both went 12 to 16, while node2 rejected node1's
+      # blocks 14 and 16 and authored its own.
+      #
+      # This is why the assertion is on the head HASH and not on height: a fork here is invisible
+      # to any height-based check, including the `chain` probe's and step 5 of the rotation doc.
+      - name: A node with a DIFFERENT list must fork, not merely lag
         run: |
           set -euo pipefail
           python3 - <<'PY'
@@ -219,28 +252,42 @@ jobs:
 
           $COMPOSE up -d --force-recreate node2
           sleep 30
-          n1a="$(/tmp/height.sh 1 || true)"; n2a="$(/tmp/height.sh 2 || true)"
-          sleep 120
+          n1a="$(/tmp/height.sh 1 || true)"
+          sleep 150
           n1b="$(/tmp/height.sh 1 || true)"; n2b="$(/tmp/height.sh 2 || true)"
           echo "node1: ${n1a:-none} -> ${n1b:-none}"
-          echo "node2: ${n2a:-none} -> ${n2b:-none}   (this one should be stuck)"
+          echo "node2: ${n2b:-none}"
 
-          if [ -z "$n1a" ] || [ -z "$n1b" ] || [ -z "$n2a" ] || [ -z "$n2b" ]; then
+          if [ -z "$n1a" ] || [ -z "$n1b" ] || [ -z "$n2b" ]; then
             echo "::error::a node stopped answering during the negative test"; exit 1
           fi
           if [ "$n1b" -le "$n1a" ]; then
             echo "::error::node1 stopped advancing -- the whole network stalled, which is not what this tests"
             exit 1
           fi
-          if [ "$n2b" -gt "$n2a" ]; then
-            echo "::error::node2 kept importing blocks despite a different authorities ORDER."
-            echo "::error::Author order is then not enforced the way AUTHORITY-ROTATION.md assumes,"
-            echo "::error::and a half-finished rotation would go unnoticed instead of stalling loudly."
+
+          # Compare at a height both have reached, so a one-block lag cannot masquerade as a fork.
+          idx="$n1b"; if [ "$n2b" -lt "$idx" ]; then idx="$n2b"; fi
+          h1="$(/tmp/hash_at.sh 1 "$idx" || true)"
+          h2="$(/tmp/hash_at.sh 2 "$idx" || true)"
+          echo "block $idx on node1: ${h1:-<not published>}"
+          echo "block $idx on node2: ${h2:-<not published>}"
+
+          if [ -z "$h1" ] || [ -z "$h2" ]; then
+            echo "::error::could not read a head hash for block $idx from both nodes, so this"
+            echo "::error::proves nothing either way."
             exit 1
           fi
-          echo "PASS: the odd node out stopped following the chain, as it should."
+          if [ "$h1" = "$h2" ]; then
+            echo "::error::node2 agreed with node1 at block $idx despite a different authorities"
+            echo "::error::ORDER. Author order is then not enforced the way the rotation doc"
+            echo "::error::assumes, and a half-finished rotation would go completely unnoticed."
+            exit 1
+          fi
+          echo "PASS: node2 forked. Same height $idx, different block -- and nothing about the"
+          echo "      height would have told you that."
           echo "--- what that looks like in node2's log ---"
-          $COMPOSE logs --tail 40 node2
+          $COMPOSE logs --tail 40 node2 | grep -a "author verification failed" | tail -3 || true
 
       - name: Logs, on failure
         if: failure()

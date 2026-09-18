@@ -676,12 +676,50 @@ if [ "$PROBE" = "chain" ]; then
   # And NOT grepped from the logs either: a node serving blocks to a syncing peer logs THAT peer's
   # block numbers, which made node3 look like it fell from 117,573 to 17,463 while it was feeding
   # node1, and sent an investigation the wrong way for an hour.
+  # Equal heights are NOT agreement, and this probe used to report only heights. A node whose
+  # `authorities` list differs from the rest -- the exact state a half-finished rotation leaves
+  # behind -- authors its own block for every slot its list wrongly says it owns. It rejects the
+  # others' blocks and replaces them with its own, so it keeps perfect pace at the SAME HEIGHT on
+  # a DIFFERENT CHAIN. Rehearsed 2026-09-18 in rehearse-authority-rotation.yml: node1 and node2
+  # both ran 12 to 16 while holding different blocks at 14 and 16.
+  #
+  # So read the head's HASH too. `latest_block` is a labelled family, so every head a node has
+  # held is still a series and the nodes can be compared at a height they have all reached.
+  heads=""
   for n in 1 2 3; do
     mport=$((3000 + n))
-    h=$(docker exec clutch-stage-tron-signer-1 sh -c       "curl -fsS --max-time 8 http://node${n}:${mport}/metrics" 2>/dev/null       | grep -aE '^latest_block_index' | awk '{print $2}' | head -1)
+    m=$(docker exec clutch-stage-tron-signer-1 sh -c "curl -fsS --max-time 8 http://node${n}:${mport}/metrics" 2>/dev/null)
+    h=$(printf '%s\n' "$m" | grep -aE '^latest_block_index' | awk '{print $2}' | head -1)
     echo "    node${n}: height=${h:-<no answer on :${mport}>}"
     echo "            started $(docker inspect -f '{{.State.StartedAt}}' "clutch-stage-node${n}-1" 2>/dev/null || echo '?')"
+    heads="${heads}${n} ${h:-none}
+$(printf '%s\n' "$m" | sed -n 's/^latest_block{block_hash="\([^"]*\)"} \(.*\)$/'"${n}"' \2 \1/p')
+"
   done
+
+  echo ""
+  echo "=== do they hold the SAME block, not just the same height? ==="
+  common=$(printf '%s\n' "$heads" | awk 'NF==2 && $2 ~ /^[0-9]+$/ {print $2}' | sort -n | head -1)
+  if [ -z "$common" ]; then
+    echo "    (no node reported a height, so there is nothing to compare)"
+  else
+    found=$(printf '%s\n' "$heads" | awk -v i="$common" 'NF==3 && $2 == i {print $1" "$3}')
+    n_nodes=$(printf '%s\n' "$found" | grep -c . || true)
+    n_hashes=$(printf '%s\n' "$found" | awk '{print $2}' | sort -u | grep -c . || true)
+    if [ -n "$found" ]; then
+      printf '%s\n' "$found" | sed 's/^/    node/' | sed 's/ /: /'
+    fi
+    if [ "$n_nodes" -lt 3 ]; then
+      echo "    INCONCLUSIVE: only ${n_nodes} of 3 nodes published block ${common}."
+      echo "    A node republishes its head on restart, so give a just-restarted node a block or two."
+    elif [ "$n_hashes" -gt 1 ]; then
+      echo "    *** FORKED: the nodes hold DIFFERENT blocks at height ${common}. ***"
+      echo "    Heights alone cannot show this. First thing to check is whether the"
+      echo "    \`authorities\` list is byte-identical and in the same order on all three nodes."
+    else
+      echo "    OK: all three hold the same block at height ${common}."
+    fi
+  fi
 
   echo ""
   echo "=== did any node wipe or re-create its chain at startup? ==="

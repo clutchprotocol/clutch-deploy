@@ -26,6 +26,21 @@ block from a departed authority and rejects one from a new authority, so it will
 rest of the network accepts. **The set must change on every node together. Rotation is a
 coordinated restart, not a rolling one.**
 
+**That node does not stop, and this is the part that bites.** Rejecting is only half of what it
+does. For every slot its own list wrongly says it owns, it authors its own block and appends that
+instead. So it keeps perfect pace with the network at the **same height on a different chain**.
+Rehearsed on 2026-09-18: node1 and node2 both ran 12 → 16 while holding different blocks at 14 and
+16, node2 logging
+
+```
+Failed to add block to blockchain: "Block author verification failed:
+expected author 0x6fc11ba4..., but found 0x9b6e8aff..."
+```
+
+for each one it threw away. Nothing about the height shows this. **A half-finished rotation looks
+exactly like a healthy network to any check that compares heights** — which is what every check
+here did until that rehearsal.
+
 **2. The set size sets the block cadence.**
 `step_duration = 60 / authorities.len()` seconds. Three authorities own 20-second slots; five own
 12; six own 10. So adding or removing an authority is a consensus-timing change, not a roster edit.
@@ -50,7 +65,9 @@ Cadence is unchanged, so this is the simpler case.
    `up -d --force-recreate` — that restarts all nodes, which is what "coordinated" requires here.
    **Do not** restart nodes one at a time.
 5. Verify with `inspect-stage.yml`:
-   - `chain` — all three heights advancing, and agreeing.
+   - `chain` — all three heights advancing, **and its "do they hold the SAME block" section
+     reporting OK**. Advancing, agreeing heights are not enough on their own: that is exactly what
+     a forked node produces. The section compares head hashes at a height all three have reached.
    - `containers` — no node restarting in a loop.
 
 ## Adding or removing an authority
@@ -66,19 +83,29 @@ Everything above, plus:
 
 ## The rehearsal, which is what closes C3
 
-Do this on a throwaway network, not on stage, and not for the first time during an incident.
+**Done 2026-09-18.** It is now `.github/workflows/rehearse-authority-rotation.yml` rather than a
+list to follow by hand, so it can be re-run before each real rotation instead of read. It runs on
+dispatch and on any pull request touching `config/node/**`, `docker-compose.yml` or itself. A
+GitHub runner is the throwaway network the rehearsal needs: it exists for one job and is destroyed
+after, and it is not stage.
 
-1. Bring up a local stack: `docker compose -p clutch-rot -f docker-compose.yml -f docker-compose.dev.yml up -d --build`.
-2. Let it produce blocks. Note the height.
-3. Rotate one authority by the procedure above and redeploy.
-4. Confirm all nodes resume authoring and agree on height, and that the chain did **not** reset —
-   height should continue, not restart from zero. If it restarted, something in `ChainInit` changed
-   when it should not have.
-5. Then rehearse the failure you are actually guarding against: change the list on **one** node
-   only, and watch it reject blocks. Knowing what that looks like in the logs is the point of the
-   rehearsal.
+It asserts four things, in this order:
 
-Record the date here when done.
+1. The chain **continues** across a rotation — height does not go backwards when one authority is
+   replaced at the same index on all three nodes and all three restart together. If it restarted,
+   something in `ChainInit` changed when it should not have.
+2. All three hold the **same block** at the same height afterwards, compared by hash.
+3. A node with **no data at all** can still sync the whole history. This one is not obvious and is
+   the reason the rehearsal is worth running: existing blocks were authored by the key that was
+   just rotated out, and a fresh node validates that history against the *current* list. It passes
+   — but had it not, rotation would work for every running node and silently break every new one,
+   which you would discover on the day you add a server. That is the same day you rotate.
+4. A node given a **different order** forks rather than lagging, as described above. That is the
+   failure this whole procedure guards against, and the rehearsal is where you get to see it once
+   with nothing at stake.
+
+The first run of it is what corrected this document: assertion 4 was originally written as "must
+fall behind" and failed, because the node kept pace at an identical height on its own chain.
 
 ## What this does not cover
 
