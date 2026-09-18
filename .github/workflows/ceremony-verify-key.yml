@@ -50,9 +50,18 @@ jobs:
           STAGE_HOST: ${{ secrets.STAGE_HOST }}
           STAGE_USER: ${{ secrets.STAGE_USER }}
           STAGE_SSH_PASSWORD: ${{ secrets.STAGE_SSH_PASSWORD }}
-          DEPLOY_PATH: ${{ secrets.DEPLOY_PATH }}
+          # STAGE_DEPLOY_PATH, as every other workflow here names it. An earlier version of this
+          # file read `DEPLOY_PATH`, which does not exist: an unset secret is the empty string, so
+          # the remote `cd ""` did nothing, stayed in the home directory, and reported "no .env on
+          # the host" -- a true statement about the wrong directory.
+          DEPLOY_PATH: ${{ secrets.STAGE_DEPLOY_PATH }}
         run: |
           set -euo pipefail
+          if [ -z "$DEPLOY_PATH" ]; then
+            echo "::error::STAGE_DEPLOY_PATH is empty. Every path check after this would be"
+            echo "::error::running in the home directory and reporting on the wrong place."
+            exit 1
+          fi
           sudo apt-get update -qq && sudo apt-get install -y -qq sshpass >/dev/null
 
           # `set -x` is deliberately NOT used anywhere below: the .env this reads holds the
