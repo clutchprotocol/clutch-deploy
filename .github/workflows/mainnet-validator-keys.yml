@@ -1,0 +1,120 @@
+# Generate the mainnet validator keys, on the host, once.
+#
+# The testnet's validator secrets are committed in this repository and are therefore public. That
+# is correct for a throwaway chain and unacceptable for one holding real value, so mainnet needs
+# authority keys that have never left the machine that will use them.
+#
+# So they are generated ON the stage host and written straight into its .env. The secrets never
+# travel through GitHub, never appear in this log, and are never seen by anyone who did not already
+# have access to that host. Only the ADDRESSES are printed, because those are public and have to be
+# committed into every node's `authorities` list.
+#
+# Run this ONCE. It refuses to run again if the keys are already in .env: replacing an authority
+# key whose address is already in a genesis strands the chain with an authority nobody can sign
+# for, and no amount of config editing fixes that.
+name: Mainnet — generate validator keys (once)
+
+on:
+  workflow_dispatch:
+    inputs:
+      count:
+        description: "How many authorities. The set size also sets the block cadence at 60/len seconds."
+        required: true
+        default: "3"
+      confirm:
+        description: "Type GENERATE to run"
+        required: true
+
+jobs:
+  keygen:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check the confirmation
+        env:
+          CONFIRM: ${{ inputs.confirm }}
+          COUNT: ${{ inputs.count }}
+        run: |
+          set -euo pipefail
+          [ "$CONFIRM" = "GENERATE" ] || { echo "::error::type GENERATE to run"; exit 1; }
+          case "$COUNT" in
+            ''|*[!0-9]*) echo "::error::count must be a number"; exit 1 ;;
+          esac
+          [ "$COUNT" -ge 1 ] && [ "$COUNT" -le 60 ] || { echo "::error::count must be 1..60"; exit 1; }
+
+      - uses: actions/checkout@v4
+
+      - name: Generate on the host
+        env:
+          COUNT: ${{ inputs.count }}
+          STAGE_HOST: ${{ secrets.STAGE_HOST }}
+          STAGE_USER: ${{ secrets.STAGE_USER }}
+          STAGE_SSH_PASSWORD: ${{ secrets.STAGE_SSH_PASSWORD }}
+          DEPLOY_PATH: ${{ secrets.STAGE_DEPLOY_PATH }}
+        run: |
+          set -euo pipefail
+          if [ -z "$DEPLOY_PATH" ]; then
+            echo "::error::STAGE_DEPLOY_PATH is empty"; exit 1
+          fi
+          sudo apt-get update -qq && sudo apt-get install -y -qq sshpass >/dev/null
+
+          # No `set -x` anywhere below: this touches the .env that holds the deposit mnemonic and
+          # the mint credentials, and a trace would print them into a public log.
+          remote=$(cat <<'REMOTE'
+          set -euo pipefail
+          cd "$DEPLOY_PATH_R"
+          [ -f .env ] || { echo "::error::no .env at $DEPLOY_PATH_R"; exit 1; }
+
+          # Refuse to replace keys that may already be committed to a genesis.
+          existing=""
+          for i in $(seq 1 "$COUNT_R"); do
+            # An `if`, not `grep ... && x=y`: under `set -e` that list fails the whole script the
+            # moment grep matches nothing, which is the normal case here.
+            if grep -q "^MAINNET_NODE${i}_AUTHOR_SECRET=" .env; then
+              existing="$existing node${i}"
+            fi
+          done
+          if [ -n "$existing" ]; then
+            echo "::error::.env already holds validator secrets for:$existing"
+            echo "Refusing to overwrite. If those addresses are already in a genesis, replacing"
+            echo "the keys leaves authorities nobody can sign for. If you are certain they are"
+            echo "unused, remove those lines from .env by hand and run this again."
+            exit 1
+          fi
+
+          image=$(docker inspect -f '{{.Config.Image}}' clutch-stage-treasury-1 2>/dev/null || true)
+          [ -n "$image" ] || image="ghcr.io/clutchprotocol/clutch-treasury:latest"
+          docker pull -q "$image" >/dev/null
+
+          work=$(mktemp -d)
+          # Run as the invoking user so the secrets file is readable here and not left root-owned.
+          docker run --rm --user "$(id -u):$(id -g)" -v "$work:/out" "$image" \
+            ceremony-check validator-keys "$COUNT_R" /out/secrets
+
+          # Append secrets to .env without ever echoing them.
+          while read -r idx addr sec; do
+            printf 'MAINNET_NODE%s_AUTHOR_SECRET=%s\n' "$idx" "$sec" >> .env
+          done < "$work/secrets"
+
+          shred -u "$work/secrets" 2>/dev/null || rm -f "$work/secrets"
+          rmdir "$work" 2>/dev/null || true
+          echo "wrote $COUNT_R secret(s) into $DEPLOY_PATH_R/.env"
+          REMOTE
+          )
+
+          set +e
+          out=$(sshpass -p "$STAGE_SSH_PASSWORD" ssh -o StrictHostKeyChecking=no \
+                  "$STAGE_USER@$STAGE_HOST" \
+                  "DEPLOY_PATH_R='$DEPLOY_PATH' COUNT_R='$COUNT' bash -s" <<< "$remote" 2>&1)
+          rc=$?
+          set -e
+          echo "$out"
+          [ "$rc" -eq 0 ] || exit "$rc"
+
+          echo ""
+          echo "=== next ==="
+          # Single quotes: a backtick inside double quotes is command substitution, so the field
+          # names below would be executed as commands rather than printed.
+          echo 'Put the addresses above into config/node-mainnet/*.toml, in this order and'
+          echo 'identical in all three files: each node own author_public_key, and the shared'
+          echo 'authorities list. Order and length decide the slot schedule, so they must match.'
+          echo 'The secrets are in the host .env and belong nowhere else.'
