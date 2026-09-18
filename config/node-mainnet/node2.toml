@@ -1,0 +1,88 @@
+# Clutch MAINNET validator 2.
+#
+# Mounted at /app/config/node inside the container, NOT at /app/config like the testnet's. The node
+# builds its config path as `config/node/{env}.toml` in code, so pointing it at a different
+# directory is done with the mount, not with --env.
+#
+# Every value below the "consensus params" line is committed to the genesis hash and cannot be
+# changed once this chain has started. Check with:
+#   CONFIG_DIR=config/node-mainnet MAINNET=1 bash scripts/check-genesis.sh
+
+# Distinct from the testnet's "test-net" so the two chains never gossip at each other. They would
+# reject one another anyway -- the genesis hash is compared at handshake -- but a shared topic
+# turns that into constant failed handshakes rather than silence.
+libp2p_topic_name = "clutch-main-net"
+blockchain_name = "clutch-node-main-2"
+
+author_public_key = "0xa65fa93eee1ab8d93868b9da46c166376507b2c2"
+# Supplied at run time as APP_AUTHOR_SECRET_KEY from the host's .env, which compose fills from
+# MAINNET_NODE2_AUTHOR_SECRET. The node reads Environment::with_prefix("APP"), so the env var wins.
+#
+# EMPTY ON PURPOSE, and it must stay empty. This file is committed. The testnet's equivalents carry
+# their secrets in the open, which is correct for a throwaway chain and would mean anyone who can
+# read this repository could author mainnet blocks.
+author_secret_key = ""
+
+# MUST stay false. On shutdown, developer_mode makes the node DELETE its own RocksDB. On stage that
+# destroyed the chain of whichever node finished its graceful stop inside the grace period, and the
+# loss looked random for a month.
+developer_mode = false
+
+websocket_addr = "0.0.0.0:8182"
+listen_addrs = ["/ip4/0.0.0.0/tcp/4102"]
+bootstrap_nodes = ["/dns4/mainnet-node1/tcp/4101"]
+
+# Not genesis-committed, but `authorities[slot % len]` depends on ORDER and LENGTH, so this list
+# must be byte-identical and in the same order in all three files. A node with a different list
+# rejects blocks the others accept, says so only in its own log, and keeps running -- rehearsed
+# 2026-09-18, see docs/AUTHORITY-ROTATION.md.
+#
+# Three authorities means 20-second slots: step_duration is 60 / len.
+authorities = [
+    "0x7948f7aabba0ad1c78e11eb2a9eec1becb57a421",
+    "0xa65fa93eee1ab8d93868b9da46c166376507b2c2",
+    "0x84f828ffd215c6b63de8f38f26b08a5077c8d209",
+]
+block_authoring_enabled = true
+
+# --- consensus params: committed to state by the genesis ChainInit tx ---------------------------
+# Byte-identical across all three nodes or they cannot peer. None of these can be changed after the
+# first block without starting a new chain.
+
+# Not 2077 (the testnet's), and not one digit from it: a near-miss would let a typo silently
+# produce testnet config. Decided 2026-09-19.
+chain_id = 1000
+is_testnet = false
+tx_fee = 1000
+
+# The Azure Key Vault key, confirmed by ceremony step 4 on 2026-09-19: the vault signed a synthetic
+# digest and the signature recovered to this address. Key
+# clutch-mint-vault-1/keys/clutch-mint-key-1, version a37aaf417d3447c7b4587ba97235bca9, EC P-256K.
+# Single-signer by decision (readiness A1) -- mint_cosigners and mint_threshold are deliberately
+# absent, which encodes identically to a genesis from before those fields existed.
+mint_authority = "0xe44cda17f55acf4ccc03cab374de1f227cac6621"
+
+# The zero address, chosen over carrying the testnet's across -- that one is an address somebody
+# holds the key to, and this field stays in the genesis hash forever. Inert either way:
+# initial_supply is `if is_testnet { faucet_allocation } else { 0 }`, so a mainnet genesis credits
+# it nothing whatever the allocation says.
+faucet_address = "0x0000000000000000000000000000000000000000"
+faucet_allocation = 0
+
+ride_request_referrer_fee_bps = 200
+ride_offer_referrer_fee_bps = 200
+
+# Two hours, the decision of record. The testnet runs 300 because nobody waits two hours to test a
+# cancel; MAINNET=1 check-genesis.sh refuses anything but 7200 so that value cannot leak in here.
+# A nonzero value also takes the ChainInit RLP from 8 items to 11, so a node that omits it is on a
+# different chain, not a lenient one.
+ride_auto_release_secs = 7200
+
+sync_enabled = true
+serve_metric_enabled = true
+serve_metric_addr = "0.0.0.0:3102"
+log_level = "info"
+seq_url = "http://seq:80"
+# Deliberately empty: this file is committed, so a key written here is a published key. Supplied at
+# run time as APP_SEQ_API_KEY.
+seq_api_key = ""
