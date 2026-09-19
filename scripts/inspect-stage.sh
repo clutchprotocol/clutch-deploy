@@ -1105,10 +1105,19 @@ if [ "$PROBE" = "mainnet" ]; then
   echo "=== is Prometheus actually scraping these? ==="
   # The join is the whole path: these nodes publish nothing to the host, so a Prometheus that is
   # not on clutch-mainnet sees a chain that looks perfectly healthy from here and is unmonitored.
-  docker run --rm --network "container:clutch-stage-prometheus-1" postgres:16-alpine \
-    wget -qO- 'http://localhost:9090/api/v1/query?query=up{job=~"mainnet-node.*"}' 2>/dev/null \
-    | tr ',' '\n' | grep -E '"job"|"value"' | sed 's/^/    /' || echo "    (could not reach Prometheus)"
-
+  # up=1 per job. "The target is listed" and "the scrape succeeds" are different facts, and
+  # printing the first alone reads like the second -- which is the exact blindness this join
+  # exists to prevent. Same extraction idiom the metrics probe uses.
+  for n in 1 2 3; do
+    v=$(docker run --rm --network "container:clutch-stage-prometheus-1" postgres:16-alpine \
+          wget -qO- "http://localhost:9090/api/v1/query?query=up%7Bjob%3D%22mainnet-node${n}%22%7D" 2>/dev/null \
+          | tr ',' '\n' | grep -A1 '"value"' | tail -1 | tr -dc '0-9')
+    case "${v:-}" in
+      1) echo "    mainnet-node${n}: up=1 (Prometheus is scraping it)" ;;
+      0) echo "    mainnet-node${n}: up=0 -- TARGET EXISTS BUT THE SCRAPE FAILS. Check that Prometheus is still joined to clutch-mainnet." ;;
+      *) echo "    mainnet-node${n}: no 'up' series at all -- the scrape target is missing from prometheus.yml, or Prometheus is unreachable" ;;
+    esac
+  done
   echo ""
   echo "=== recent log, each node ==="
   for n in 1 2 3; do
