@@ -1,0 +1,44 @@
+# Clutch Hub API config — MAINNET (chain_id 1000).
+#
+# Mounted at /app/config in the mainnet-hub-api container. A copy of the testnet's rather than a
+# shared file, because the two differ in the one field that matters and a shared file with an env
+# override would make "which node does mainnet read" invisible at the point someone looks.
+# Reads mainnet-node3 over the clutch-mainnet network. Those nodes publish nothing to the host,
+# so this service joins that network to reach them -- see docker-compose.mainnet.yml.
+serve_metric_enabled = true
+serve_metric_addr = "0.0.0.0:9090"
+ws_addr = "0.0.0.0:3000"
+clutch_node_ws_url = "ws://mainnet-node3:8183/ws"
+log_level = "info"
+seq_url = "http://seq:80"
+# Deliberately EMPTY. This file is committed, so a key written here is a published key.
+# Supplied at run time as APP_SEQ_API_KEY from .env (the APP_ prefix is what config actually
+# reads -- a bare SEQ_API_KEY in compose overrides nothing). Empty only costs log ingestion,
+# so it is defaulted rather than required.
+seq_api_key = ""
+# Deliberately EMPTY. This file is mounted into the container and lives in a public repo, so a
+# secret written here is a published secret.
+# The real value arrives as APP_JWT_SECRET from .env, which compose now REQUIRES rather than
+# defaulting. hub-api refuses to start on an empty or short secret (src/hub/configuration.rs),
+# so a deployment that forgets it fails at boot instead of running on a value anyone can read.
+jwt_secret = ""
+jwt_expiration_hours = 6
+# "*" here; override per-environment with APP_ALLOWED_ORIGINS (see .env.example).
+allowed_origins = "*"
+
+
+# App-developer referrers injected by Hub API (clients must not pass referrer).
+#
+# This is the operator's own wallet for the public stage hub. Both sides credit it, so it
+# earns 400 bps of every RidePay running through this deployment — the only revenue the
+# operator takes anywhere, since a fully-reserved token has no spread to keep.
+#
+# It replaced 0x0912514c7cc3eec2b2dab4e1d150c4b5eaee5a6f, which is a fixture address reused
+# across clutch-node tests, clutch-explorer tests and clutch-hub-api's env.example. Nothing
+# was wrong with the mechanism; the address had simply never been chosen, so ride revenue
+# was accruing to a placeholder whose key nobody could account for.
+#
+# Running your own hub? Put YOUR OWN wallet here — these fees are meant to be yours:
+# https://docs.clutchprotocol.io/getting-started/app-developer-incentives
+default_ride_request_referrer = "0x466e50fa1c0609744e0752a5b494511a5bb99006"
+default_ride_offer_referrer = "0x466e50fa1c0609744e0752a5b494511a5bb99006"

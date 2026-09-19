@@ -78,9 +78,61 @@ services:
       - mainnet-node1
     restart: unless-stopped
 
+  # ---------------------------------------------------------------------------------------
+  # The app side. These are NOT validators: they carry no keys and author nothing, so losing
+  # one is an outage rather than a loss of the chain.
+
+  mainnet-hub-api:
+    image: ghcr.io/clutchprotocol/clutch-hub-api:latest
+    environment:
+      - RUST_LOG=info
+      # node3 deliberately, matching the testnet: being the p2p bootstrap is a different job
+      # from being the best node to read, and node1 there fell ~115,000 blocks behind while
+      # answering queries cheerfully.
+      - CLUTCH_NODE_WS_URL=ws://mainnet-node3:8183/ws
+      - SEQ_URL=http://seq:80
+      - APP_SEQ_API_KEY=${SEQ_API_KEY:-}
+      - APP_ALLOWED_ORIGINS=${MAINNET_ALLOWED_ORIGINS:-https://app.clutchprotocol.io}
+      # A DIFFERENT secret from the testnet's, required rather than defaulted. Sharing one
+      # would make a token minted against the testnet hub valid on the mainnet hub, which is
+      # the whole reason the chains got different chain_ids.
+      - "APP_JWT_SECRET=${MAINNET_JWT_SECRET:?set MAINNET_JWT_SECRET in .env -- it must NOT be the same value as JWT_SECRET}"
+    networks:
+      # Both, and this service is the only thing that bridges them. clutch-mainnet to reach
+      # the validators; the stage network because nginx lives over there and resolves
+      # upstreams by container name. The validators stay on one network only.
+      - clutch-mainnet
+      - clutch-stage
+    volumes:
+      - ./config/api-mainnet:/app/config:ro
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://127.0.0.1:3000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+    depends_on:
+      - mainnet-node3
+    restart: unless-stopped
+
+  mainnet-demo-app:
+    # The SAME image the testnet serves. It picks its chain and its API from the hostname it
+    # is served on (apps/demo/src/chain-for-host.js), so app.clutchprotocol.io gets chain 1000
+    # and api.clutchprotocol.io with nothing baked in at build time.
+    image: ghcr.io/clutchprotocol/clutch-hub-demo-app:latest
+    networks:
+      - clutch-stage
+    restart: unless-stopped
+
 networks:
   clutch-mainnet:
     name: clutch-mainnet
+  # nginx resolves upstreams by container name and lives in the v2ray project, joined to the
+  # testnet stack's network. The mainnet app services join it so nginx can reach them; the
+  # validators never do.
+  clutch-stage:
+    name: clutch-stage_clutch-network
+    external: true
 
 volumes:
   # One per node: each has its own blockchain_name and database and they must not share state.
