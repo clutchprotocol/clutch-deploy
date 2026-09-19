@@ -109,6 +109,9 @@ groups:
       # `for` is short because this condition is never transient: the cursor only moves forward,
       # so it cannot briefly overshoot and correct itself.
       #
+      # Scoped to the testnet: this treasury-service watches chain 2077. Unscoped, `max()` would
+      # pick whichever chain is taller, and the day the mainnet overtakes the testnet the rule would
+      # start comparing a testnet cursor against a mainnet head. A mainnet treasury gets its own rule.
       # `scalar()` is load-bearing, not tidiness. Written as a bare `> max(latest_block_index)`
       # this is a vector-to-vector comparison: the left side carries job and instance labels, the
       # aggregate carries none, nothing matches, and the rule evaluates to empty for ever while
@@ -116,7 +119,7 @@ groups:
       # same expression and answering "(no sample yet)" — which is the argument for querying an
       # alert's own expression in the probe rather than trusting that it loaded.
       - alert: TreasuryWatcherCursorStranded
-        expr: clutch_treasury_chain_cursor_height > scalar(max(latest_block_index))
+        expr: clutch_treasury_chain_cursor_height > scalar(max(latest_block_index{chain="testnet"}))
         for: 2m
         labels:
           severity: critical

@@ -17,6 +17,20 @@ services:
 
   prometheus:
     ports: !reset []
+    # Joined to the MAINNET network as well, read-only, so it can scrape mainnet-node1..3 on
+    # 3101-3103. That compose project publishes nothing to the host by design, so this join is
+    # the only path to those metrics. Prometheus runs no libp2p, so the mainnet nodes gain no
+    # peer from it; the separation that matters -- testnet NODES never seeing mainnet NODES --
+    # is untouched.
+    #
+    # `external: true` couples this stack to the mainnet network EXISTING. If `up` fails with
+    # "network clutch-mainnet declared as external, but could not be found", the mainnet
+    # project has been taken down -- which is the emergency, not this error. Chosen over a
+    # `docker network connect` in the deploy script precisely so it fails loudly: this repo
+    # has been burned more than once by monitoring that silently loaded nothing.
+    networks:
+      - clutch-network
+      - clutch-mainnet
 
   # Alertmanager's UI takes no authentication and can create silences, so a published 9093 is
   # a public mute button on every alert this stack raises.
@@ -59,3 +73,8 @@ services:
   clutch-explorer-postgres:
     ports: !reset []
     image: postgres:16-alpine
+
+networks:
+  # Created by docker-compose.mainnet.yml (project clutch-main). See prometheus above.
+  clutch-mainnet:
+    external: true
