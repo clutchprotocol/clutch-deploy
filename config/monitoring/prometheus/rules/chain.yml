@@ -101,3 +101,27 @@ groups:
           description: >-
             No mainnet validator has published a head since boot, or Prometheus cannot reach them.
             Either way nothing reading this chain's head is seeing one.
+
+  - name: hub-availability
+    interval: 30s
+    rules:
+      # The service every browser talks to. Until 2026-09-19 nothing scraped either hub, so a
+      # crashed one was indistinguishable from an idle one — and on mainnet that means the public
+      # app at app.clutchprotocol.io is down with nothing saying so.
+      #
+      # Separate from ChainNodeDown deliberately. A node being down degrades the chain; a hub being
+      # down takes the whole app off the air while the chain carries on perfectly, so the two want
+      # different summaries even though the expression shape is the same.
+      - alert: HubApiDown
+        expr: up{job=~"clutch-hub-api|mainnet-hub-api"} == 0
+        for: 3m
+        labels:
+          severity: critical
+        annotations:
+          summary: "{{ $labels.job }} ({{ $labels.chain }}) is not answering scrapes"
+          description: >-
+            No client can reach this chain through GraphQL while this is firing. The chain itself
+            is unaffected and will keep producing blocks, which is why nothing else here catches
+            it. For mainnet-hub-api, check that it is still joined to BOTH clutch-mainnet and
+            clutch-stage_clutch-network: it is the only service bridging them, and losing the
+            second join breaks nginx's upstream while leaving the container healthy.
