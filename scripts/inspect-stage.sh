@@ -1011,12 +1011,6 @@ if [ "$PROBE" = "metrics" ]; then
       where created_at > now() - interval '24 hours' order by created_at desc limit 8;" 2>/dev/null \
     | sed 's/^/    /' || echo "    (could not read orchestrator alerts)"
 fi
-
-# Always succeed. This is a read-only probe whose OUTPUT is the deliverable — a trailing non-zero
-# from the last grep/test would fail the step and throw away everything printed above it, which is
-# exactly how two earlier runs "failed" while having already answered the question.
-exit 0
-
 if [ "$PROBE" = "mainnet" ]; then
   # The mainnet chain (chain_id 1000), compose project clutch-main, network clutch-mainnet.
   #
@@ -1122,3 +1116,12 @@ if [ "$PROBE" = "mainnet" ]; then
     $MCOMPOSE logs --tail 15 "mainnet-node${n}" 2>/dev/null | sed 's/^/    /' || true
   done
 fi
+
+# Always succeed. This is a read-only probe whose OUTPUT is the deliverable — a trailing non-zero
+# from the last grep/test would fail the step and throw away everything printed above it, which is
+# exactly how two earlier runs "failed" while having already answered the question.
+#
+# EVERY probe block must sit ABOVE this line. `PROBE=mainnet` was appended below it and printed
+# nothing while the run reported success — unreachable code in a script that always exits 0 is
+# invisible twice over. `bash -n` does not catch it; only running the probe does.
+exit 0
