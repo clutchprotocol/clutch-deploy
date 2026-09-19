@@ -55,6 +55,13 @@ ENV_FILE="${ENV_FILE:-.env}"
 
 if [ ! -f "$ENV_FILE" ]; then
   echo "ABORT: no $ENV_FILE here ($(pwd)). Expected the stage deploy checkout."
+  if [ "$ENV_FILE" != ".env" ]; then
+    echo "Copy .env.mainnet.example to $ENV_FILE first and fill in CUSTODY_TRON_ADDRESS,"
+    echo "TRONGRID_URL and USDT_CONTRACT. Everything else in it is generated here."
+    echo "Do NOT copy secrets across from .env: a shared DEPOSIT_MNEMONIC derives the same"
+    echo "deposit addresses on both networks, and two orchestrators would hand one address"
+    echo "to two different users."
+  fi
   exit 1
 fi
 
