@@ -397,6 +397,32 @@ if [ "$TREASURY" = "true" ]; then
   edge_check app-stage.clutchprotocol.io /explorer/   200 || { restore_nginx; exit 1; }
   edge_check app-stage.clutchprotocol.io /graphql/ws  101 ws graphql-transport-ws || { restore_nginx; exit 1; }
 
+
+  # --- MAINNET (chain_id 1000) -----------------------------------------------------------------
+  #
+  # These two vhosts shipped without gates, so a deploy could break them and still report success:
+  # the checks above prove only the six -stage vhosts. A gate is not optional here for the same
+  # reason it was not there -- the edge is already serving by the time these run.
+  edge_check api.clutchprotocol.io /health     200 || { restore_nginx; exit 1; }
+  edge_check api.clutchprotocol.io /graphql/ws 101 ws graphql-transport-ws || { restore_nginx; exit 1; }
+
+  edge_check app.clutchprotocol.io /           200 || { restore_nginx; exit 1; }
+  edge_check app.clutchprotocol.io /health     200 || { restore_nginx; exit 1; }
+  # /api/ strips its own prefix, so /api/health must reach the mainnet Hub API's /health. Proves
+  # the rewrite survived, not merely the proxy_pass.
+  edge_check app.clutchprotocol.io /api/health 200 || { restore_nginx; exit 1; }
+  edge_check app.clutchprotocol.io /graphql/ws 101 ws graphql-transport-ws || { restore_nginx; exit 1; }
+
+  # The three routes that must FAIL, and must fail as 503 rather than 200.
+  #
+  # Not belt-and-braces. `location /` on this vhost is a catch-all serving the SPA's index.html
+  # with a 200, so if any of these blocks is dropped the route does not disappear -- it starts
+  # answering 200 with HTML. For /payment/ that is the dangerous one: the deposit panel would show
+  # a real depositor an address watched by nothing, or by the TESTNET orchestrator if the stage
+  # copy of the file were ever restored here. A gate that accepts "not 200" would pass on that.
+  edge_check app.clutchprotocol.io /payment/health  503 || { restore_nginx; exit 1; }
+  edge_check app.clutchprotocol.io /explorer/       503 || { restore_nginx; exit 1; }
+  edge_check app.clutchprotocol.io /explorer/api/   503 || { restore_nginx; exit 1; }
   # explorer-stage. /health reaches the explorer's Rust API; / is the React frontend, and a 200
   # from it is what says the frontend upstream still resolves.
   edge_check explorer-stage.clutchprotocol.io /health 200 || { restore_nginx; exit 1; }
