@@ -94,6 +94,41 @@ if ! has CUSTODY_TRON_ADDRESS; then
   exit 1
 fi
 
+# A well-formed address, checked before anything is generated against it.
+#
+# CUSTODY_TRON_ADDRESS is where every swept USDT lands and nothing in this stack can spend from it
+# (readiness A4, A5). A typo is therefore not a bug that gets fixed later -- it is money sent to an
+# address nobody holds a key for. Base58check exists to catch exactly this, so check it.
+#
+# The same python:3-alpine the xpub probe uses, so this adds no dependency to the host. It proves
+# the address is well formed and on TRON MAINNET; it cannot prove the operator controls it, and
+# nothing can.
+echo "=== checking CUSTODY_TRON_ADDRESS is a valid TRON mainnet address ==="
+if ! docker run --rm python:3-alpine python3 -c '
+import hashlib, sys
+A = "123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz"
+a = sys.argv[1]
+n = 0
+for c in a:
+    if c not in A:
+        print("  not base58: the character %r cannot appear in a TRON address" % c); sys.exit(1)
+    n = n * 58 + A.index(c)
+raw = n.to_bytes((n.bit_length() + 7) // 8, "big")
+raw = b"\x00" * (len(a) - len(a.lstrip("1"))) + raw
+if len(raw) != 25:
+    print("  wrong length: decoded %d bytes, a TRON address is 25" % len(raw)); sys.exit(1)
+if raw[0] != 0x41:
+    print("  wrong network: version byte 0x%02x, TRON mainnet is 0x41" % raw[0]); sys.exit(1)
+if hashlib.sha256(hashlib.sha256(raw[:-4]).digest()).digest()[:4] != raw[-4:]:
+    print("  CHECKSUM MISMATCH — this is a mistyped address, not a real one"); sys.exit(1)
+print("  valid TRON mainnet address, hex 41%s" % raw[1:-4].hex())
+' "$(val CUSTODY_TRON_ADDRESS)"; then
+  echo "ABORT: CUSTODY_TRON_ADDRESS in $ENV_FILE is not a valid TRON mainnet address."
+  echo "Nothing has been written. Fix it before running this again -- every sweep goes there"
+  echo "and nothing in this stack can move it back."
+  exit 1
+fi
+
 # ONE backup, overwritten each run -- not a timestamped pile. Every copy holds DEPOSIT_MNEMONIC,
 # so each is exactly as sensitive as .env itself, and the old naming left one more of them on the
 # host per run with no upper bound. Keeping the most recent one still makes a bad edit undoable,
