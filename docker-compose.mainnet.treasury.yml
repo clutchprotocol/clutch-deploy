@@ -1,0 +1,101 @@
+# The MAINNET treasury, as an overlay on docker-compose.treasury.yml.
+#
+#   docker compose -p clutch-main-treasury --env-file .env.mainnet \
+#     -f docker-compose.treasury.yml -f docker-compose.mainnet.treasury.yml \
+#     up -d treasury-postgres orchestrator-postgres treasury-service tron-signer payment-orchestrator
+#
+# An overlay rather than a second copy of that file, deliberately. Those 380 lines are the money
+# path; duplicating them means a fix lands in one and not the other, and the two drift silently
+# until the difference is discovered by a deposit going somewhere it should not. This file holds
+# ONLY what mainnet does differently, which is also exactly what a reviewer needs to read.
+#
+# Separation comes from three things and none of them is optional:
+#   - a different PROJECT name, so containers, volumes and the internal network are its own
+#   - a different ENV FILE, so every secret below is a different value
+#   - `clutch-network` re-pointed at the mainnet chain's network, so the services read chain 1000
+#
+# THE DEPOSIT MNEMONIC MUST NOT BE THE TESTNET'S. TRON addresses are network-agnostic: one mnemonic
+# derives the SAME addresses on Nile and on mainnet. Two orchestrators with separate databases
+# would hand the same address to different users, so a depositor shown an address by the testnet
+# app could send real USDT to it and have this service credit somebody else. provision-treasury-
+# secrets.sh generates one per .env and never overwrites, so pointing it at .env.mainnet is what
+# keeps them distinct.
+
+services:
+  # Reads the MAINNET chain. The base file names node1/node3 on 8081/8083 -- the testnet's
+  # containers and ports -- which resolve to nothing on this network.
+  treasury-service:
+    environment:
+      - APP_NODE_WS_URL=ws://mainnet-node3:8183/ws
+      - APP_NODE_PEER_WS_URLS=ws://mainnet-node1:8181/ws,ws://mainnet-node2:8182/ws
+      - APP_CHAIN_ID=1000
+
+      # The KMS signer, which is the entire point of the key ceremony. Its address is the chain's
+      # genesis-committed mint_authority, so nothing else can mint here.
+      - APP_SIGNER_KIND=azure_kms
+      - "APP_AZURE_TENANT_ID=${AZURE_TENANT_ID:?set AZURE_TENANT_ID in .env.mainnet}"
+      - "APP_AZURE_CLIENT_ID=${AZURE_CLIENT_ID:?set AZURE_CLIENT_ID in .env.mainnet}"
+      - "APP_AZURE_CLIENT_SECRET=${AZURE_CLIENT_SECRET:?set AZURE_CLIENT_SECRET in .env.mainnet}"
+      - "APP_AZURE_VAULT_URL=${AZURE_VAULT_URL:?set AZURE_VAULT_URL in .env.mainnet}"
+      - "APP_AZURE_KEY_NAME=${AZURE_KEY_NAME:?set AZURE_KEY_NAME in .env.mainnet}"
+      # Pinned, never "latest": Key Vault lets a key grow new versions, and floating would let the
+      # mint authority's address change under this service without anyone deciding that.
+      - "APP_AZURE_KEY_VERSION=${AZURE_KEY_VERSION:?set AZURE_KEY_VERSION in .env.mainnet}"
+
+      # EMPTY ON PURPOSE. configuration.rs panics when signer_kind=azure_kms and this is non-empty,
+      # so a plaintext mint key cannot sit beside the KMS one and be picked up by accident.
+      #
+      # It cannot simply be omitted: the base file writes `${MINT_AUTHORITY_SECRET:?...}`, and
+      # compose interpolates each file before merging, so the variable must still EXIST in
+      # .env.mainnet. Give it any placeholder there. If this overlay is ever left off the command,
+      # the placeholder is not valid hex and EnvKeySigner refuses to build -- it fails closed.
+      - APP_MINT_AUTHORITY_SECRET=
+
+      # TRON MAINNET. The base defaults to nile.trongrid.io and the Nile USDT contract, which is
+      # test money. Both are required here rather than defaulted: a default that is wrong in this
+      # pair means watching the wrong token on the wrong network, and crediting nothing.
+      - "APP_TRONGRID_URL=${TRONGRID_URL:?set TRONGRID_URL to https://api.trongrid.io in .env.mainnet}"
+      - "APP_USDT_CONTRACT=${USDT_CONTRACT:?set USDT_CONTRACT in .env.mainnet — verify it on tronscan.org first}"
+    networks:
+      - treasury-network
+      - clutch-network
+
+  tron-signer:
+    environment:
+      - "APP_TRONGRID_URL=${TRONGRID_URL:?set TRONGRID_URL in .env.mainnet}"
+      - "APP_USDT_CONTRACT=${USDT_CONTRACT:?set USDT_CONTRACT in .env.mainnet}"
+
+  payment-orchestrator:
+    environment:
+      - "APP_TRONGRID_URL=${TRONGRID_URL:?set TRONGRID_URL in .env.mainnet}"
+      - "APP_USDT_CONTRACT=${USDT_CONTRACT:?set USDT_CONTRACT in .env.mainnet}"
+      - APP_ALLOWED_ORIGINS=${MAINNET_ALLOWED_ORIGINS:-https://app.clutchprotocol.io}
+    networks:
+      treasury-network:
+      clutch-network:
+      # nginx resolves upstreams by container name and lives on the testnet stack's network, so
+      # this service joins it too. The ALIAS is what keeps the two orchestrators apart: both are
+      # the compose service `payment-orchestrator`, and two containers answering to that name on
+      # one network is a collision that would route mainnet deposits at random.
+      clutch-stage:
+        aliases:
+          - mainnet-payment-orchestrator
+
+  # Defined so the file parses, never started. The base treasury file adds one environment variable
+  # to a service the BASE compose defines, and that base is not part of this project -- so without
+  # an image here the service is incomplete and `compose config` refuses the whole set. The profile
+  # keeps it out of every `up`, including one that names no services.
+  clutch-explorer-backend:
+    image: ghcr.io/clutchprotocol/clutch-explorer-backend:latest
+    profiles: ["never-started-here"]
+
+networks:
+  # Re-pointed, NOT redefined. Every service above joins `clutch-network` by that name in the base
+  # file; here that name resolves to the mainnet chain's network, so they reach mainnet-node1..3
+  # and never see a testnet node.
+  clutch-network:
+    name: clutch-mainnet
+    external: true
+  clutch-stage:
+    name: clutch-stage_clutch-network
+    external: true

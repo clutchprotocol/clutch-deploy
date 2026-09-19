@@ -17,6 +17,8 @@ on:
       - 'docker-compose.yml'
       - 'docker-compose.mainnet.yml'
       - 'docker-compose.stage.cloudflare-flex.yml'
+      - 'docker-compose.treasury.yml'
+      - 'docker-compose.mainnet.treasury.yml'
       - '.github/workflows/check-monitoring-config.yml'
   workflow_dispatch:
 
@@ -62,4 +64,17 @@ jobs:
           echo "--- base + stage overlay ---"
           MAINNET_NODE1_AUTHOR_SECRET=ci MAINNET_NODE2_AUTHOR_SECRET=ci MAINNET_NODE3_AUTHOR_SECRET=ci \
             docker compose -f docker-compose.yml -f docker-compose.stage.cloudflare-flex.yml config -q
+          # The mainnet treasury overlay. Its two external networks do not exist on a runner,
+          # and `config` does not check that a network exists -- so this proves the MERGE is
+          # valid (list-vs-mapping networks, the environment overrides, the profile on the
+          # explorer stub) without proving the host wiring, which only a deploy can.
+          echo "--- treasury + mainnet treasury overlay ---"
+          env $(sed -e 's/#.*//' -e '/^$/d' .env.mainnet.example | grep -E '^[A-Z_]+=' | sed -e 's/=$/=ci/' | tr '
+' ' ') \
+            CUSTODY_TRON_ADDRESS=ci TRONGRID_API_KEY=ci AZURE_TENANT_ID=ci AZURE_CLIENT_ID=ci \
+            AZURE_CLIENT_SECRET=ci AZURE_KEY_VERSION=ci DEPOSIT_MNEMONIC=ci DEPOSIT_ACCOUNT_XPUB=ci \
+            SIGNER_TOKEN=ci TREASURY_INITIATOR_TOKEN=ci TREASURY_APPROVER_TOKEN=ci \
+            TREASURY_READONLY_TOKEN=ci TREASURY_POSTGRES_PASSWORD=ci ORCHESTRATOR_POSTGRES_PASSWORD=ci \
+            docker compose -f docker-compose.treasury.yml -f docker-compose.mainnet.treasury.yml config -q
+
           echo "all compose files parse"
