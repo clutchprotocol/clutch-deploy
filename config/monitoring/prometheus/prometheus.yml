@@ -32,7 +32,7 @@ scrape_configs:
   - job_name: "node1"
     static_configs:
       - targets: ["node1:3001"]
-        labels: { chain: testnet }
+        labels: { chain: testnet, role: validator }
     scrape_interval: 10s
     metrics_path: /metrics
     scheme: http
@@ -40,7 +40,7 @@ scrape_configs:
   - job_name: "node2"
     static_configs:
       - targets: ["node2:3002"]
-        labels: { chain: testnet }
+        labels: { chain: testnet, role: validator }
     scrape_interval: 10s
     metrics_path: /metrics
     scheme: http
@@ -48,7 +48,7 @@ scrape_configs:
   - job_name: "node3"
     static_configs:
       - targets: ["node3:3003"]
-        labels: { chain: testnet }
+        labels: { chain: testnet, role: validator }
     scrape_interval: 10s
     metrics_path: /metrics
     scheme: http
@@ -60,7 +60,7 @@ scrape_configs:
   - job_name: "mainnet-node1"
     static_configs:
       - targets: ["mainnet-node1:3101"]
-        labels: { chain: mainnet }
+        labels: { chain: mainnet, role: validator }
     scrape_interval: 10s
     metrics_path: /metrics
     scheme: http
@@ -68,7 +68,7 @@ scrape_configs:
   - job_name: "mainnet-node2"
     static_configs:
       - targets: ["mainnet-node2:3102"]
-        labels: { chain: mainnet }
+        labels: { chain: mainnet, role: validator }
     scrape_interval: 10s
     metrics_path: /metrics
     scheme: http
@@ -76,7 +76,7 @@ scrape_configs:
   - job_name: "mainnet-node3"
     static_configs:
       - targets: ["mainnet-node3:3103"]
-        labels: { chain: mainnet }
+        labels: { chain: mainnet, role: validator }
     scrape_interval: 10s
     metrics_path: /metrics
     scheme: http
@@ -92,13 +92,13 @@ scrape_configs:
     scrape_interval: 30s
     static_configs:
       - targets: ["clutch-hub-api:9090"]
-        labels: { chain: testnet }
+        labels: { chain: testnet, role: hub }
 
   - job_name: "mainnet-hub-api"
     scrape_interval: 30s
     static_configs:
       - targets: ["mainnet-hub-api:9090"]
-        labels: { chain: mainnet }
+        labels: { chain: mainnet, role: hub }
 
   # The treasury services. Both sit on clutch-network alongside Prometheus, and both serve metrics
   # on their own port rather than on their API: the orchestrator's API is public through nginx's
