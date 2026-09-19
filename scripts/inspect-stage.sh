@@ -972,7 +972,7 @@ if [ "$PROBE" = "metrics" ]; then
   # "unreachable" on its own pipeline quirk while the target list says the target is up.
   # The same expressions the Grafana Treasury row uses, so this probe and the dashboard cannot
   # drift into disagreeing about what the numbers are.
-  for q in clutch_treasury_up clutch_treasury_minting_halted            'clutch_treasury_clt_liability / 1000000'            'clutch_treasury_custody_usdt / 1000000'            '100 * clutch_treasury_custody_usdt / clamp_min(clutch_treasury_clt_liability, 1)'            'clutch_treasury_mint_intents{status="credited"}'            'sum(clutch_treasury_mint_intents{status="needs_manual"}) + sum(clutch_orchestrator_deposit_intents{status="needs_manual"})'            clutch_treasury_unswept_deposit_addresses            'clutch_treasury_reconciliation_status{status="ok"}'            clutch_treasury_reconciliation_age_seconds            'sum(increase(clutch_treasury_alerts_total{severity="p1"}[24h])) + sum(increase(clutch_orchestrator_alerts_total{severity="p1"}[24h]))'            clutch_orchestrator_up            clutch_orchestrator_addresses_never_polled            clutch_treasury_chain_cursor_height            'max(latest_block_index)'            'clutch_treasury_chain_cursor_height - scalar(max(latest_block_index))'            'max(delta(latest_block_index[5m]))'            'max(latest_block_index) - min(latest_block_index)'            'count(latest_block)'            'count(up{job=~"node[0-9]+"} == 0) or vector(0)'; do
+  for q in clutch_treasury_up clutch_treasury_minting_halted            'clutch_treasury_clt_liability / 1000000'            'clutch_treasury_custody_usdt / 1000000'            '100 * clutch_treasury_custody_usdt / clamp_min(clutch_treasury_clt_liability, 1)'            'clutch_treasury_mint_intents{status="credited"}'            'sum(clutch_treasury_mint_intents{status="needs_manual"}) + sum(clutch_orchestrator_deposit_intents{status="needs_manual"})'            clutch_treasury_unswept_deposit_addresses            'clutch_treasury_reconciliation_status{status="ok"}'            clutch_treasury_reconciliation_age_seconds            'sum(increase(clutch_treasury_alerts_total{severity="p1"}[24h])) + sum(increase(clutch_orchestrator_alerts_total{severity="p1"}[24h]))'            clutch_orchestrator_up            clutch_orchestrator_addresses_never_polled            clutch_treasury_chain_cursor_height            'max(latest_block_index{chain="testnet"})' 'max(latest_block_index{chain="mainnet"})'            'clutch_treasury_chain_cursor_height - scalar(max(latest_block_index{chain="testnet"}))'            'max(delta(latest_block_index{chain="testnet"}[5m]))' 'max(delta(latest_block_index{chain="mainnet"}[5m]))'            'max(latest_block_index{chain="testnet"}) - min(latest_block_index{chain="testnet"})' 'max(latest_block_index{chain="mainnet"}) - min(latest_block_index{chain="mainnet"})'            'count(latest_block{chain="testnet"})' 'count(latest_block{chain="mainnet"})'            'count(up{job=~"node[0-9]+"} == 0) or vector(0)' 'count(up{job=~"mainnet-node[0-9]+"} == 0) or vector(0)'; do
     # '+' is a SPACE in form-encoded data, so any expression adding two terms arrived at
     # Prometheus mangled and came back empty -- which read as "no such metric" rather than "this
     # probe sent nonsense". Encode it.
@@ -1016,3 +1016,109 @@ fi
 # from the last grep/test would fail the step and throw away everything printed above it, which is
 # exactly how two earlier runs "failed" while having already answered the question.
 exit 0
+
+if [ "$PROBE" = "mainnet" ]; then
+  # The mainnet chain (chain_id 1000), compose project clutch-main, network clutch-mainnet.
+  #
+  # A separate probe rather than a flag on `chain`, because almost nothing is shared: different
+  # project name, different container names, different ports, and nothing published to the host.
+  # `chain` hardcodes clutch-stage-node* and 3001-3003 throughout, and threading a variable through
+  # all of it would make the testnet probe harder to read for no gain.
+  MP=clutch-main
+  MNET=clutch-mainnet
+  MCOMPOSE="docker compose -p ${MP} -f docker-compose.mainnet.yml"
+
+  echo "=== containers ==="
+  docker ps -a --filter "label=com.docker.compose.project=${MP}" \
+    --format '    {{.Names}}\t{{.Status}}\t{{.Image}}' || echo "    (none — the mainnet chain is NOT running)"
+
+  echo ""
+  echo "=== per-node height and head block ==="
+  # Read from inside the mainnet network: this project publishes no ports, deliberately. A
+  # throwaway curl container is the whole mechanism -- nothing is exec'd into a validator.
+  for n in 1 2 3; do
+    out=$(docker run --rm --network "$MNET" curlimages/curl:8.10.1 -fsS --max-time 5 \
+            "http://mainnet-node${n}:310${n}/metrics" 2>/dev/null || true)
+    h=$(printf '%s\n' "$out" | grep -aE '^latest_block_index' | awk '{print $2}' | head -1)
+    hh=$(printf '%s\n' "$out" | sed -n 's/^latest_block{block_hash="\([^"]*\)"} \(.*\)$/\2 \1/p' | head -1)
+    echo "    mainnet-node${n}: height=${h:-<no answer>} head=${hh:-<none>}"
+    echo "                   started $(docker inspect -f '{{.State.StartedAt}}' "clutch-main-mainnet-node${n}-1" 2>/dev/null || echo '?')"
+  done
+
+  echo ""
+  echo "=== do they hold the SAME block? ==="
+  # Equal heights are NOT agreement. Only the current head is published -- add_block_to_chain calls
+  # LATEST_BLOCK.clear() before setting the new one -- so past heads cannot be looked up and the
+  # nodes are compared at whatever height they were both seen holding, sampled over time.
+  : > /tmp/mn_heads
+  for _ in 1 2 3 4 5 6; do
+    for n in 1 2 3; do
+      docker run --rm --network "$MNET" curlimages/curl:8.10.1 -fsS --max-time 4 \
+        "http://mainnet-node${n}:310${n}/metrics" 2>/dev/null \
+        | sed -n 's/^latest_block{block_hash="\([^"]*\)"} \(.*\)$/\2 \1/p' \
+        | awk -v n="$n" 'NF==2 {printf "%d %s %s\n", $1, n, $2; exit}' >> /tmp/mn_heads || true
+    done
+    sleep 3
+  done
+  sort -u -o /tmp/mn_heads /tmp/mn_heads 2>/dev/null || true
+
+  forked=0; checked=0
+  for i in $(awk '{print $1}' /tmp/mn_heads 2>/dev/null | sort -un); do
+    found=$(awk -v i="$i" '$1 == i {print $2" "$3}' /tmp/mn_heads)
+    n_nodes=$(printf '%s\n' "$found" | grep -c . || true)
+    [ "$n_nodes" -ge 2 ] || continue
+    checked=$((checked + 1))
+    n_hashes=$(printf '%s\n' "$found" | awk '{print $2}' | sort -u | grep -c . || true)
+    if [ "$n_hashes" -gt 1 ]; then
+      forked=$((forked + 1))
+      echo "    block ${i}: ${n_nodes} nodes, ${n_hashes} DIFFERENT blocks"
+      printf '%s\n' "$found" | sed 's/^/        node/' | sed 's/ /: /'
+    else
+      echo "    block ${i}: ${n_nodes} nodes agree"
+    fi
+  done
+  rm -f /tmp/mn_heads
+  if [ "$checked" -eq 0 ]; then
+    echo "    INCONCLUSIVE: no height was seen on two or more nodes."
+  elif [ "$forked" -gt 0 ]; then
+    echo "    *** DIVERGED at ${forked} of ${checked} heights. ***"
+  else
+    echo "    OK: same block at every one of the ${checked} heights compared."
+  fi
+
+  echo ""
+  echo "=== is any node rejecting blocks? (the half-finished-rotation signal) ==="
+  # Appears ONLY in the log -- no metric counts it, and latest_block_index climbs normally
+  # throughout. Every other check on this page reports such a node as healthy.
+  for n in 1 2 3; do
+    c=$(docker logs --since 30m "clutch-main-mainnet-node${n}-1" 2>&1 | grep -ac 'author verification failed' || true)
+    echo "    mainnet-node${n}: ${c:-0} rejection(s) in the last 30m"
+  done
+
+  echo ""
+  echo "=== genesis on this host ==="
+  grep -hE '^(chain_id|is_testnet|tx_fee|mint_authority|faucet_allocation|ride_auto_release_secs) ' \
+    config/node-mainnet/node1.toml 2>/dev/null | sed 's/^/    /' || echo "    (config/node-mainnet missing)"
+
+  echo ""
+  echo "=== chain data on disk ==="
+  for n in 1 2 3; do
+    echo "    mainnet-node${n}: $(docker exec "clutch-main-mainnet-node${n}-1" du -sh /app/data 2>/dev/null || echo '?')"
+    echo "                   volume created $(docker volume inspect "${MP}_mainnet-node${n}-data" --format '{{.CreatedAt}}' 2>/dev/null || echo '(no such volume)')"
+  done
+
+  echo ""
+  echo "=== is Prometheus actually scraping these? ==="
+  # The join is the whole path: these nodes publish nothing to the host, so a Prometheus that is
+  # not on clutch-mainnet sees a chain that looks perfectly healthy from here and is unmonitored.
+  docker run --rm --network "container:clutch-stage-prometheus-1" postgres:16-alpine \
+    wget -qO- 'http://localhost:9090/api/v1/query?query=up{job=~"mainnet-node.*"}' 2>/dev/null \
+    | tr ',' '\n' | grep -E '"job"|"value"' | sed 's/^/    /' || echo "    (could not reach Prometheus)"
+
+  echo ""
+  echo "=== recent log, each node ==="
+  for n in 1 2 3; do
+    echo "--- mainnet-node${n}"
+    $MCOMPOSE logs --tail 15 "mainnet-node${n}" 2>/dev/null | sed 's/^/    /' || true
+  done
+fi

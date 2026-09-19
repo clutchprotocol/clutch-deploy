@@ -36,6 +36,7 @@ on:
           - treasury
           - sweeper
           - chain
+          - mainnet
           - metrics
           - balance
           - energy

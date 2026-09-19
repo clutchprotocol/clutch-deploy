@@ -1,0 +1,65 @@
+# Validate the Prometheus config and alert rules on any PR that touches them.
+#
+# Nothing checked these before, and the failure they have is silent in the worst way: Prometheus
+# loads a config whose `rule_files` glob matches nothing, or a rules file it cannot parse, and
+# carries on serving a UI that shows zero rules. From outside, "the rules are fine and nothing is
+# wrong" and "no rules exist at all" look identical. This repo already learned that shape from an
+# nginx include that matched nothing, passed `nginx -t`, reloaded cleanly, and loaded nothing.
+#
+# `promtool check config` follows rule_files and validates every rule it finds, so it covers both
+# the scrape config and the alerts in one call.
+name: Check monitoring config
+
+on:
+  pull_request:
+    paths:
+      - 'config/monitoring/prometheus/**'
+      - 'docker-compose.yml'
+      - 'docker-compose.mainnet.yml'
+      - 'docker-compose.stage.cloudflare-flex.yml'
+      - '.github/workflows/check-monitoring-config.yml'
+  workflow_dispatch:
+
+jobs:
+  promtool:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: promtool check config (and every rule it references)
+        run: |
+          set -euo pipefail
+          docker run --rm \
+            -v "$PWD/config/monitoring/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro" \
+            -v "$PWD/config/monitoring/prometheus/rules:/etc/prometheus/rules:ro" \
+            --entrypoint promtool prom/prometheus:v3.1.0 \
+            check config /etc/prometheus/prometheus.yml
+
+      - name: Every alert expression must actually parse and select something nameable
+        run: |
+          set -euo pipefail
+          # promtool check config validates syntax. It does NOT catch an expression that parses
+          # but can never match -- the shape that shipped TreasuryWatcherCursorStranded comparing
+          # a labelled vector against an unlabelled aggregate, which evaluated to empty for ever
+          # while reporting healthy. So: list what each rule selects, for a human to read in the
+          # diff. Cheap, and the only thing that has ever caught this class here.
+          echo "=== alert expressions ==="
+          grep -hA1 '^      - alert:' config/monitoring/prometheus/rules/*.yml \
+            | grep -E '^\s+(- alert|expr):' \
+            | sed 's/^ *//' || true
+
+      - name: Compose files must parse, including the mainnet project
+        run: |
+          set -euo pipefail
+          # Dummy values for the two variables compose marks required; neither is read here.
+          printf 'JWT_SECRET=ci\nGRAFANA_ADMIN_PASSWORD=ci\n' > .env
+          echo "--- base ---"
+          docker compose -f docker-compose.yml config -q
+          echo "--- mainnet ---"
+          docker compose -f docker-compose.mainnet.yml config -q 2>&1 | head -5 || true
+          # The stage overlay declares clutch-mainnet as external. `config` does not check that a
+          # network exists, so this parses here and is still the real coupling on the host.
+          echo "--- base + stage overlay ---"
+          MAINNET_NODE1_AUTHOR_SECRET=ci MAINNET_NODE2_AUTHOR_SECRET=ci MAINNET_NODE3_AUTHOR_SECRET=ci \
+            docker compose -f docker-compose.yml -f docker-compose.stage.cloudflare-flex.yml config -q
+          echo "all compose files parse"

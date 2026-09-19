@@ -18,6 +18,12 @@ alerting:
     - static_configs:
         - targets: ["alertmanager:9093"]
 
+# TWO CHAINS share this Prometheus since 2026-09-19: the testnet (chain_id 2077, node1..3 on
+# 3001-3003) and the mainnet (chain_id 1000, mainnet-node1..3 on 3101-3103). Every node target
+# carries a `chain` label, and every rule and query that aggregates over nodes MUST scope by it.
+# Unscoped, `max(latest_block_index) - min(latest_block_index)` compares a chain at height 17,000
+# with one at height 10 and fires for ever, while `max(delta(...)) == 0` stops firing for either
+# chain as long as the other advances. The label is what makes "the chain stalled" mean one chain.
 scrape_configs:
   - job_name: "prometheus"
     static_configs:
@@ -26,6 +32,7 @@ scrape_configs:
   - job_name: "node1"
     static_configs:
       - targets: ["node1:3001"]
+        labels: { chain: testnet }
     scrape_interval: 10s
     metrics_path: /metrics
     scheme: http
@@ -33,6 +40,7 @@ scrape_configs:
   - job_name: "node2"
     static_configs:
       - targets: ["node2:3002"]
+        labels: { chain: testnet }
     scrape_interval: 10s
     metrics_path: /metrics
     scheme: http
@@ -40,6 +48,35 @@ scrape_configs:
   - job_name: "node3"
     static_configs:
       - targets: ["node3:3003"]
+        labels: { chain: testnet }
+    scrape_interval: 10s
+    metrics_path: /metrics
+    scheme: http
+
+  # The mainnet validators. Compose project clutch-main, network clutch-mainnet, nothing published
+  # to the host -- Prometheus reaches them because the stage overlay joins it to that network as an
+  # external one. If these targets are DOWN while the containers run, that join is the first thing
+  # to check.
+  - job_name: "mainnet-node1"
+    static_configs:
+      - targets: ["mainnet-node1:3101"]
+        labels: { chain: mainnet }
+    scrape_interval: 10s
+    metrics_path: /metrics
+    scheme: http
+
+  - job_name: "mainnet-node2"
+    static_configs:
+      - targets: ["mainnet-node2:3102"]
+        labels: { chain: mainnet }
+    scrape_interval: 10s
+    metrics_path: /metrics
+    scheme: http
+
+  - job_name: "mainnet-node3"
+    static_configs:
+      - targets: ["mainnet-node3:3103"]
+        labels: { chain: mainnet }
     scrape_interval: 10s
     metrics_path: /metrics
     scheme: http
