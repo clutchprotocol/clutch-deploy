@@ -81,6 +81,25 @@ scrape_configs:
     metrics_path: /metrics
     scheme: http
 
+  # The Hub APIs, one per chain. Neither was scraped until 2026-09-19, so nothing watched the
+  # service every browser talks to: a hub that had crashed looked exactly like a hub that was
+  # idle. `serve_metric_addr` is 0.0.0.0:9090 in each config -- the same number Prometheus
+  # itself uses, which is fine because they are different containers on a shared network.
+  #
+  # mainnet-hub-api is reachable because it joins clutch-stage_clutch-network as well as
+  # clutch-mainnet. If this target is down while its container runs, suspect that join.
+  - job_name: "clutch-hub-api"
+    scrape_interval: 30s
+    static_configs:
+      - targets: ["clutch-hub-api:9090"]
+        labels: { chain: testnet }
+
+  - job_name: "mainnet-hub-api"
+    scrape_interval: 30s
+    static_configs:
+      - targets: ["mainnet-hub-api:9090"]
+        labels: { chain: mainnet }
+
   # The treasury services. Both sit on clutch-network alongside Prometheus, and both serve metrics
   # on their own port rather than on their API: the orchestrator's API is public through nginx's
   # /payment/ route, and deposit counts are not public. Neither port is published in compose.

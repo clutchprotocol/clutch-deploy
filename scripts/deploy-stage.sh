@@ -380,6 +380,39 @@ if [ "$TREASURY" = "true" ]; then
     fi
   }
 
+  # Let the deployment settle ONCE before any gate runs.
+  #
+  # edge_check retries for 30s, which is right for nginx finishing a reload and far too short for
+  # a container that has just been recreated: clutch-stage-node3 holds ~20,000 blocks and takes
+  # about two minutes to open its database. On 2026-09-19 a deploy failed on
+  # node3-stage/metrics 502 while node3 was still starting, rolled the edge config back, and then
+  # passed on a re-run minutes later with nothing changed.
+  #
+  # One wait here rather than a larger `tries` on all 27 checks: raising every one would multiply
+  # the worst case past the ssh action's 10-minute command timeout -- which is the failure that
+  # once left a config written and reloaded with the restore never running.
+  #
+  # Filtered on docker's own health state rather than a hardcoded container list, so it covers
+  # whatever this deployment actually contains and cannot go stale when a service is added.
+  wait_settled() {
+    local deadline=$(( $(date +%s) + 240 )) starting unhealthy
+    while [ "$(date +%s)" -lt "$deadline" ]; do
+      starting=$(docker ps --filter "label=com.docker.compose.project=clutch-stage" --filter "health=starting"  --format '{{.Names}}' | tr '\n' ' ')
+      unhealthy=$(docker ps --filter "label=com.docker.compose.project=clutch-stage" --filter "health=unhealthy" --format '{{.Names}}' | tr '\n' ' ')
+      if [ -z "$starting$unhealthy" ]; then
+        echo "deployment settled: nothing starting, nothing unhealthy"
+        return 0
+      fi
+      echo "settling, still waiting for: ${starting}${unhealthy}"
+      sleep 5
+    done
+    # Not fatal. The gates below have their own retry and their own restore, and they are a better
+    # judge of whether the EDGE works than a container healthcheck is.
+    echo "WARNING: after 240s still starting/unhealthy: ${starting}${unhealthy} — running the gates anyway"
+    return 0
+  }
+  wait_settled
+
   # api-stage. A POST to /graphql is deliberately NOT checked: this vhost's `location /` proxies
   # everything to the same upstream with the path preserved, so losing the /graphql block entirely
   # would still answer correctly, and the typo it would catch `nginx -t` rejects at config load.
