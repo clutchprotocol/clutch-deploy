@@ -119,7 +119,7 @@ groups:
       # same expression and answering "(no sample yet)" — which is the argument for querying an
       # alert's own expression in the probe rather than trusting that it loaded.
       - alert: TreasuryWatcherCursorStranded
-        expr: clutch_treasury_chain_cursor_height > scalar(max(latest_block_index{chain="testnet"}))
+        expr: clutch_treasury_chain_cursor_height > scalar(max(latest_block_index{chain="testnet",role="validator"}))
         for: 2m
         labels:
           severity: critical

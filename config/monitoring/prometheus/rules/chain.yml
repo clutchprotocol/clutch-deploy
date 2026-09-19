@@ -9,8 +9,21 @@
 # empty block when there is nothing to include. So height advancing is a heartbeat rather than a
 # measure of traffic: a quiet chain still climbs, and a chain that stops climbing is broken.
 #
-# TWO CHAINS since 2026-09-19. Every aggregation here is `by (chain)`, and every summary names the
-# chain. Written without that, these rules broke silently the moment mainnet joined: `max(...)`
+# TWO CHAINS since 2026-09-19, and TWO ROLES. Every aggregation here is `by (chain)` AND
+# scoped to `role="validator"`, and both halves are load-bearing.
+#
+# chain, because max() over both chains meant "stalled" needed BOTH to stall, and the
+# height-spread rule compared a chain at 17,000 with one at 10 and would have fired for ever.
+#
+# role, because clutch-hub-api registers metrics with the SAME NAMES as the node --
+# latest_block_index and latest_block -- and never sets them, so they read 0. Adding the hub
+# as a scrape target with a chain label pulled those zeros into every chain aggregation:
+# min() became 0, the spread became the full height, and ChainNodeBehind fired permanently
+# on both chains. Caught within the hour on 2026-09-19 by the metrics probe printing
+# max-min alongside max and the two matching exactly.
+#
+# A label rather than a job-name regex on purpose: a regex has to be remembered and widened
+# every time a job is added, and the failure when it is not is this same silent one.
 # over both chains meant "stalled" needed BOTH to stall, and the height-spread rule compared a
 # chain at 17,000 with one at 10 and would have fired for ever.
 
@@ -25,7 +38,7 @@ groups:
       # Five minutes is fifteen missed slots at 20s, far outside any plausible jitter, and the
       # `for` doubles it: about ten minutes to fire. The failure this exists for lasted a day.
       - alert: ChainHeightNotAdvancing
-        expr: max by (chain) (delta(latest_block_index[5m])) == 0
+        expr: max by (chain) (delta(latest_block_index{role="validator"}[5m])) == 0
         for: 5m
         labels:
           severity: critical
@@ -45,7 +58,7 @@ groups:
       # every service reading them believed a chain frozen near genesis. A node that is behind is
       # worse than one that is down: down is visible, behind answers.
       - alert: ChainNodeBehind
-        expr: max by (chain) (latest_block_index) - min by (chain) (latest_block_index) > 50
+        expr: max by (chain) (latest_block_index{role="validator"}) - min by (chain) (latest_block_index{role="validator"}) > 50
         for: 10m
         labels:
           severity: warning
@@ -57,7 +70,7 @@ groups:
             that container.
 
       - alert: ChainNodeDown
-        expr: up{job=~"node[0-9]+|mainnet-node[0-9]+"} == 0
+        expr: up{role="validator"} == 0
         for: 3m
         labels:
           severity: critical
@@ -78,7 +91,7 @@ groups:
       # rule evaluated to nothing for as long as it existed. One rule per chain because absent()
       # cannot be split `by (chain)` -- there is nothing to group when the series is missing.
       - alert: ChainLatestBlockHashMissing
-        expr: absent(latest_block{chain="testnet"})
+        expr: absent(latest_block{chain="testnet",role="validator"})
         for: 10m
         labels:
           severity: warning
@@ -91,7 +104,7 @@ groups:
             nothing regardless of what the chain is doing.
 
       - alert: ChainLatestBlockHashMissing
-        expr: absent(latest_block{chain="mainnet"})
+        expr: absent(latest_block{chain="mainnet",role="validator"})
         for: 10m
         labels:
           severity: warning
@@ -113,7 +126,7 @@ groups:
       # down takes the whole app off the air while the chain carries on perfectly, so the two want
       # different summaries even though the expression shape is the same.
       - alert: HubApiDown
-        expr: up{job=~"clutch-hub-api|mainnet-hub-api"} == 0
+        expr: up{role="hub"} == 0
         for: 3m
         labels:
           severity: critical
