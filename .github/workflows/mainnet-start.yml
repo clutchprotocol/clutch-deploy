@@ -1,0 +1,53 @@
+# Start the Clutch MAINNET chain. Once. Irreversibly.
+#
+# The first authored block fixes all eleven genesis values for good — peers compare the genesis
+# hash at handshake, so changing one afterwards is a new chain from block zero. Everything this
+# workflow does before `up -d` exists to be the last chance to catch a mistake while it is still
+# cheap.
+#
+# The logic lives in scripts/start-mainnet.sh, not inline here, so the gates are reviewable in a
+# pull request and runnable by hand on the host if this workflow is ever unavailable.
+name: Mainnet — start the chain (irreversible)
+
+on:
+  workflow_dispatch:
+    inputs:
+      confirm:
+        description: "Type START MAINNET. The genesis becomes permanent at the first block."
+        required: true
+
+jobs:
+  start:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check the confirmation
+        env:
+          CONFIRM: ${{ inputs.confirm }}
+        run: |
+          set -euo pipefail
+          [ "$CONFIRM" = "START MAINNET" ] || { echo "::error::type exactly: START MAINNET"; exit 1; }
+
+      - uses: actions/checkout@v4
+
+      - name: Start the validators on the stage host
+        env:
+          STAGE_HOST: ${{ secrets.STAGE_HOST }}
+          STAGE_USER: ${{ secrets.STAGE_USER }}
+          STAGE_SSH_PASSWORD: ${{ secrets.STAGE_SSH_PASSWORD }}
+          DEPLOY_PATH: ${{ secrets.STAGE_DEPLOY_PATH }}
+        run: |
+          set -euo pipefail
+          [ -n "$DEPLOY_PATH" ] || { echo "::error::STAGE_DEPLOY_PATH is empty"; exit 1; }
+          sudo apt-get update -qq && sudo apt-get install -y -qq sshpass >/dev/null
+
+          # No `set -x`: the host .env holds the deposit mnemonic and the mint credentials.
+          # Captured and printed unconditionally, because on a failure the remote's explanation is
+          # the entire value of the run.
+          set +e
+          out=$(sshpass -p "$STAGE_SSH_PASSWORD" ssh -o StrictHostKeyChecking=no \
+                  "$STAGE_USER@$STAGE_HOST" \
+                  "cd '$DEPLOY_PATH' && bash scripts/start-mainnet.sh" 2>&1)
+          rc=$?
+          set -e
+          echo "$out"
+          [ "$rc" -eq 0 ] || exit "$rc"
