@@ -1,0 +1,93 @@
+# Clutch MAINNET validators.
+#
+# A SEPARATE compose project with its OWN network, deliberately -- not an overlay on the base file.
+# The testnet nodes discover peers over mDNS (their logs say so), and on a shared Docker network the
+# mainnet nodes would find them and try to peer. The handshake compares the genesis hash so it would
+# fail, but that turns a clean separation into a permanent stream of failed handshakes between two
+# chains that should not know each other exists.
+#
+#   docker compose -p clutch-main -f docker-compose.mainnet.yml up -d
+#
+# NOTHING IS PUBLISHED. All three validators talk over this network by service name, so no port
+# needs to reach the host. The testnet base file publishes 8081-8083 for local development; doing
+# the same here would put a mainnet RPC on the VPS's public interface, which is exactly what
+# docker-compose.stage.cloudflare-flex.yml exists to undo for the testnet. When something outside
+# needs to reach these nodes, join it to this network rather than publishing a port.
+#
+# Internal ports are 8181-8183 / 4101-4103 / 3101-3103 rather than the testnet's. On separate
+# networks they could have been identical, but distinct numbers mean a log line, a config file or a
+# future published port is never ambiguous about which chain it belongs to.
+#
+# Before the first boot:
+#   CONFIG_DIR=config/node-mainnet MAINNET=1 bash scripts/check-genesis.sh
+
+services:
+  mainnet-node1:
+    image: ghcr.io/clutchprotocol/clutch-node:latest
+    stop_grace_period: 30s
+    environment:
+      # The node reads Environment::with_prefix("APP"), so this overrides the empty
+      # author_secret_key in the committed config. The value lives only in the host's .env,
+      # generated there by mainnet-validator-keys.yml and never committed.
+      - APP_AUTHOR_SECRET_KEY=${MAINNET_NODE1_AUTHOR_SECRET:?the mainnet validator keys are not in .env — run the "Mainnet — generate validator keys" workflow}
+      - APP_SEQ_API_KEY=${SEQ_API_KEY:-}
+      # Keeps RocksDB on the volume below. Without it the node writes to the container's writable
+      # layer and every `up -d --force-recreate` discards the chain.
+      - DB_PATH=/app/data
+    networks:
+      - clutch-mainnet
+    volumes:
+      # Mounted at config/node, not config: the node builds its path as `config/node/{env}.toml`
+      # in code, so the mainnet directory is selected here rather than with --env.
+      - ./config/node-mainnet:/app/config/node:ro
+      - mainnet-node1-data:/app/data
+    command: ["--env", "node1"]
+    restart: unless-stopped
+
+  mainnet-node2:
+    image: ghcr.io/clutchprotocol/clutch-node:latest
+    stop_grace_period: 30s
+    environment:
+      - APP_AUTHOR_SECRET_KEY=${MAINNET_NODE2_AUTHOR_SECRET:?the mainnet validator keys are not in .env — run the "Mainnet — generate validator keys" workflow}
+      - APP_SEQ_API_KEY=${SEQ_API_KEY:-}
+      - DB_PATH=/app/data
+    networks:
+      - clutch-mainnet
+    volumes:
+      - ./config/node-mainnet:/app/config/node:ro
+      - mainnet-node2-data:/app/data
+    command: ["--env", "node2"]
+    depends_on:
+      - mainnet-node1
+    restart: unless-stopped
+
+  mainnet-node3:
+    image: ghcr.io/clutchprotocol/clutch-node:latest
+    stop_grace_period: 30s
+    environment:
+      - APP_AUTHOR_SECRET_KEY=${MAINNET_NODE3_AUTHOR_SECRET:?the mainnet validator keys are not in .env — run the "Mainnet — generate validator keys" workflow}
+      - APP_SEQ_API_KEY=${SEQ_API_KEY:-}
+      - DB_PATH=/app/data
+    networks:
+      - clutch-mainnet
+    volumes:
+      - ./config/node-mainnet:/app/config/node:ro
+      - mainnet-node3-data:/app/data
+    command: ["--env", "node3"]
+    depends_on:
+      - mainnet-node1
+    restart: unless-stopped
+
+networks:
+  clutch-mainnet:
+    name: clutch-mainnet
+
+volumes:
+  # One per node: each has its own blockchain_name and database and they must not share state.
+  # `down -v` wipes these. On a mainnet chain that is not a reset, it is the loss of the chain.
+  mainnet-node1-data:
+    driver: local
+  mainnet-node2-data:
+    driver: local
+  mainnet-node3-data:
+    driver: local

@@ -190,19 +190,38 @@ if [ "${MAINNET:-0}" = "1" ]; then
     COSIGNER_COUNT=$(printf '%s' "$COSIGNERS" | tr -cd ',' | wc -c)
     COSIGNER_COUNT=$((COSIGNER_COUNT + 1))
   fi
-  if [ "$MINT_THRESHOLD" != "2" ]; then
-    bad "mint_threshold is '$MINT_THRESHOLD' — the decision of record is 2 of 3"
-    note "A single-signature mint authority means a stolen key mints without limit, and the"
-    note "four-eyes rule in treasury-service is off-chain and does not stop it."
+  # A1 was decided 2-of-3 on 2026-09-12 and REVERSED to a single key on 2026-09-18: a real 2-of-3
+  # needs the keys in separate places with separate credentials, and a second cloud account cannot
+  # be funded before the project earns anything. Three keys in one account is a 2-of-3 on paper and
+  # a 1-of-1 in practice, so the reversal gave up less than it looks.
+  #
+  # This check used to demand exactly 2-of-3 and therefore failed every config matching the actual
+  # decision. What it enforces now is COHERENCE, because the dangerous configurations are the
+  # half-finished ones -- and it prints the accepted risk either way rather than passing in silence.
+  if [ "$MINT_THRESHOLD" = "0" ] || [ "$MINT_THRESHOLD" = "1" ]; then
+    if [ "$COSIGNER_COUNT" != "0" ]; then
+      bad "mint_threshold is '$MINT_THRESHOLD' (single-signer) but mint_cosigners lists $COSIGNER_COUNT"
+      note "The cosigners would never be asked for a signature. The node refuses this at boot;"
+      note "it is caught here so it is not found by a node that will not start."
+    else
+      ok "single-signer mint authority, per A1 (decided 2026-09-18)"
+      note "ACCEPTED RISK: whoever holds that one key can mint without limit. The four-eyes rule"
+      note "in treasury-service is off-chain and does not stop it; the mint caps and the breaker"
+      note "bound it, and neither is the chain refusing."
+      note "mint_authority, mint_cosigners and mint_threshold are all genesis-committed, so"
+      note "adding a second key later is a NEW CHAIN, not a configuration change."
+    fi
   else
-    ok "mint_threshold is 2"
-  fi
-  if [ "$COSIGNER_COUNT" != "2" ]; then
-    bad "mint_cosigners lists $COSIGNER_COUNT address(es) — 2 of 3 needs exactly 2 alongside mint_authority"
-    note "Three keys total, in three separate places. Three in one account is a 2-of-3 on paper"
-    note "and a 1-of-1 in practice."
-  else
-    ok "mint_cosigners lists 2, making a set of 3"
+    # A real M-of-N. The set is mint_authority plus the cosigners, so N is COSIGNER_COUNT + 1.
+    if [ "$MINT_THRESHOLD" -gt "$((COSIGNER_COUNT + 1))" ]; then
+      bad "mint_threshold $MINT_THRESHOLD exceeds the $((COSIGNER_COUNT + 1)) key(s) available"
+      note "Nothing could ever satisfy it, so no mint could ever be made. mint_threshold is"
+      note "genesis-committed, which makes the only fix a new chain."
+    else
+      ok "$MINT_THRESHOLD-of-$((COSIGNER_COUNT + 1)) mint authority"
+      note "Keep the keys in separate places with separate credentials. All of them in one cloud"
+      note "account is a $MINT_THRESHOLD-of-$((COSIGNER_COUNT + 1)) on paper and a 1-of-1 in practice."
+    fi
   fi
 
   # Decided 2026-09-12: two hours. Long enough for a rider to notice a problem, short enough that
