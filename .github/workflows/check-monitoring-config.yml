@@ -17,6 +17,8 @@ on:
       - 'docker-compose.yml'
       - 'docker-compose.mainnet.yml'
       - 'docker-compose.stage.cloudflare-flex.yml'
+      - 'docker-compose.treasury.yml'
+      - 'docker-compose.mainnet.treasury.yml'
       - '.github/workflows/check-monitoring-config.yml'
   workflow_dispatch:
 
@@ -48,18 +50,49 @@ jobs:
             | grep -E '^\s+(- alert|expr):' \
             | sed 's/^ *//' || true
 
-      - name: Compose files must parse, including the mainnet project
+      - name: Compose files must parse, including both mainnet projects
         run: |
           set -euo pipefail
-          # Dummy values for the two variables compose marks required; neither is read here.
+          # Dummy values for the two variables the base marks required; neither is read here.
           printf 'JWT_SECRET=ci\nGRAFANA_ADMIN_PASSWORD=ci\n' > .env
           echo "--- base ---"
           docker compose -f docker-compose.yml config -q
-          echo "--- mainnet ---"
-          docker compose -f docker-compose.mainnet.yml config -q 2>&1 | head -5 || true
+          echo "--- mainnet chain + app ---"
+          MAINNET_NODE1_AUTHOR_SECRET=ci MAINNET_NODE2_AUTHOR_SECRET=ci MAINNET_NODE3_AUTHOR_SECRET=ci \
+            MAINNET_JWT_SECRET=ci docker compose -f docker-compose.mainnet.yml config -q
           # The stage overlay declares clutch-mainnet as external. `config` does not check that a
           # network exists, so this parses here and is still the real coupling on the host.
           echo "--- base + stage overlay ---"
-          MAINNET_NODE1_AUTHOR_SECRET=ci MAINNET_NODE2_AUTHOR_SECRET=ci MAINNET_NODE3_AUTHOR_SECRET=ci \
-            docker compose -f docker-compose.yml -f docker-compose.stage.cloudflare-flex.yml config -q
+          docker compose -f docker-compose.yml -f docker-compose.stage.cloudflare-flex.yml config -q
+
+          # The mainnet treasury overlay, merged the way the host merges it: --env-file, which is
+          # what keeps its secrets separate from the testnet's. Proves the MERGE -- the networks
+          # being re-pointed, the environment overrides, the profile on the explorer stub -- and
+          # not the host wiring, which only a deploy can prove.
+          echo "--- treasury + mainnet treasury overlay ---"
+          sed -e 's/#.*//' -e '/^[[:space:]]*$/d' .env.mainnet.example > /tmp/t.env
+          for v in CUSTODY_TRON_ADDRESS TRONGRID_API_KEY AZURE_TENANT_ID AZURE_CLIENT_ID \
+                   AZURE_CLIENT_SECRET AZURE_KEY_VERSION DEPOSIT_MNEMONIC DEPOSIT_ACCOUNT_XPUB \
+                   SIGNER_TOKEN TREASURY_INITIATOR_TOKEN TREASURY_APPROVER_TOKEN \
+                   TREASURY_READONLY_TOKEN TREASURY_POSTGRES_PASSWORD \
+                   ORCHESTRATOR_POSTGRES_PASSWORD JWT_SECRET; do
+            echo "$v=ci" >> /tmp/t.env
+          done
+          docker compose --env-file /tmp/t.env \
+            -f docker-compose.treasury.yml -f docker-compose.mainnet.treasury.yml config -q
+
+          # The overlay's whole job in one assertion: treasury-service must end up with the KMS
+          # signer and an EMPTY plaintext mint secret. Merged wrongly, it silently keeps the base's
+          # env signer and this chain could never mint -- a `config -q` that only checks syntax
+          # would pass on that.
+          merged=$(docker compose --env-file /tmp/t.env \
+            -f docker-compose.treasury.yml -f docker-compose.mainnet.treasury.yml config)
+          echo "$merged" | grep -q 'APP_SIGNER_KIND: azure_kms' \
+            || { echo "::error::the merge lost APP_SIGNER_KIND=azure_kms"; exit 1; }
+          echo "$merged" | grep -qE 'APP_MINT_AUTHORITY_SECRET: (""|\x27\x27)?$' \
+            || { echo "::error::APP_MINT_AUTHORITY_SECRET is not empty after the merge — treasury-service will panic"; exit 1; }
+          echo "$merged" | grep -q 'APP_NODE_WS_URL: ws://mainnet-node3:8183/ws' \
+            || { echo "::error::the merge did not repoint the node URL at the mainnet chain"; exit 1; }
+          echo "merge asserted: KMS signer, empty plaintext secret, mainnet node URL"
+
           echo "all compose files parse"

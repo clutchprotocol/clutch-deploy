@@ -43,18 +43,28 @@ GENERATED="TREASURY_POSTGRES_PASSWORD ORCHESTRATOR_POSTGRES_PASSWORD MINT_AUTHOR
            TREASURY_INITIATOR_TOKEN TREASURY_APPROVER_TOKEN TREASURY_READONLY_TOKEN SIGNER_TOKEN \
            JWT_SECRET GRAFANA_ADMIN_PASSWORD"
 
-if [ ! -f .env ]; then
-  echo "ABORT: no .env here ($(pwd)). Expected the stage deploy checkout."
+# The env file to fill. Defaults to .env, the testnet stack's. The mainnet treasury runs from
+# its own file (compose --env-file .env.mainnet) and every secret in it MUST be a different value:
+# TRON addresses are network-agnostic, so a shared DEPOSIT_MNEMONIC derives the SAME deposit
+# addresses on both networks, and two orchestrators with separate databases would hand one address
+# to two different users.
+#
+# Nothing else changes. The no-overwrite rule matters more here, not less: replacing a mnemonic
+# orphans every address already handed out, on a network where those addresses hold real money.
+ENV_FILE="${ENV_FILE:-.env}"
+
+if [ ! -f "$ENV_FILE" ]; then
+  echo "ABORT: no $ENV_FILE here ($(pwd)). Expected the stage deploy checkout."
   exit 1
 fi
 
 # Present AND non-empty. `grep -q "^VAR="` would count `VAR=` as set, and an empty mnemonic is a
 # boot failure several steps removed from its cause.
-has() { grep -qE "^$1=.+" .env; }
+has() { grep -qE "^$1=.+" "$ENV_FILE"; }
 
 # Read values with sed, never by sourcing .env -- the mnemonic contains spaces and `. ./.env`
 # would try to run its words as commands.
-val() { sed -n "s/^$1=//p" .env | head -1; }
+val() { sed -n "s/^$1=//p" "$ENV_FILE" | head -1; }
 
 # Write a NON-SECRET setting if absent, and say what it is. Printing the value is the point here:
 # which chain and which contract stage is pointed at should be legible in the log.
@@ -62,7 +72,7 @@ pin() {
   if has "$1"; then
     echo "    $1: already pinned to $(val "$1")"
   else
-    echo "$1=$2" >> .env
+    echo "$1=$2" >> "$ENV_FILE"
     echo "    $1: pinned to $2"
   fi
 }
@@ -71,7 +81,7 @@ pin() {
 # already control -- and generating one here would send every swept deposit to an address whose
 # keys exist nowhere.
 if ! has CUSTODY_TRON_ADDRESS; then
-  echo "ABORT: CUSTODY_TRON_ADDRESS is not set in .env."
+  echo "ABORT: CUSTODY_TRON_ADDRESS is not set in $ENV_FILE."
   echo "  It is the treasury address sweeps land in, so it has to be a wallet you already hold."
   echo "  Set it by hand, then re-run."
   exit 1
@@ -85,12 +95,12 @@ fi
 # cp -a preserves the mode, and the FIRST backup this script ever took predated .env being
 # chmodded 600, so it inherited whatever the file happened to be and sat on the host readable.
 # The explicit chmod covers that. Copy before deleting, so a failed cp cannot leave nothing behind.
-cp -a .env .env.bak
-chmod 600 .env.bak
+cp -a "$ENV_FILE" "$ENV_FILE.bak"
+chmod 600 "$ENV_FILE.bak"
 # Sweep the pile earlier runs left. This glob requires a character after `.bak.`, so it cannot
 # match .env.bak itself.
-rm -f .env.bak.*
-echo "=== backed up .env to .env.bak (mode 600); removed older timestamped copies ==="
+rm -f "$ENV_FILE".bak.*
+echo "=== backed up $ENV_FILE to $ENV_FILE.bak (mode 600); removed older timestamped copies ==="
 
 # These two decide WHICH CHAIN and WHICH TOKEN stage is operating on. They have been coming from
 # docker-compose.treasury.yml's defaults, so editing that file would move a running stage to a
@@ -125,7 +135,7 @@ if has TRONGRID_API_KEY; then
   echo "    TRONGRID_API_KEY: already set, left alone"
 elif [ -n "${TRONGRID_API_KEY:-}" ]; then
   # Length only. The value is a credential and this log is readable by anyone with repo access.
-  echo "TRONGRID_API_KEY=$TRONGRID_API_KEY" >> .env
+  echo "TRONGRID_API_KEY=$TRONGRID_API_KEY" >> "$ENV_FILE"
   echo "    TRONGRID_API_KEY: written (${#TRONGRID_API_KEY} chars)"
 else
   echo "    TRONGRID_API_KEY: not provided -- stage keeps polling TronGrid unkeyed."
@@ -140,7 +150,7 @@ for v in $GENERATED; do
   if has "$v"; then
     echo "    $v: already set, left alone"
   else
-    echo "$v=$(openssl rand -hex 32)" >> .env
+    echo "$v=$(openssl rand -hex 32)" >> "$ENV_FILE"
     echo "    $v: generated"
   fi
 done
@@ -158,7 +168,7 @@ else
   # mnemonic does not get generated on an internet-facing box by a CI job.
   docker run --rm python:3-alpine sh -c \
     'pip install -q mnemonic && python -c "from mnemonic import Mnemonic; print(Mnemonic(\"english\").generate(128))"' \
-    | sed 's/^/DEPOSIT_MNEMONIC=/' >> .env
+    | sed 's/^/DEPOSIT_MNEMONIC=/' >> "$ENV_FILE"
   if has DEPOSIT_MNEMONIC; then
     echo "    DEPOSIT_MNEMONIC: generated (12 words, never printed)"
   else
@@ -227,16 +237,16 @@ if has DEPOSIT_ACCOUNT_XPUB; then
     # The orchestrator would hand out addresses from one wallet while the signer holds another.
     # Deposits would arrive at addresses nothing can sweep, and nothing would look wrong until
     # someone tried to move the money.
-    echo "ABORT: DEPOSIT_ACCOUNT_XPUB in .env does NOT match DEPOSIT_MNEMONIC."
+    echo "ABORT: DEPOSIT_ACCOUNT_XPUB in $ENV_FILE does NOT match DEPOSIT_MNEMONIC."
     echo "  These must be the same wallet. Sweep the old one before changing either."
     exit 1
   fi
 else
-  echo "DEPOSIT_ACCOUNT_XPUB=$XPUB" >> .env
+  echo "DEPOSIT_ACCOUNT_XPUB=$XPUB" >> "$ENV_FILE"
   echo "    DEPOSIT_ACCOUNT_XPUB: written"
 fi
 
-chmod 600 .env
+chmod 600 "$ENV_FILE"
 
 echo ""
 echo "=== public material (safe to copy) ==="
@@ -245,7 +255,7 @@ echo "    fee_address  = $FEE"
 echo ""
 echo "    Send Nile TRX to fee_address -- 31+ TRX, or no deposit can be swept."
 echo ""
-echo "=== .env now defines ==="
-grep -oE '^[A-Z_]+' .env | sort | tr '\n' ' '
+echo "=== $ENV_FILE now defines ==="
+grep -oE '^[A-Z_]+'  "$ENV_FILE" | sort | tr '\n' ' '
 echo ""
 exit 0
