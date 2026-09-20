@@ -239,7 +239,20 @@ TRONGRID=$(val TRONGRID_URL)
 USDT=$(val USDT_CONTRACT)
 [ -n "$USDT" ] || USDT="TXYZopYRdj2D9XRtbG411XZZ3kM5VkAeBf"
 
+# tron-signer refuses to boot without a payout cap -- validate_payout_cap rejects anything
+# non-positive, because a zero cap would refuse every payout silently. This container never signs
+# one: it is started only to read /internal/xpub, which is pure derivation with no network call.
+# So use the configured value when the env file already has it, and a minimal 1 otherwise, purely
+# to satisfy the boot check.
+#
+# Missing here since that requirement was added to the signer, which made this script fail on any
+# NEW env file while the existing .env kept working -- it had been provisioned before the check
+# existed. Found provisioning .env.mainnet on 2026-09-21.
+PAYOUT_CAP=$(val PER_TX_PAYOUT_CAP_USDT)
+[ -n "$PAYOUT_CAP" ] || PAYOUT_CAP=1
+
 docker run -d --name "$PROBE" \
+  -e APP_PER_TX_PAYOUT_CAP_USDT="$PAYOUT_CAP" \
   -e APP_DEPOSIT_MNEMONIC="$(val DEPOSIT_MNEMONIC)" \
   -e APP_SIGNER_TOKEN="$(val SIGNER_TOKEN)" \
   -e APP_TREASURY_ADDRESS="$(val CUSTODY_TRON_ADDRESS)" \
