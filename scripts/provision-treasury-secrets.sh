@@ -302,15 +302,45 @@ else
 fi
 
 chmod 600 "$ENV_FILE"
-
 echo ""
 echo "=== public material (safe to copy) ==="
 echo "    account_xpub = $XPUB"
 echo "    fee_address  = $FEE"
 echo ""
-echo "    Send Nile TRX to fee_address -- 31+ TRX, or no deposit can be swept."
+# Named from the configured network, not hardcoded. It used to say "Nile TRX" always, which on a
+# mainnet env file is an instruction to fund a real address with worthless test TRX -- and the
+# symptom would be every sweep answering fee_account_dry while deposits kept crediting normally.
+case "$TRONGRID" in
+  *nile*|*shasta*) echo "    Send TEST TRX ($TRONGRID) to fee_address -- 31+ TRX, or no deposit can be swept." ;;
+  *)               echo "    Send REAL TRX to fee_address -- 31+ TRX, or no deposit can be swept." ;;
+esac
+echo ""
+
+# The orchestrator and the hub must share one JWT secret or nothing a user signs in with is
+# accepted. They are named differently on purpose -- the mainnet hub reads MAINNET_JWT_SECRET from
+# .env, while the orchestrator reads JWT_SECRET from its own file -- so this script generating a
+# fresh one here silently breaks the pair. Checked rather than generated-and-hoped.
+if [ "$ENV_FILE" != ".env" ] && [ -f .env ]; then
+  HUB=$(sed -n 's/^MAINNET_JWT_SECRET=//p' .env | head -1)
+  MINE=$(sed -n 's/^JWT_SECRET=//p' "$ENV_FILE" | head -1)
+  if [ -z "$HUB" ]; then
+    echo "WARNING: .env has no MAINNET_JWT_SECRET, so the mainnet hub API is not configured yet."
+    echo "         When it is, JWT_SECRET in $ENV_FILE must be set to that same value."
+  elif [ "$HUB" != "$MINE" ]; then
+    echo "ACTION NEEDED: JWT_SECRET in $ENV_FILE does not match MAINNET_JWT_SECRET in .env."
+    echo "  The mainnet hub signs tokens with one and this orchestrator verifies with the other,"
+    echo "  so every authenticated request would be refused. Align them without printing either:"
+    echo ""
+    echo "    V=\$(sed -n 's/^MAINNET_JWT_SECRET=//p' .env | head -1)"
+    echo "    sed -i \"s|^JWT_SECRET=.*|JWT_SECRET=\$V|\" $ENV_FILE"
+    echo ""
+  else
+    echo "JWT_SECRET matches MAINNET_JWT_SECRET in .env -- the hub and this orchestrator agree."
+  fi
+fi
 echo ""
 echo "=== $ENV_FILE now defines ==="
 grep -oE '^[A-Z_]+'  "$ENV_FILE" | sort | tr '\n' ' '
+echo ""
 echo ""
 exit 0
