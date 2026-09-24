@@ -1166,6 +1166,15 @@ if [ "$PROBE" = "gasfree" ]; then
         | sed 's/^/    /' | head -20
       [ -n "$out" ] || echo "    (no response)"
       printf '%s' "$out" | grep -q '"code":200' || { echo "    server reply:"; printf '%s\n' "$out" | head -c 300 | sed 's/^/      /'; echo; }
+      # The provider list and one account reply, printed raw, so the signer's relay client can be
+      # checked against the live API rather than the docs -- whose account example spells
+      # `allow_submit` where their field list says `allowSubmit`. The provider list also names the
+      # address GASFREE_SERVICE_PROVIDER must pin. The account is the SDK's own public test wallet,
+      # never one of ours; both calls are reads.
+      echo "    providers (raw):"
+      gf_get "$2" "$3/api/v1/config/provider/all" | head -c 1500 | sed 's/^/      /'; echo
+      echo "    account reply for the SDK test wallet TMVQGm1qAQYVdetCeGRRkTWYYrLXuHK2HC (raw):"
+      gf_get "$2" "$3/api/v1/address/TMVQGm1qAQYVdetCeGRRkTWYYrLXuHK2HC" | head -c 1500 | sed 's/^/      /'; echo
     done
     echo ""
     echo "    Fees are in the token's smallest unit. For USDT, 1000000 = 1 USDT."
