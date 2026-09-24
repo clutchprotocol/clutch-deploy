@@ -1126,6 +1126,52 @@ if [ "$PROBE" = "mainnet" ]; then
   done
 fi
 
+if [ "$PROBE" = "gasfree" ]; then
+  # GasFree's live fee table, for deciding whether gas-free sweeping is worth building.
+  #
+  # The spec's own examples put BOTH the activation fee and the per-transfer fee at 10 USDT, while
+  # secondary sources say about 1 USDT per transfer. The difference decides everything: at 10 + 10
+  # a user's first 20 USDT deposit is consumed entirely by fees, and a 5 USDT redemption costs 10
+  # to pay out. The table is only readable with an API key, so nothing can be decided until this
+  # runs against the real thing.
+  #
+  # Read-only. It signs a GET and prints fees, which are public. The API key and secret are read
+  # from this host's .env and never printed; a request that fails prints the server's reply, not
+  # the credentials that produced it.
+  echo "=== GasFree fee table ==="
+  GF_KEY=$(sed -n 's/^GASFREE_API_KEY=//p' .env 2>/dev/null | head -1)
+  GF_SECRET=$(sed -n 's/^GASFREE_API_SECRET=//p' .env 2>/dev/null | head -1)
+  if [ -z "$GF_KEY" ] || [ -z "$GF_SECRET" ]; then
+    echo "    GASFREE_API_KEY / GASFREE_API_SECRET are not in .env."
+    echo "    Add both, unquoted, once developer.gasfree.io approves the application."
+  else
+    # Per the spec: sign METHOD + PATH + TIMESTAMP with HMAC-SHA256, base64 the digest, and send
+    # it as "ApiKey {key}:{signature}" with the timestamp in its own header. openssl rather than
+    # python so this needs nothing on the host that is not already there.
+    gf_get() {
+      local host="$1" path="$2" ts sig
+      ts=$(date +%s)
+      sig=$(printf '%s' "GET${path}${ts}" | openssl dgst -sha256 -hmac "$GF_SECRET" -binary | base64)
+      curl -s --max-time 20 "${host}${path}" \
+        -H "Timestamp: ${ts}" -H "Authorization: ApiKey ${GF_KEY}:${sig}"
+    }
+    for net in "nile https://open-test.gasfree.io /nile" "mainnet https://open.gasfree.io /tron"; do
+      set -- $net
+      echo "--- $1 ---"
+      out=$(gf_get "$2" "$3/api/v1/config/token/all")
+      # Print each token's fees in whole USDT as well as the raw smallest-unit figure, because
+      # "10000000" read at a glance is the mistake this probe exists to prevent.
+      printf '%s' "$out" | tr '{' '\n' | grep -E 'tokenAddress|activateFee|transferFee|symbol' \
+        | sed -E 's/"activateFee":([0-9]+)/activateFee=\1 (\1 micro)/; s/"transferFee":([0-9]+)/transferFee=\1 (\1 micro)/' \
+        | sed 's/^/    /' | head -20
+      [ -n "$out" ] || echo "    (no response)"
+      printf '%s' "$out" | grep -q '"code":200' || { echo "    server reply:"; printf '%s\n' "$out" | head -c 300 | sed 's/^/      /'; echo; }
+    done
+    echo ""
+    echo "    Fees are in the token's smallest unit. For USDT, 1000000 = 1 USDT."
+  fi
+fi
+
 # Always succeed. This is a read-only probe whose OUTPUT is the deliverable — a trailing non-zero
 # from the last grep/test would fail the step and throw away everything printed above it, which is
 # exactly how two earlier runs "failed" while having already answered the question.
