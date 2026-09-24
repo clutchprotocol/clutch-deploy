@@ -37,6 +37,7 @@ on:
           - sweeper
           - chain
           - mainnet
+          - gasfree
           - metrics
           - balance
           - energy
