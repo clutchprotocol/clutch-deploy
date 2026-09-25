@@ -50,9 +50,32 @@ nothing at all.
 | `TreasuryServiceDown` | Not answering scrapes for three minutes. | `containers` probe. Deposits already credited are safe; new ones are not being detected while it is down. |
 | `TreasuryMintingHalted` | The breaker is latched, by a mismatch or by a person. | If not accompanied by a mismatch alert, someone halted it deliberately. Find out who before resuming. |
 | `TreasurySweepingStalled` | More than five unswept addresses for two hours. | Almost always a dry TRX fee account. The `treasury` probe prints its balance. Deposits are still credited and the reserve total is still correct; only consolidation has stopped. Not urgent. |
+| `TreasuryGasFreeSweepStalled` | A deposit at a GasFree account has waited over an hour to be swept. Sweeps run every minute. | Read the P1 alerts first: a relay refusal, the tripwire, a maxFee above the hold, or the services' settings disagreeing — see "The GasFree rail" below. The deposit is still counted; nothing is lost while it waits. |
+| `TreasuryRedemptionUnpaid` | A redemption's CLT is burned and its USDT has not been paid for over two hours. The age counts from the redemption request, not from the burn, so a user who waited long before burning can make it fire early. | Read the P1 alerts and the `treasury` probe. A dry float fills from deposits on the GasFree rail, or from `fund-float.yml` on the TRX rail. **Never** return a GasFree payout to `payout_pending` before the time its page names: the permit may still run. |
 | `TreasuryChainOutboxStuck` | A transaction the treasury meant to submit is not landing. | Check node reachability, then the outbox rows. An over-cap intent routes to `needs_manual` rather than retrying, which is correct. |
 | `OrchestratorPollingStalled` | Deposit addresses unpolled for over an hour. Someone paying now might not be detected. | Check TronGrid reachability. **Also check the address count** — past roughly 6,000 addresses this alert is a false positive against a healthy rotation, and the fix is capacity, not the threshold. See readiness item E2. |
 | `OrchestratorAddressesNeverPolled` | An address handed to a user has never been checked. | A deposit to it cannot be detected at all. Treat as urgent even though it is labelled warning. |
+
+## The GasFree rail
+
+Off unless `.env` sets `GASFREE_NETWORK` (clutch-treasury's `docs/superpowers/specs/2026-09-24-gasfree-transfer-rail-design.md`). Its pages, and what to do:
+
+| The page starts with | What it means | What to do |
+|---|---|---|
+| `the GasFree beacon … now runs 0x…, not the reviewed 0x…` (or `controller`) | GasFree changed the code that holds users' money. GasFree sweeps and **all minting** have stopped, and new users get no GasFree address. | Run `PROBE=gasfree`: it prints the live and the expected implementations. Do not resume minting until someone has read the new code. Then set `GASFREE_EXPECTED_IMPLEMENTATION` (or `GASFREE_EXPECTED_CONTROLLER_IMPLEMENTATION`) in `.env` to the live value, deploy, and run `resume-minting.yml`. |
+| `the relay refused the sweep of GasFree account …` | The relay would not take the permit, most often because the live fee is above the maximum. The deposit stays at the account, still counted. | `PROBE=gasfree` compares the live fees with the maxima. Raising a maximum covers only deposits minted after the change; nothing is signed for deposits that held less. Change a maximum only in `.env` (all three services read it), and deploy — the deploy runs `check-cap-invariants.sh` first. |
+| `a sweep of GasFree account … may now cost up to …, but its deposits held back …` | A maximum was raised after these deposits were minted, so nothing is signed for them. | They wait, still counted. Lower the maximum again when the live fee allows. |
+| `the signer set maxFee … above the … held back` | The signer and the treasury read different maxima. The permit is already signed. | This should be impossible with one `.env`: compare the running containers' environments. |
+| `the signer answers sweeps with GasFree statuses, but this treasury has GasFree off` / `the signer pays redemptions by GasFree permit, but this treasury has GasFree off` | The services' settings disagree. | Give all three the same settings; `check-cap-invariants.sh` names what is missing. Never return those redemptions to `payout_pending`: the float may already have paid them. |
+| `redemption …: payout outcome UNKNOWN … do not return this intent to payout_pending before …` | A GasFree permit may still run until that time. | Wait until the time has passed, then follow the page. |
+| `redemptions are not available yet: the GasFree float … has never made a transfer` | The float's one-time activation has not run. | Run `activate-float.yml` once. It refuses unless the reserve's surplus covers the most the activation may cost. |
+
+Rules that do not change:
+
+- **Never remove the `GASFREE_*` settings while any user has a GasFree address**, even after setting `TRANSFER_RAIL=trx`: without them the treasury refuses deposits there, and the orchestrator will not show the address.
+- **While `GASFREE_NETWORK` is unset, keep `GASFREE_API_KEY` and `GASFREE_API_SECRET` commented out.** tron-signer turns GasFree on by its API key alone and then refuses to start without the network. `check-cap-invariants.sh` stops the stage deploy in that state, with the stack as it was.
+- `sweep-address.yml` refuses an index that has a GasFree account. The sweeper sweeps those every minute and follows each permit to the chain.
+- `fund-float.yml` fills the plain float at 2/0. GasFree payouts do not use that float, but it stays in the reserve count, so running it is still safe.
 
 ## Things only two people can do
 

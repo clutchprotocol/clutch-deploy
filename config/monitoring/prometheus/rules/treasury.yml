@@ -89,6 +89,37 @@ groups:
             still counted correctly; consolidation has stopped. Check the treasury probe's
             "TRX float (fee account)" section.
 
+      # A GasFree account is swept on the next one-minute pass after its deposit is credited, so an
+      # hour-old unswept GasFree deposit means something stopped it: the relay refusing, or busy for
+      # good, GasFree's code changing (the tripwire), a live fee above the maximum, or the signer and
+      # the treasury disagreeing about the rail. The deposit is still counted in the reserve.
+      - alert: TreasuryGasFreeSweepStalled
+        expr: clutch_treasury_oldest_unswept_gasfree_seconds > 3600
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: "A GasFree deposit has not been swept for over an hour"
+          description: >-
+            The deposit is credited and still counted in the reserve; only the sweep has stopped. Read
+            the P1 alerts first (a relay refusal, the tripwire, a maxFee above the hold), then
+            PROBE=gasfree for the live fees and GasFree's code.
+
+      # CLT burned, USDT not paid, on either rail. The user has already given up the CLT, so this is the
+      # one stall a user feels directly.
+      - alert: TreasuryRedemptionUnpaid
+        expr: clutch_treasury_oldest_unpaid_redemption_seconds > 7200
+        for: 10m
+        labels:
+          severity: critical
+        annotations:
+          summary: "A burned redemption has not been paid for over two hours"
+          description: >-
+            Its CLT is burned and its USDT not yet sent: a dry float, a cap, a payout the treasury
+            could not confirm, or the GasFree float not yet activated. Read the P1 alerts and the
+            treasury probe. Never return a GasFree payout to payout_pending before the time its page
+            names.
+
       - alert: TreasuryChainOutboxStuck
         expr: clutch_treasury_chain_outbox{status="failed"} > 0
         for: 15m
