@@ -1,0 +1,29 @@
+# Run the image-pinning script's self-check, and guard the compose files against `latest`.
+#
+# A deploy ships exactly the tags in the compose files, and scripts/set-image.sh is the only thing
+# that moves them. So this runs on every PR that touches either: the script, or any compose file
+# a pin lives in. No secrets, no host access. Two checks call ghcr.io to prove the registry test
+# refuses a missing tag and accepts a real one.
+
+name: Test image pinning
+
+on:
+  pull_request:
+    paths:
+      - "scripts/set-image.sh"
+      - "scripts/test-set-image.sh"
+      - "docker-compose*.yml"
+      - ".github/workflows/test-set-image.yml"
+  workflow_dispatch:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Syntax
+        run: |
+          bash -n scripts/set-image.sh
+          bash -n scripts/test-set-image.sh
+      - name: Self-check
+        run: bash scripts/test-set-image.sh
