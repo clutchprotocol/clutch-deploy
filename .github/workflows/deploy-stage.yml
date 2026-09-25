@@ -21,6 +21,10 @@ on:
         description: "DESTRUCTIVE and rarely needed — leave UNTICKED for normal deploys. Runs `down -v`, wiping the chain, explorer DB, Grafana/Seq, the treasury and orchestrator databases, AND Bitcart's database. That last one invalidates BITCART_TOKEN/BITCART_STORE_ID in .env, so you must re-run 'Provision Bitcart (stage)' afterwards or the orchestrator will point at a store that no longer exists. Tick ONLY after changing consensus values in config/node/*.toml, since a new ChainInit genesis cannot import onto old chain data."
         type: boolean
         default: false
+      set_images:
+        description: "Optional. Move stage images to new tags before deploying: image=tag pairs separated by spaces, e.g. clutch-treasury=sha-239f538 clutch-orchestrator=sha-239f538 clutch-tron-signer=sha-239f538. The pin is committed to main first. Leave empty to deploy exactly what is pinned."
+        type: string
+        default: ""
 
   push:
     branches: [main]
@@ -38,13 +42,51 @@ on:
   repository_dispatch:
     types: [deploy-stage]
 
-concurrency:
-  group: deploy-stage
-  cancel-in-progress: false
+# No workflow-level concurrency: only the deploy job is serialized, below. GitHub keeps at most ONE
+# pending run per concurrency group and cancels the older pending one, so with the whole workflow
+# in the group, two image builds finishing close together would lose the first one's pin.
 
 jobs:
-  deploy:
+  # Every image is pinned to an exact tag, and a deploy ships exactly those tags
+  # (scripts/set-image.sh). An image workflow's dispatch carries its new tag as
+  # client_payload.set_images, and a manual run can pass the same string. This job commits that pin
+  # to main BEFORE anything deploys, so main always says what stage runs or is about to run.
+  # Nothing else moves: a deploy for one repo's image no longer ships what another repo built since.
+  pin:
+    if: ${{ (inputs.set_images || github.event.client_payload.set_images || '') != '' }}
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+      - name: Commit the new tags to main
+        env:
+          SET_IMAGES: ${{ inputs.set_images || github.event.client_payload.set_images }}
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          # Split on spaces, with globbing off. set-image.sh checks every word (a known image, a
+          # sha-<7> tag that ghcr.io has) before it writes anything, so nothing from the payload
+          # reaches sed or git unchecked. The push is made with GITHUB_TOKEN, which starts no
+          # workflow, so it cannot trigger a second deploy through the push paths above.
+          set -f
+          # shellcheck disable=SC2086
+          PUSH=1 bash scripts/set-image.sh stage $SET_IMAGES
+
+  deploy:
+    needs: pin
+    # After a successful pin, or when there was nothing to pin. Never after a failed one: that would
+    # ship the OLD tags from a run that asked for new ones, and still report a deploy.
+    if: ${{ !cancelled() && (needs.pin.result == 'success' || needs.pin.result == 'skipped') }}
+    runs-on: ubuntu-latest
+    # A newer pending deploy replacing an older one loses nothing: each pin is already on main, and
+    # the host pulls main before it deploys.
+    concurrency:
+      group: deploy-stage
+      cancel-in-progress: false
     steps:
       - name: Deploy via SSH
         env:

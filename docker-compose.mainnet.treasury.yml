@@ -22,9 +22,14 @@
 # keeps them distinct.
 
 services:
+  # The three treasury images are pinned HERE, not inherited from the base file. The base file's
+  # image lines are stage's pins, and moving stage onto new treasury code must never move mainnet
+  # with it. Move these with `set-image.sh mainnet`, as a decision of its own.
+  #
   # Reads the MAINNET chain. The base file names node1/node3 on 8081/8083 -- the testnet's
   # containers and ports -- which resolve to nothing on this network.
   treasury-service:
+    image: ghcr.io/clutchprotocol/clutch-treasury:sha-92d357e
     environment:
       - APP_NODE_WS_URL=ws://mainnet-node3:8183/ws
       - APP_NODE_PEER_WS_URLS=ws://mainnet-node1:8181/ws,ws://mainnet-node2:8182/ws
@@ -61,11 +66,13 @@ services:
       - clutch-network
 
   tron-signer:
+    image: ghcr.io/clutchprotocol/clutch-tron-signer:sha-92d357e
     environment:
       - "APP_TRONGRID_URL=${TRONGRID_URL:?set TRONGRID_URL in .env.mainnet}"
       - "APP_USDT_CONTRACT=${USDT_CONTRACT:?set USDT_CONTRACT in .env.mainnet}"
 
   payment-orchestrator:
+    image: ghcr.io/clutchprotocol/clutch-orchestrator:sha-92d357e
     environment:
       - "APP_TRONGRID_URL=${TRONGRID_URL:?set TRONGRID_URL in .env.mainnet}"
       - "APP_USDT_CONTRACT=${USDT_CONTRACT:?set USDT_CONTRACT in .env.mainnet}"
@@ -86,7 +93,7 @@ services:
   # an image here the service is incomplete and `compose config` refuses the whole set. The profile
   # keeps it out of every `up`, including one that names no services.
   clutch-explorer-backend:
-    image: ghcr.io/clutchprotocol/clutch-explorer-backend:latest
+    image: ghcr.io/clutchprotocol/clutch-explorer-backend:sha-a0f4f0f
     profiles: ["never-started-here"]
 
 networks:

@@ -119,8 +119,9 @@ fi
 [ "${CI:-}" = "true" ] || die "PUSH=1 resets the checkout to origin/main on every attempt; it is for CI only"
 MSG="deploy($ENV_NAME): pin ${PAIRS[*]}"
 for attempt in 1 2 3 4 5; do
+  # FETCH_HEAD, not origin/main: a CI checkout's refspec need not update the tracking ref.
   git -C "$ROOT" fetch -q origin main
-  git -C "$ROOT" reset -q --hard origin/main
+  git -C "$ROOT" reset -q --hard FETCH_HEAD
   apply
   if git -C "$ROOT" diff --quiet; then
     echo "$ENV_NAME: already pinned to ${PAIRS[*]}; nothing to commit"

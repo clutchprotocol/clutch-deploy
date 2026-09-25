@@ -146,18 +146,18 @@ If SSH is not on port 22, add `port: YOUR_PORT` under `with:` in the workflow (o
 
 - **Manual:** Actions → **Deploy stage (VPS)** → Run workflow.
 - **On push to `main`:** when `docker-compose*.yml`, `config/**`, or this workflow file changes.
-- **After images publish to GHCR** from **`clutch-hub-demo-app`**, **`clutch-hub-api`**, or **`clutch-node`:** each repo’s Docker workflow can dispatch **`deploy-stage`** here. Add the same secret **`CLUTCH_DEPLOY_DISPATCH_TOKEN`** (a PAT that may **`repository_dispatch`** on **clutch-deploy**) to **each** of those repositories under **Settings → Secrets and variables → Actions**. Stage compose pulls **`ghcr.io/clutchprotocol/...:latest`** for node, API, and demo so **`docker compose pull`** updates the stack.
+- **After images publish to GHCR** from **`clutch-hub`** (the demo app and the Hub API), **`clutch-node`** or **`clutch-explorer`:** each repo’s Docker workflow dispatches **`deploy-stage`** here with the new image's tag. Add the same secret **`CLUTCH_DEPLOY_DISPATCH_TOKEN`** (a PAT that may **`repository_dispatch`** on **clutch-deploy**) to **each** of those repositories under **Settings → Secrets and variables → Actions**.
 
-Pushing to **clutch-hub-api** / **clutch-node** / **clutch-hub-demo-app** does **not** run workflows in **clutch-deploy** by itself; the **`trigger-stage-deploy`** job (or **`repository_dispatch`** / manual run) ties them together.
+**Every image is pinned to an exact tag, never `latest`.** A deploy ships exactly the tags in the compose files. A dispatch carries `client_payload.set_images` (for example `clutch-hub-demo-app=sha-9b27014`), and the workflow's `pin` job commits that tag to `main` before it deploys, so no other image moves. The treasury's CI sends no dispatch: its images move only when someone runs the workflow by hand with the `set_images` input. See `CLAUDE.md`, "Image tags".
 
-- **From any automation:** send a **`repository_dispatch`** with event type **`deploy-stage`**:
+Pushing to **clutch-hub** / **clutch-node** / **clutch-explorer** does **not** run workflows in **clutch-deploy** by itself; the **`trigger-stage-deploy`** job (or **`repository_dispatch`** / manual run) ties them together.
+
+- **From any automation:** send a **`repository_dispatch`** with event type **`deploy-stage`**. Without `set_images` it redeploys what is pinned; with it, it pins first:
 
 ```bash
 curl -X POST \
   -H "Accept: application/vnd.github+json" \
   -H "Authorization: Bearer YOUR_PAT_WITH_REPO_SCOPE" \
-  https://api.github.com/repos/OWNER/clutch-deploy/dispatches \
-  -d '{"event_type":"deploy-stage"}'
+  https://api.github.com/repos/clutchprotocol/clutch-deploy/dispatches \
+  -d '{"event_type":"deploy-stage","client_payload":{"set_images":"clutch-node=sha-c3e301f"}}'
 ```
-
-Or add a job in `clutch-hub-api` / `clutch-node` CI that calls [`repository_dispatch`](https://docs.github.com/en/rest/repos/repos#create-a-repository-dispatch-event) after `docker push` so stage updates whenever a new image is published.

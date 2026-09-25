@@ -6,7 +6,7 @@ Docker Compose orchestration for the full Clutch Protocol stack. Workspace overv
 
 | File | Role |
 |------|------|
-| `docker-compose.yml` | Base stack, pre-built GHCR images (`ghcr.io/clutchprotocol/*:latest`). Always the first `-f`. |
+| `docker-compose.yml` | Base stack, pre-built GHCR images, each pinned to an exact tag (see "Image tags" below). Always the first `-f`. |
 | `docker-compose.dev.yml` | Dev overlay: builds Rust services from sibling repos, runs frontends as Vite dev servers with hot reload. |
 | `docker-compose.stage.cloudflare-flex.yml` | Stage/VPS overlay: `ports: !reset []` on every service (nothing published except via nginx); TLS at Cloudflare, HTTP origin. |
 | `docker-compose.nginx.yml` | Optional local reverse proxy on :80. Separate project (`-p clutch-nginx`), joins external network `clutch-dev_clutch-network`. |
@@ -89,7 +89,19 @@ Always pass the full `-f` list and `-p` on every command — omitting them targe
 
 ## Stage deploy
 
-`.github/workflows/deploy-stage.yml` SSHes to the VPS (secrets `STAGE_HOST/USER/SSH_PASSWORD/DEPLOY_PATH`), does `git pull --ff-only origin main`, `compose pull`, `up -d --force-recreate --remove-orphans` — **no `--build`**; stage consumes GHCR images published by each repo's CI. Triggers: manual, push to `main` touching compose/config files, or `repository_dispatch` type `deploy-stage` (sent by sibling repos after image publish — e.g. `clutch-hub`'s `docker-publish.yml`, which builds the `apps/demo` image, and its `hub-api-image.yml`, which builds the Hub API image, both do this in a trigger job). VPS bootstrap steps: `docs/SSH-SERVER-SETUP.md`.
+`.github/workflows/deploy-stage.yml` SSHes to the VPS (secrets `STAGE_HOST/USER/SSH_PASSWORD/DEPLOY_PATH`), does `git pull --ff-only origin main`, `compose pull`, `up -d --force-recreate --remove-orphans` — **no `--build`**; stage consumes GHCR images published by each repo's CI, at the tags pinned in the compose files. Triggers: manual, push to `main` touching compose/config files, or `repository_dispatch` type `deploy-stage` (sent by sibling repos after image publish — `clutch-hub`'s `docker-publish.yml` for the `apps/demo` image and `hub-api-image.yml` for the Hub API, `clutch-node`'s and `clutch-explorer`'s image workflows). VPS bootstrap steps: `docs/SSH-SERVER-SETUP.md`.
+
+### Image tags: pinned, never `latest`
+
+**A deploy ships exactly the tags in the compose files, and nothing newer** (#103, 2026-09-25). Before that every deploy pulled the newest `latest` of every image, so a deploy for one repo's change also shipped whatever any other repo had built since: that day a demo-app deploy would have rolled out the GasFree treasury images (treasury #53), which nobody had decided to ship, and Prometheus had moved to v3.15.0 that morning without anyone choosing it.
+
+- **Where the pins live.** Clutch images use the `sha-<7>` tag their own CI already pushes. Stage: `docker-compose.yml` + `docker-compose.treasury.yml`. Mainnet: `docker-compose.mainnet.yml` + `docker-compose.mainnet.treasury.yml` (the mainnet treasury overlay pins its 3 images itself, so a stage treasury pin never moves mainnet). The stage overlays set no Clutch image: an overlay's `image:` silently wins the merge. Monitoring images carry exact versions and move by a reviewed edit.
+- **`scripts/set-image.sh`** is the one way a Clutch tag moves. `set-image.sh stage clutch-node` prints a pin; `set-image.sh stage clutch-node=sha-xxxxxxx ...` moves pins after checking every pair (a known image, already pinned there, a `sha-<7>` tag, and ghcr.io has it); `PUSH=1` also commits and pushes to main (CI only). `scripts/test-set-image.sh` (workflow `test-set-image.yml`) tests it and fails any PR that brings `latest` or an untagged image back.
+- **Stage moves by itself for the node, the Hub API, the demo app and the explorer.** Each image workflow's dispatch carries `client_payload.set_images`; the `pin` job commits it to main, then the `deploy` job runs. Only `deploy` is in the `deploy-stage` concurrency group: GitHub keeps one pending run per group and cancels the older pending one, which would drop a pin if the whole workflow were in it. A replaced pending deploy loses nothing, because its pin is already on main.
+- **The treasury moves only by hand.** Its CI sends no dispatch, on purpose. Run "Deploy stage (VPS)" with `set_images` = `clutch-treasury=sha-… clutch-orchestrator=sha-… clutch-tron-signer=sha-…`.
+- **Mainnet moves only through `mainnet-app-up.yml`.** With `promote` (the default) it copies stage's Hub API and demo pins into the mainnet file and commits them, so only what stage already runs can reach mainnet. It runs `up -d --no-deps`, and fails if a validator's image or start time changed. The validators stay on `sha-c3e301f`, the build they have run since 2026-09-19, until a planned upgrade.
+- **Rollback** is a revert of the pin commit: a push to main touching compose files deploys it.
+- A rebuild of the same commit can point a sha tag at a new digest (the Hub API's `sha-21a26a3` did on 2026-09-25). The code is the same.
 
 **`origin main` on that pull is load-bearing, and a failed pull now fails the deploy.** A bare
 `git pull --ff-only` resolves `FETCH_HEAD` against every branch it just fetched, so pushing two

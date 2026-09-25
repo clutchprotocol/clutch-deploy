@@ -4,8 +4,15 @@
 # already has containers -- it exists to start a chain that does not exist yet, and weakening that
 # guard so it could also add services would remove the check that matters most.
 #
-# Only the two services are named on the `up`, so the validators are not recreated. They are
-# authoring a live chain; nothing here should restart them as a side effect.
+# Mainnet has its own pins in docker-compose.mainnet.yml, and a stage deploy never moves them. With
+# `promote` ticked (the default), this run first copies the Hub API and demo app tags that STAGE is
+# pinned to into the mainnet pins and commits that to main. So "update mainnet to the latest build"
+# means "to what stage already runs", and a build nobody has seen on stage cannot reach mainnet here.
+#
+# The `up` names only the two services AND passes --no-deps. The flag is the part that protects the
+# validators: without it compose also converges every dependency (hub-api -> node3 -> node2 -> node1)
+# and recreates any of them whose config or local image changed. They are authoring a live chain,
+# so the job also compares their start times before and after, and fails if either moved.
 name: Mainnet — bring up the app services
 
 on:
@@ -14,10 +21,16 @@ on:
       confirm:
         description: "Type UP to run"
         required: true
+      promote:
+        description: "Copy the Hub API and demo app tags stage runs into the mainnet pins first. Untick to redeploy mainnet's current pins."
+        type: boolean
+        default: true
 
 jobs:
-  up:
+  pin:
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
     steps:
       - name: Check the confirmation
         env:
@@ -27,7 +40,25 @@ jobs:
           [ "$CONFIRM" = "UP" ] || { echo "::error::type UP to run"; exit 1; }
 
       - uses: actions/checkout@v4
+        with:
+          ref: main
 
+      - name: Promote the stage tags to mainnet
+        if: ${{ inputs.promote }}
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          api=$(bash scripts/set-image.sh stage clutch-hub-api)
+          demo=$(bash scripts/set-image.sh stage clutch-hub-demo-app)
+          echo "stage runs clutch-hub-api=$api clutch-hub-demo-app=$demo"
+          echo "mainnet had clutch-hub-api=$(bash scripts/set-image.sh mainnet clutch-hub-api) clutch-hub-demo-app=$(bash scripts/set-image.sh mainnet clutch-hub-demo-app)"
+          PUSH=1 bash scripts/set-image.sh mainnet clutch-hub-api="$api" clutch-hub-demo-app="$demo"
+
+  up:
+    needs: pin
+    runs-on: ubuntu-latest
+    steps:
       - name: Start them on the stage host
         env:
           STAGE_HOST: ${{ secrets.STAGE_HOST }}
@@ -43,6 +74,12 @@ jobs:
           remote=$(cat <<'REMOTE'
           set -euo pipefail
           cd "$DEPLOY_PATH_R"
+          # The pin job has just committed the tags to main, and this checkout only moves when told
+          # to. Without this pull, `up` would deploy whatever compose file the host already had.
+          # `origin main` for the reason deploy-stage.yml gives: a bare pull once died on "Cannot
+          # fast-forward to multiple branches". A failed pull stops the run rather than deploying
+          # the previous commit.
+          git pull --ff-only origin main
           C="docker compose -p clutch-main -f docker-compose.mainnet.yml"
 
           if ! grep -q '^MAINNET_JWT_SECRET=' .env; then
@@ -57,8 +94,15 @@ jobs:
             exit 1
           fi
 
+          validators() {
+            for n in 1 2 3; do
+              echo "mainnet-node${n} $(docker inspect -f '{{.Config.Image}} started {{.State.StartedAt}}' clutch-main-mainnet-node${n}-1 2>/dev/null || echo '?')"
+            done
+          }
+          before=$(validators)
+
           $C pull mainnet-hub-api mainnet-demo-app
-          $C up -d mainnet-hub-api mainnet-demo-app
+          $C up -d --no-deps mainnet-hub-api mainnet-demo-app
           $C ps
 
           echo ""
@@ -92,10 +136,21 @@ jobs:
           $C logs --tail 30 mainnet-hub-api 2>&1 | grep -aiE "node|ws://|connect" | tail -8 || true
 
           echo ""
-          echo "=== validators untouched? ==="
-          for n in 1 2 3; do
-            echo "  mainnet-node${n}: $(docker inspect -f '{{.State.StartedAt}}' clutch-main-mainnet-node${n}-1 2>/dev/null || echo '?')"
+          echo "=== what runs now ==="
+          for s in mainnet-hub-api mainnet-demo-app; do
+            echo "  $s: $(docker inspect -f '{{.Config.Image}}' clutch-main-${s}-1 2>/dev/null || echo '?')"
           done
+
+          echo ""
+          echo "=== validators untouched? ==="
+          after=$(validators)
+          echo "$after" | sed 's/^/  /'
+          if [ "$before" != "$after" ]; then
+            echo "::error::a mainnet validator changed during this run. Before:"
+            echo "$before" | sed 's/^/  /'
+            exit 1
+          fi
+          echo "  unchanged"
           REMOTE
           )
 
