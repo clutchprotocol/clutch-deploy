@@ -217,7 +217,7 @@ services:
     restart: unless-stopped
 
   clutch-explorer-backend:
-    image: ghcr.io/clutchprotocol/clutch-explorer-backend:sha-a0f4f0f
+    image: ghcr.io/clutchprotocol/clutch-explorer-backend:sha-24a3735
     stop_grace_period: 30s
     depends_on:
       - node1
@@ -257,7 +257,7 @@ services:
       - ./config/explorer:/app/config:ro
 
   clutch-explorer-indexer:
-    image: ghcr.io/clutchprotocol/clutch-explorer-backend:sha-a0f4f0f
+    image: ghcr.io/clutchprotocol/clutch-explorer-backend:sha-24a3735
     stop_grace_period: 30s
     depends_on:
       - node1
@@ -320,7 +320,7 @@ services:
       - clutch-network
 
   clutch-explorer-frontend:
-    image: ghcr.io/clutchprotocol/clutch-explorer-frontend:sha-a0f4f0f
+    image: ghcr.io/clutchprotocol/clutch-explorer-frontend:sha-24a3735
     ports:
       - "5174:80"
     depends_on:
