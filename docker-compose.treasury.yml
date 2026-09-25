@@ -68,7 +68,7 @@ services:
 
   # PRIVATE ZONE. Deliberately has no `ports:` — adding one exposes the mint authority.
   treasury-service:
-    image: ghcr.io/clutchprotocol/clutch-treasury:sha-92d357e
+    image: ghcr.io/clutchprotocol/clutch-treasury:sha-df5243a
     depends_on:
       treasury-postgres:
         condition: service_healthy
@@ -216,7 +216,7 @@ services:
   # INDEX and nothing else, and the destination comes from APP_TREASURY_ADDRESS below. Reaching this
   # service does not let anyone choose where funds go.
   tron-signer:
-    image: ghcr.io/clutchprotocol/clutch-tron-signer:sha-92d357e
+    image: ghcr.io/clutchprotocol/clutch-tron-signer:sha-df5243a
     environment:
       - RUST_LOG=${SIGNER_LOG_LEVEL:-info}
       # No default and no TOML fallback. A placeholder here would be a valid but DIFFERENT wallet,
@@ -250,7 +250,7 @@ services:
   # PUBLIC ZONE. Holds no chain keys; the worst a compromise here can do is create intents the
   # treasury's verifier and breakers still have to agree to.
   payment-orchestrator:
-    image: ghcr.io/clutchprotocol/clutch-orchestrator:sha-92d357e
+    image: ghcr.io/clutchprotocol/clutch-orchestrator:sha-df5243a
     depends_on:
       orchestrator-postgres:
         condition: service_healthy
