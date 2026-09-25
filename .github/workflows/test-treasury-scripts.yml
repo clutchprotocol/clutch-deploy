@@ -11,12 +11,18 @@ on:
     paths:
       - "scripts/check-cap-invariants.sh"
       - "scripts/test-cap-invariants.sh"
+      - "scripts/gasfree-fee-check.sh"
+      - "scripts/test-gasfree-fee-check.sh"
+      - "scripts/inspect-stage.sh"
       - ".github/workflows/test-treasury-scripts.yml"
   push:
     branches: [main]
     paths:
       - "scripts/check-cap-invariants.sh"
       - "scripts/test-cap-invariants.sh"
+      - "scripts/gasfree-fee-check.sh"
+      - "scripts/test-gasfree-fee-check.sh"
+      - "scripts/inspect-stage.sh"
   workflow_dispatch:
 
 jobs:
@@ -28,5 +34,10 @@ jobs:
         run: |
           bash -n scripts/check-cap-invariants.sh
           bash -n scripts/test-cap-invariants.sh
+          bash -n scripts/gasfree-fee-check.sh
+          bash -n scripts/test-gasfree-fee-check.sh
+          bash -n scripts/inspect-stage.sh
       - name: Cap invariants
         run: bash scripts/test-cap-invariants.sh
+      - name: GasFree fee check
+        run: bash scripts/test-gasfree-fee-check.sh
