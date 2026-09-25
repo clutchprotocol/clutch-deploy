@@ -282,8 +282,9 @@ fi
 
 XPUB=$(printf '%s' "$JSON" | sed -n 's/.*"account_xpub"[ ]*:[ ]*"\([^"]*\)".*/\1/p')
 FEE=$(printf '%s' "$JSON" | sed -n 's/.*"fee_address"[ ]*:[ ]*"\([^"]*\)".*/\1/p')
+FLOAT=$(printf '%s' "$JSON" | sed -n 's/.*"payout_address"[ ]*:[ ]*"\([^"]*\)".*/\1/p')
 
-if [ -z "$XPUB" ] || [ -z "$FEE" ]; then
+if [ -z "$XPUB" ] || [ -z "$FEE" ] || [ -z "$FLOAT" ]; then
   echo "ABORT: could not parse the signer's response."
   exit 1
 fi
@@ -305,11 +306,29 @@ else
   echo "    DEPOSIT_ACCOUNT_XPUB: written"
 fi
 
+# The plain payout float at 2/0: the treasury counts it in the reserve, and derives the GasFree float
+# from it (GasFree design §4). Written from the signer's own answer, like the xpub, so the treasury
+# cannot count a float the signer does not pay from.
+if has PAYOUT_FLOAT_ADDRESS; then
+  EXISTING=$(val PAYOUT_FLOAT_ADDRESS)
+  if [ "$EXISTING" = "$FLOAT" ]; then
+    echo "    PAYOUT_FLOAT_ADDRESS: already set and matches the mnemonic"
+  else
+    echo "ABORT: PAYOUT_FLOAT_ADDRESS in $ENV_FILE is $EXISTING, but this mnemonic's float at 2/0 is $FLOAT."
+    echo "  The treasury would count a float the signer does not pay from. Find which one is wrong first."
+    exit 1
+  fi
+else
+  echo "PAYOUT_FLOAT_ADDRESS=$FLOAT" >> "$ENV_FILE"
+  echo "    PAYOUT_FLOAT_ADDRESS: written"
+fi
+
 chmod 600 "$ENV_FILE"
 echo ""
 echo "=== public material (safe to copy) ==="
 echo "    account_xpub = $XPUB"
 echo "    fee_address  = $FEE"
+echo "    payout_float = $FLOAT"
 echo ""
 # Named from the configured network, not hardcoded. It used to say "Nile TRX" always, which on a
 # mainnet env file is an instruction to fund a real address with worthless test TRX -- and the
