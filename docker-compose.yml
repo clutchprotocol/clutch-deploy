@@ -207,7 +207,7 @@ services:
 
   # Demo app (React + map-based ride request)
   clutch-hub-demo-app:
-    image: ghcr.io/clutchprotocol/clutch-hub-demo-app:sha-91ed760
+    image: ghcr.io/clutchprotocol/clutch-hub-demo-app:sha-7dd267b
     ports:
       - "5173:80"
     depends_on:
