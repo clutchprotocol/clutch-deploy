@@ -10,7 +10,7 @@
 services:
   # Clutch blockchain nodes
   node1:
-    image: ghcr.io/clutchprotocol/clutch-node:sha-c3e301f
+    image: ghcr.io/clutchprotocol/clutch-node:sha-1cc2ba0
     stop_grace_period: 30s
     # DB_PATH keeps RocksDB on the volume below. Without it the node writes to its working
     # directory — the container's WRITABLE LAYER — and `up -d --force-recreate`, which every
@@ -32,7 +32,7 @@ services:
     restart: unless-stopped
 
   node2:
-    image: ghcr.io/clutchprotocol/clutch-node:sha-c3e301f
+    image: ghcr.io/clutchprotocol/clutch-node:sha-1cc2ba0
     stop_grace_period: 30s
     # DB_PATH keeps RocksDB on the volume below. Without it the node writes to its working
     # directory — the container's WRITABLE LAYER — and `up -d --force-recreate`, which every
@@ -56,7 +56,7 @@ services:
     restart: unless-stopped
 
   node3:
-    image: ghcr.io/clutchprotocol/clutch-node:sha-c3e301f
+    image: ghcr.io/clutchprotocol/clutch-node:sha-1cc2ba0
     stop_grace_period: 30s
     # DB_PATH keeps RocksDB on the volume below. Without it the node writes to its working
     # directory — the container's WRITABLE LAYER — and `up -d --force-recreate`, which every
