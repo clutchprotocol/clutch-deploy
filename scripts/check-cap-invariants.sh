@@ -140,7 +140,7 @@ fi
 # without GASFREE_NETWORK and the rest. A key left in .env with GasFree off — the probe reads it — would
 # stop the signer at the next deploy.
 if [ -z "$GF_NETWORK" ] && [ -n "$(val GASFREE_API_KEY "")" ]; then
-  bad "GASFREE_API_KEY is set while GASFREE_NETWORK is not — tron-signer would turn GasFree on and refuse to start. Set the whole GasFree block, or comment out GASFREE_API_KEY and GASFREE_API_SECRET"
+  bad "GASFREE_API_KEY is set while GASFREE_NETWORK is not — tron-signer would turn GasFree on and refuse to start. Comment out GASFREE_API_KEY and GASFREE_API_SECRET, or set the whole GasFree block (docs/ON-CALL.md, 'The GasFree rail')"
 fi
 if [ -n "$GF_NETWORK" ]; then
   echo ""

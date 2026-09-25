@@ -48,8 +48,9 @@ groups:
         annotations:
           summary: "Minting breaker is latched"
           description: >-
-            Deposits are still credited on chain but no new CLT is being minted. Either a
-            reconciliation mismatch latched it or a human did.
+            Deposits are still credited on chain but no new CLT is being minted, and redemption
+            payouts wait too. A reconciliation mismatch latched it, a human did, or the GasFree
+            tripwire did (its halt_reason starts "GasFree tripwire:").
 
       - alert: TreasuryP1Alert
         expr: increase(clutch_treasury_alerts_total{severity="p1"}[10m]) > 0

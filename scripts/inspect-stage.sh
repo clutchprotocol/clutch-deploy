@@ -282,7 +282,11 @@ if [ "$PROBE" = "treasury" ]; then
              APP_MIN_REDEMPTION_CLT APP_MAX_REDEMPTION_CLT APP_REDEMPTION_FEE_USDT \
              APP_DAILY_PAYOUT_CAP_CLT APP_PER_TX_PAYOUT_CAP_USDT \
              APP_SWEEP_THRESHOLD_USDT APP_SWEEP_MAX_AGE_HOURS APP_SWEEP_MIN_USDT \
-             APP_PER_TX_MINT_CAP_CLT APP_DAILY_MINT_CAP_CLT; do
+             APP_PER_TX_MINT_CAP_CLT APP_DAILY_MINT_CAP_CLT \
+             APP_TRANSFER_RAIL APP_GASFREE_NETWORK APP_GASFREE_API_URL APP_GASFREE_SERVICE_PROVIDER \
+             APP_GASFREE_ACTIVATE_FEE_MAX_USDT APP_GASFREE_TRANSFER_FEE_MAX_USDT APP_MIN_DEPOSIT_USDT \
+             APP_GASFREE_EXPECTED_IMPLEMENTATION APP_GASFREE_EXPECTED_CONTROLLER_IMPLEMENTATION \
+             APP_PAYOUT_FLOAT_TARGET_USDT APP_PAYOUT_FLOAT_ADDRESS APP_RECONCILIATION_INTERVAL_SECS; do
       v=$(docker exec "clutch-stage-${c}-1" printenv "$k" 2>/dev/null || true)
       if [ -n "$v" ]; then echo "    $k=$v"; fi
     done
@@ -293,7 +297,7 @@ if [ "$PROBE" = "treasury" ]; then
     # TronGrid as `<set>` on this very probe. The distinction matters most for exactly that key:
     # unkeyed TronGrid throttles hard, and a throttled watcher is indistinguishable from "nobody
     # paid".
-    for k in APP_TRONGRID_API_KEY APP_BITCART_TOKEN APP_MINT_AUTHORITY_SECRET; do
+    for k in APP_TRONGRID_API_KEY APP_BITCART_TOKEN APP_MINT_AUTHORITY_SECRET APP_GASFREE_API_KEY APP_GASFREE_API_SECRET; do
       v=$(docker exec "clutch-stage-${c}-1" printenv "$k" 2>/dev/null || true)
       if [ -n "$v" ]; then
         echo "    $k=<set, ${#v} chars>"
@@ -553,6 +557,18 @@ if [ "$PROBE" = "sweeper" ]; then
   # Whether minting is halted is the single most consequential piece of state in this service,
   # and reconciliation sets it without anything else surfacing it.
   tq "breaker" "select minting_halted, halt_reason, updated_at from breaker_state;"
+
+  # Redemptions whose CLT is burned and whose USDT is not yet sent. The rollout checks this is
+  # empty before switching rails, and TreasuryRedemptionUnpaid pages on the oldest.
+  tq "redemptions not yet paid" \
+     "select status, count(*), sum(amount_clt) as clt, min(created_at) as oldest
+      from redemption_intents
+      where status in ('burn_confirmed', 'payout_pending', 'payout_submitted')
+      group by status;"
+
+  tq "last redemptions" \
+     "select status, amount_clt, payout_amount_usdt, created_at, updated_at
+      from redemption_intents order by created_at desc limit 5;"
 
   # Did the received_usdt migration actually land? The overpayment fix depends on this column
   # existing; without it every deposit credit falls back to the requested amount silently.
@@ -1143,7 +1159,7 @@ if [ "$PROBE" = "gasfree" ]; then
   GF_SECRET=$(sed -n 's/^GASFREE_API_SECRET=//p' .env 2>/dev/null | head -1)
   if [ -z "$GF_KEY" ] || [ -z "$GF_SECRET" ]; then
     echo "    GASFREE_API_KEY / GASFREE_API_SECRET are not in .env."
-    echo "    Add both, unquoted, once developer.gasfree.io approves the application."
+    echo "    Add both, unquoted, only together with the whole GasFree block (docs/ON-CALL.md, 'The GasFree rail'): alone, the next stage deploy stops at check-cap-invariants.sh."
   else
     # Per the spec: sign METHOD + PATH + TIMESTAMP with HMAC-SHA256, base64 the digest, and send
     # it as "ApiKey {key}:{signature}" with the timestamp in its own header. openssl rather than
@@ -1210,8 +1226,10 @@ if [ "$PROBE" = "gasfree" ]; then
              -d '{\"owner_address\":\"$2\",\"contract_address\":\"$2\",\"function_selector\":\"implementation()\",\"visible\":true}'" \
           2>/dev/null | sed -n 's/.*"constant_result"[ ]*:[ ]*\["\([0-9a-fA-F]*\)".*/\1/p')
         live="${word:24:40}"
+        live="${live,,}"
         want=$(sed -n "s/^$3=//p" .env 2>/dev/null | head -1)
         want="${want#0x}"
+        want="${want,,}"
         if [ -z "$live" ]; then
           echo "    $1 $2: implementation() unreadable (is tron-signer up?)"
         elif [ "$live" = "$want" ]; then
@@ -1226,7 +1244,7 @@ if [ "$PROBE" = "gasfree" ]; then
         'curl -fsS -H "Authorization: Bearer $APP_SIGNER_TOKEN" http://localhost:8093/internal/xpub' 2>/dev/null \
         | sed -n 's/.*"payout_gasfree_address"[ ]*:[ ]*"\([^"]*\)".*/\1/p')
       if [ -z "$GF_FLOAT" ]; then
-        echo "    tron-signer names no GasFree float: GasFree is off in the signer (is GASFREE_API_KEY set?)"
+        echo "    tron-signer names no GasFree float: not deployed since GasFree was set in .env, or GasFree is off in tron-signer (GASFREE_API_KEY unset)"
       else
         GF_CONTRACT=$(docker exec clutch-stage-tron-signer-1 sh -c \
           "curl -fsS -X POST \"\$APP_TRONGRID_URL/wallet/getcontract\" \
