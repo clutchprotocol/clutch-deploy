@@ -59,6 +59,7 @@ check "an unknown network" 1 "GASFREE_NETWORK must be nile or mainnet" "${NILE[@
 check "an implementation that is not 40 hex" 1 "GASFREE_EXPECTED_IMPLEMENTATION must be 40 hex characters" "${NILE[@]}" GASFREE_EXPECTED_IMPLEMENTATION=b8eda40b
 check "the float target below the largest payout" 1 "PAYOUT_FLOAT_TARGET_USDT is below the largest payout plus its relay fee" "${NILE[@]}" PAYOUT_FLOAT_TARGET_USDT=20000000
 check "TRANSFER_RAIL=gasfree without GasFree settings" 1 "TRANSFER_RAIL=gasfree needs GASFREE_NETWORK" TRANSFER_RAIL=gasfree
+check "the signer's API key without GASFREE_NETWORK" 1 "GASFREE_API_KEY is set while GASFREE_NETWORK is not" GASFREE_API_KEY=key-marker-7f3a
 check "an unknown TRANSFER_RAIL" 1 "TRANSFER_RAIL must be trx or gasfree" TRANSFER_RAIL=gasfee
 
 # The key and the secret are never printed, whatever else happens.

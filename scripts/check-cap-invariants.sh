@@ -136,6 +136,12 @@ esac
 if [ "$RAIL" = "gasfree" ] && [ -z "$GF_NETWORK" ]; then
   bad "TRANSFER_RAIL=gasfree needs GASFREE_NETWORK and the other GasFree settings — every treasury service refuses to start"
 fi
+# 7, the other direction. tron-signer turns GasFree on by its API key alone, and then refuses to start
+# without GASFREE_NETWORK and the rest. A key left in .env with GasFree off — the probe reads it — would
+# stop the signer at the next deploy.
+if [ -z "$GF_NETWORK" ] && [ -n "$(val GASFREE_API_KEY "")" ]; then
+  bad "GASFREE_API_KEY is set while GASFREE_NETWORK is not — tron-signer would turn GasFree on and refuse to start. Set the whole GasFree block, or comment out GASFREE_API_KEY and GASFREE_API_SECRET"
+fi
 if [ -n "$GF_NETWORK" ]; then
   echo ""
   echo "=== the GasFree rail (GASFREE_NETWORK=$GF_NETWORK, TRANSFER_RAIL=$RAIL) ==="
