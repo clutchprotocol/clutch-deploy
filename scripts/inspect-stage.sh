@@ -1176,6 +1176,69 @@ if [ "$PROBE" = "gasfree" ]; then
       echo "    account reply for the SDK test wallet TMVQGm1qAQYVdetCeGRRkTWYYrLXuHK2HC (raw):"
       gf_get "$2" "$3/api/v1/address/TMVQGm1qAQYVdetCeGRRkTWYYrLXuHK2HC" | head -c 1500 | sed 's/^/      /'; echo
     done
+    # What this host is set to, against the live network (the design's §7). The network is the one
+    # in .env; with GASFREE_NETWORK unset GasFree is off here and there is nothing to compare.
+    GF_NET=$(sed -n 's/^GASFREE_NETWORK=//p' .env 2>/dev/null | head -1)
+    case "$GF_NET" in
+      nile)    GF_HOST=https://open-test.gasfree.io GF_PREFIX=/nile
+               GF_BEACON=TLtCGmaxH3PbuaF6kbybwteZcHptEdgQGC GF_CONTROLLER=THQGuFzL87ZqhxkgqYEryRAd7gqFqL5rdc ;;
+      mainnet) GF_HOST=https://open.gasfree.io GF_PREFIX=/tron
+               GF_BEACON=TSP9UW6FQhT76XD2jWA6ipGMx3yGbjDffP GF_CONTROLLER=TFFAMQLZybALaLb4uxHA9RBE7pxhUAjF3U ;;
+      *)       GF_HOST="" ;;
+    esac
+    echo ""
+    echo "=== this host's GasFree settings against the live network (GASFREE_NETWORK=${GF_NET:-unset}) ==="
+    if [ -z "$GF_HOST" ]; then
+      echo "    GASFREE_NETWORK is not nile or mainnet in .env: GasFree is off here, nothing to compare."
+    else
+      GF_TOKEN=$(sed -n 's/^USDT_CONTRACT=//p' .env 2>/dev/null | head -1)
+      [ -n "$GF_TOKEN" ] || GF_TOKEN=TXYZopYRdj2D9XRtbG411XZZ3kM5VkAeBf
+      GF_ACT=$(sed -n 's/^GASFREE_ACTIVATE_FEE_MAX_USDT=//p' .env 2>/dev/null | head -1)
+      GF_XFER=$(sed -n 's/^GASFREE_TRANSFER_FEE_MAX_USDT=//p' .env 2>/dev/null | head -1)
+      echo "--- live fees against the maxima ---"
+      gf_get "$GF_HOST" "$GF_PREFIX/api/v1/config/token/all" \
+        | bash scripts/gasfree-fee-check.sh "$GF_TOKEN" "${GF_ACT:-0}" "${GF_XFER:-0}" | sed 's/^/    /'
+      # The tripwire's own reads, from inside the signer, so they use the TronGrid the sweeps use.
+      # An expected value that is unset prints as unset: copy the live one in at switch-on.
+      echo "--- GasFree's code against the expected implementations ---"
+      for pair in "beacon $GF_BEACON GASFREE_EXPECTED_IMPLEMENTATION" \
+                  "controller $GF_CONTROLLER GASFREE_EXPECTED_CONTROLLER_IMPLEMENTATION"; do
+        set -- $pair
+        word=$(docker exec clutch-stage-tron-signer-1 sh -c \
+          "curl -fsS -X POST \"\$APP_TRONGRID_URL/wallet/triggerconstantcontract\" \
+             -H 'Content-Type: application/json' \
+             -d '{\"owner_address\":\"$2\",\"contract_address\":\"$2\",\"function_selector\":\"implementation()\",\"visible\":true}'" \
+          2>/dev/null | sed -n 's/.*"constant_result"[ ]*:[ ]*\["\([0-9a-fA-F]*\)".*/\1/p')
+        live="${word:24:40}"
+        want=$(sed -n "s/^$3=//p" .env 2>/dev/null | head -1)
+        want="${want#0x}"
+        if [ -z "$live" ]; then
+          echo "    $1 $2: implementation() unreadable (is tron-signer up?)"
+        elif [ "$live" = "$want" ]; then
+          echo "    $1 $2 runs $live -- matches $3"
+        else
+          echo "    $1 $2 runs $live -- $3 is '${want:-unset}'"
+        fi
+      done
+      # The float GasFree payouts leave from, and whether its one-time activation has run.
+      echo "--- the GasFree payout float ---"
+      GF_FLOAT=$(docker exec clutch-stage-tron-signer-1 sh -c \
+        'curl -fsS -H "Authorization: Bearer $APP_SIGNER_TOKEN" http://localhost:8093/internal/xpub' 2>/dev/null \
+        | sed -n 's/.*"payout_gasfree_address"[ ]*:[ ]*"\([^"]*\)".*/\1/p')
+      if [ -z "$GF_FLOAT" ]; then
+        echo "    tron-signer names no GasFree float: GasFree is off in the signer (is GASFREE_API_KEY set?)"
+      else
+        GF_CONTRACT=$(docker exec clutch-stage-tron-signer-1 sh -c \
+          "curl -fsS -X POST \"\$APP_TRONGRID_URL/wallet/getcontract\" \
+             -H 'Content-Type: application/json' \
+             -d '{\"value\":\"$GF_FLOAT\",\"visible\":true}'" 2>/dev/null)
+        case "$GF_CONTRACT" in
+          *'"contract_address"'*) echo "    $GF_FLOAT: activated" ;;
+          '{}')                   echo "    $GF_FLOAT: NOT activated -- redemptions answer 'not available yet' until activate-float.yml runs" ;;
+          *)                      echo "    $GF_FLOAT: activation unreadable" ;;
+        esac
+      fi
+    fi
     echo ""
     echo "    Fees are in the token's smallest unit. For USDT, 1000000 = 1 USDT."
   fi
