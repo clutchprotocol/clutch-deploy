@@ -27,9 +27,9 @@ PG=clutch-stage-treasury-postgres-1
 
 # Whether the surplus pays for the activation. Pure, so test-activate-float.sh can run it.
 #
-#   can_activate <status> <age seconds> <custody_reported> <ledger_liability> <activate max> <transfer max>
+#   can_activate <status> <age seconds> <custody_reported> <ledger_liability> <owed> <activate max> <transfer max>
 can_activate() {
-  local status="$1" age="$2" reserve="$3" liability="$4" act="$5" xfer="$6" v
+  local status="$1" age="$2" reserve="$3" liability="$4" owed="$5" act="$6" xfer="$7" v
   for v in "$act" "$xfer"; do
     case "$v" in
       ''|*[!0-9]*)
@@ -58,7 +58,7 @@ can_activate() {
 }
 
 main() {
-  local c run status age reserve liability act xfer msg resp
+  local c run status age reserve liability owed act xfer msg resp
   for c in "$PG" "$SIGNER"; do
     if ! docker ps --format '{{.Names}}' | grep -qx "$c"; then
       echo "ABORT: container $c is not running."
@@ -73,13 +73,19 @@ main() {
 
   echo ""
   echo "=== does the surplus pay for the activation? ==="
+  # A burn lowers ledger_liability at once, but its USDT stays in the float until the payout
+  # confirms, so a redemption not yet paid would count as surplus. Its whole amount_clt, not the
+  # payout: that is the most it takes out of the reserve (the payout, plus a relay fee its redemption
+  # fee covers). The same statuses as clutch_treasury_oldest_unpaid_redemption_seconds.
   run=$(docker exec "$PG" psql -U treasury -d treasury -tA -F ' ' -c \
-    "select status, extract(epoch from now() - run_at)::bigint, custody_reported, ledger_liability
+    "select status, extract(epoch from now() - run_at)::bigint, custody_reported, ledger_liability,
+            (select coalesce(sum(amount_clt), 0)::bigint from redemption_intents
+              where status in ('burn_confirmed', 'payout_pending', 'payout_submitted'))
        from reconciliation_runs order by run_at desc limit 1;" 2>/dev/null || true)
-  read -r status age reserve liability <<< "$run" || true
+  read -r status age reserve liability owed <<< "$run" || true
   act=$(docker exec "$SIGNER" printenv APP_GASFREE_ACTIVATE_FEE_MAX_USDT 2>/dev/null || true)
   xfer=$(docker exec "$SIGNER" printenv APP_GASFREE_TRANSFER_FEE_MAX_USDT 2>/dev/null || true)
-  if msg=$(can_activate "${status:-none}" "${age:-}" "${reserve:-}" "${liability:-}" "$act" "$xfer"); then
+  if msg=$(can_activate "${status:-none}" "${age:-}" "${reserve:-}" "${liability:-}" "${owed:-}" "$act" "$xfer"); then
     echo "    $msg"
   else
     echo "ABORT: $msg. Nothing was signed."
