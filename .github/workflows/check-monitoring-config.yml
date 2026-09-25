@@ -75,7 +75,7 @@ jobs:
                    AZURE_CLIENT_SECRET AZURE_KEY_VERSION DEPOSIT_MNEMONIC DEPOSIT_ACCOUNT_XPUB \
                    SIGNER_TOKEN TREASURY_INITIATOR_TOKEN TREASURY_APPROVER_TOKEN \
                    TREASURY_READONLY_TOKEN TREASURY_POSTGRES_PASSWORD \
-                   ORCHESTRATOR_POSTGRES_PASSWORD JWT_SECRET; do
+                   ORCHESTRATOR_POSTGRES_PASSWORD JWT_SECRET PAYOUT_FLOAT_ADDRESS; do
             echo "$v=ci" >> /tmp/t.env
           done
           docker compose --env-file /tmp/t.env \
@@ -96,3 +96,41 @@ jobs:
           echo "merge asserted: KMS signer, empty plaintext secret, mainnet node URL"
 
           echo "all compose files parse"
+
+      - name: GasFree settings reach every service that reads them
+        run: |
+          set -euo pipefail
+          # One .env name per setting feeds all three treasury services, so they cannot read
+          # different values. What can go wrong is a service missing a line: it then runs with
+          # GasFree off while the others run with it on. Set every name to a marker and read back
+          # what each service receives. (.env exists: the step above wrote it.)
+          {
+            for v in JWT_SECRET GRAFANA_ADMIN_PASSWORD TREASURY_POSTGRES_PASSWORD ORCHESTRATOR_POSTGRES_PASSWORD \
+                     MINT_AUTHORITY_SECRET TREASURY_INITIATOR_TOKEN TREASURY_APPROVER_TOKEN TREASURY_READONLY_TOKEN \
+                     SIGNER_TOKEN DEPOSIT_MNEMONIC CUSTODY_TRON_ADDRESS DEPOSIT_ACCOUNT_XPUB; do
+              echo "$v=ci"
+            done
+            for v in TRANSFER_RAIL GASFREE_NETWORK GASFREE_API_URL GASFREE_API_KEY GASFREE_API_SECRET \
+                     GASFREE_SERVICE_PROVIDER GASFREE_ACTIVATE_FEE_MAX_USDT GASFREE_TRANSFER_FEE_MAX_USDT \
+                     MIN_DEPOSIT_USDT GASFREE_EXPECTED_IMPLEMENTATION GASFREE_EXPECTED_CONTROLLER_IMPLEMENTATION \
+                     PAYOUT_FLOAT_TARGET_USDT; do
+              echo "$v=marker-$v"
+            done
+          } > /tmp/g.env
+          merged=$(docker compose --env-file /tmp/g.env -f docker-compose.yml -f docker-compose.treasury.yml config --format json)
+          receives() {  # receives <service> <.env name>...: each must arrive as APP_<name>, unchanged
+            local svc="$1" v got
+            shift
+            for v in "$@"; do
+              got=$(printf '%s' "$merged" | jq -r --arg s "$svc" --arg k "APP_$v" '.services[$s].environment[$k] // "MISSING"')
+              if [ "$got" != "marker-$v" ]; then
+                echo "::error::$svc receives APP_$v=$got, expected marker-$v"
+                exit 1
+              fi
+            done
+            echo "$svc: all $# GasFree settings"
+          }
+          SHARED="TRANSFER_RAIL GASFREE_NETWORK GASFREE_ACTIVATE_FEE_MAX_USDT GASFREE_TRANSFER_FEE_MAX_USDT GASFREE_EXPECTED_IMPLEMENTATION GASFREE_EXPECTED_CONTROLLER_IMPLEMENTATION"
+          receives treasury-service $SHARED MIN_DEPOSIT_USDT
+          receives payment-orchestrator $SHARED MIN_DEPOSIT_USDT
+          receives tron-signer $SHARED GASFREE_API_URL GASFREE_API_KEY GASFREE_API_SECRET GASFREE_SERVICE_PROVIDER PAYOUT_FLOAT_TARGET_USDT
