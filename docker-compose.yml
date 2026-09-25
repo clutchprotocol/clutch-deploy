@@ -81,7 +81,7 @@ services:
 
   # Clutch Hub API (bridges apps to node)
   clutch-hub-api:
-    image: ghcr.io/clutchprotocol/clutch-hub-api:sha-21a26a3
+    image: ghcr.io/clutchprotocol/clutch-hub-api:sha-91ed760
     depends_on:
       - node1
       - seq
