@@ -73,6 +73,19 @@ jobs:
             || { echo "::error::the hub API never answered /health"; $C logs --tail 40 mainnet-hub-api; exit 1; }
 
           echo ""
+          echo "=== reloading nginx ==="
+          # nginx resolves these upstreams by container name once, when its config loads. `up`
+          # just gave the recreated containers new IPs, so without a reload the edge answers 502
+          # for app. and api. until something else reloads nginx. That happened on 2026-09-25:
+          # about 5 minutes of 502 on mainnet, while every check in this job passed. Same reload
+          # as scripts/deploy-stage.sh.
+          NGINX_C=$(docker ps --format '{{.Names}}' | grep -x 'nginx-stage' || true)
+          [ -n "$NGINX_C" ] || { echo "::error::no running container named nginx-stage"; exit 1; }
+          docker exec "$NGINX_C" nginx -t
+          docker exec "$NGINX_C" nginx -s reload
+          echo "nginx: reloaded"
+
+          echo ""
           echo "=== is it reading the MAINNET chain? ==="
           # The decisive check. A hub pointed at the wrong node would answer /health just as
           # happily while serving another chain's blocks.
@@ -94,3 +107,19 @@ jobs:
           set -e
           echo "$out"
           [ "$rc" -eq 0 ] || exit "$rc"
+
+      # Checked from outside, through Cloudflare and nginx, because that is what users reach.
+      # Every check on the host can pass while the edge answers 502 (see the reload above).
+      - name: Check the mainnet hosts from outside
+        run: |
+          set -euo pipefail
+          for url in https://app.clutchprotocol.io/ https://api.clutchprotocol.io/health; do
+            code=000
+            for _ in $(seq 1 12); do
+              code=$(curl -s -o /dev/null -w '%{http_code}' --max-time 10 "$url" || true)
+              [ "$code" = "200" ] && break
+              sleep 5
+            done
+            echo "$url -> $code"
+            [ "$code" = "200" ] || { echo "::error::$url answers $code from outside"; exit 1; }
+          done
