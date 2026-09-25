@@ -2,7 +2,7 @@ services:
   # Use local source for the API when developing
   clutch-hub-api:
     build:
-      context: ../clutch-hub-api
+      context: ../clutch-hub-sdk-js/services/hub-api
       dockerfile: Dockerfile
     image: clutch-hub-api:dev
     # Reuse the same env and config as base compose
