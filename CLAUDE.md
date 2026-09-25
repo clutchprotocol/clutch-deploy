@@ -21,7 +21,7 @@ Docker Compose orchestration for the full Clutch Protocol stack. Workspace overv
 | Service | Image / dev build context | Notes |
 |---------|---------------------------|-------|
 | `node1`..`node3` | `clutch-node` / `../clutch-node` | Validators. Each mounts `./config:/app/config:ro` **and `nodeN-data:/app/data`** with `DB_PATH=/app/data`, started with `--env nodeN` → reads `config/node/nodeN.toml`. WS-RPC 808N, P2P 400N, metrics 300N. node2/3 `depends_on: node1` (bootstrap peer `/dns4/node1/tcp/4001`). |
-| `clutch-hub-api` | `clutch-hub-api` / `../clutch-hub-api` | :3000. `CLUTCH_NODE_WS_URL=ws://node3:8083/ws` (node1 and node2 fell behind; being the p2p bootstrap says nothing about which node is best to read), config at `config/api/default.toml` (JWT, referrers). Healthcheck: `curl /health`. |
+| `clutch-hub-api` | `clutch-hub-api` / `../clutch-hub-sdk-js/services/hub-api` | :3000. `CLUTCH_NODE_WS_URL=ws://node3:8083/ws` (node1 and node2 fell behind; being the p2p bootstrap says nothing about which node is best to read), config at `config/api/default.toml` (JWT, referrers). Healthcheck: `curl /health`. |
 | `clutch-hub-demo-app` | GHCR nginx image / **dev: raw `node:20-alpine`** | :5173→80. Dev runs Vite from bind-mounted source (see below). |
 | `clutch-explorer-backend` | `clutch-explorer-backend` / `../clutch-explorer/backend` | :8088 REST API. `APP_*` env overrides `config/explorer/default.toml`. Healthcheck on `/health`. |
 | `clutch-explorer-indexer` | **same image as backend** | Entrypoint override `/usr/local/bin/indexer --env default`. Polls node every 4s (`APP_INDEXER_POLL_INTERVAL_MS`), writes to Postgres. |
@@ -144,7 +144,7 @@ Three write workflows exist alongside it, each requiring a typed confirmation:
 
 ## Gotchas
 
-- **Sibling layout is load-bearing**: dev build contexts are `../clutch-node`, `../clutch-hub-api`, `../clutch-explorer/backend`; the demo app's bind mount reaches `../clutch-hub-sdk-js` (the whole workspace — the app is `apps/demo` inside it). Cloning clutch-deploy alone breaks dev mode.
+- **Sibling layout is load-bearing**: dev build contexts are `../clutch-node`, `../clutch-hub-sdk-js/services/hub-api`, `../clutch-explorer/backend`; the demo app's bind mount reaches `../clutch-hub-sdk-js` (the whole workspace — the app is `apps/demo` inside it). Cloning clutch-deploy alone breaks dev mode.
 - SDK changes appear in the dev demo app via the bind mount, and the container rebuilds the SDK on every start. But the `node_modules` volumes persist and `npm ci` is skipped when they look populated — if **dependencies** change, `down -v` (or remove `clutch-hub-node-modules`) to force a reinstall.
 - Port 80 is only taken by the optional nginx overlay; 3000/3030/5173/5174/8081-8083/8088/9090/5341 must be free for the base stack.
 - Seq first-run admin credentials only apply to a fresh `seq-data` volume; changing them later in `.env` has no effect.
