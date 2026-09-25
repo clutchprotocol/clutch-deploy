@@ -197,6 +197,10 @@ services:
       # account. If the delegated allowance runs out, payouts fall back to burning silently;
       # PROBE=energy prints EnergyLimit and EnergyUsed so an operator can see it coming.
       - APP_REDEMPTION_FEE_USDT=${REDEMPTION_FEE_USDT:-1000000}
+      # Every hour, not the service's default 24 h: TreasuryReconciliationStale expects a run within
+      # 2 h, and the GasFree rollout reads a fresh run after every step. The TRX rail's sweep pass
+      # stays hourly either way (min(this, 3600) in treasury-service's main.rs).
+      - APP_RECONCILIATION_INTERVAL_SECS=${RECONCILIATION_INTERVAL_SECS:-3600}
       # The GasFree rail (clutch-treasury docs/superpowers/specs/2026-09-24-gasfree-transfer-rail-design.md,
       # §6). OFF while GASFREE_NETWORK is blank, which is the default: every line below is then empty,
       # and this service runs the TRX rail exactly as before.

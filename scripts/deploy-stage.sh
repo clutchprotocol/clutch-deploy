@@ -259,8 +259,9 @@ done
 # Checked from INSIDE the network on purpose: the orchestrator is deliberately not
 # published on this host, so there is no host port to curl. treasury-service is
 # checked the same way and is even stricter — it has no published port anywhere.
+# tron-signer too: it refuses to start on an incomplete GasFree block, and sweeps and payouts stop while it is down.
 if [ "$TREASURY" = "true" ]; then
-  for svc in payment-orchestrator:8091 treasury-service:8090; do
+  for svc in payment-orchestrator:8091 treasury-service:8090 tron-signer:8093; do
     name="${svc%%:*}"; port="${svc##*:}"
     tok=""
     for _ in $(seq 1 30); do

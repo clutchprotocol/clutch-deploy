@@ -18,6 +18,7 @@ on:
       - "scripts/test-activate-float.sh"
       - "scripts/provision-treasury-secrets.sh"
       - "scripts/sweep-address.sh"
+      - "scripts/deploy-stage.sh"
       - ".github/workflows/test-treasury-scripts.yml"
   push:
     branches: [main]
@@ -31,6 +32,7 @@ on:
       - "scripts/test-activate-float.sh"
       - "scripts/provision-treasury-secrets.sh"
       - "scripts/sweep-address.sh"
+      - "scripts/deploy-stage.sh"
   workflow_dispatch:
 
 jobs:
@@ -49,6 +51,7 @@ jobs:
           bash -n scripts/test-activate-float.sh
           bash -n scripts/provision-treasury-secrets.sh
           bash -n scripts/sweep-address.sh
+          bash -n scripts/deploy-stage.sh
       - name: Cap invariants
         run: bash scripts/test-cap-invariants.sh
       - name: GasFree fee check
