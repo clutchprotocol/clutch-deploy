@@ -21,7 +21,7 @@ Docker Compose orchestration for the full Clutch Protocol stack. Workspace overv
 | Service | Image / dev build context | Notes |
 |---------|---------------------------|-------|
 | `node1`..`node3` | `clutch-node` / `../clutch-node` | Validators. Each mounts `./config:/app/config:ro` **and `nodeN-data:/app/data`** with `DB_PATH=/app/data`, started with `--env nodeN` → reads `config/node/nodeN.toml`. WS-RPC 808N, P2P 400N, metrics 300N. node2/3 `depends_on: node1` (bootstrap peer `/dns4/node1/tcp/4001`). |
-| `clutch-hub-api` | `clutch-hub-api` / `../clutch-hub-sdk-js/services/hub-api` | :3000. `CLUTCH_NODE_WS_URL=ws://node3:8083/ws` (node1 and node2 fell behind; being the p2p bootstrap says nothing about which node is best to read), config at `config/api/default.toml` (JWT, referrers). Healthcheck: `curl /health`. |
+| `clutch-hub-api` | `clutch-hub-api` / `../clutch-hub/services/hub-api` | :3000. `CLUTCH_NODE_WS_URL=ws://node3:8083/ws` (node1 and node2 fell behind; being the p2p bootstrap says nothing about which node is best to read), config at `config/api/default.toml` (JWT, referrers). Healthcheck: `curl /health`. |
 | `clutch-hub-demo-app` | GHCR nginx image / **dev: raw `node:20-alpine`** | :5173→80. Dev runs Vite from bind-mounted source (see below). |
 | `clutch-explorer-backend` | `clutch-explorer-backend` / `../clutch-explorer/backend` | :8088 REST API. `APP_*` env overrides `config/explorer/default.toml`. Healthcheck on `/health`. |
 | `clutch-explorer-indexer` | **same image as backend** | Entrypoint override `/usr/local/bin/indexer --env default`. Polls node every 4s (`APP_INDEXER_POLL_INTERVAL_MS`), writes to Postgres. |
@@ -44,8 +44,8 @@ For a redeemable token this class of bug means minted CLT vanishing while the ba
 ## Dev overlay specifics (`docker-compose.dev.yml`)
 
 - **node1 builds, node2/3 reuse**: only node1 has a `build:` (tag `clutch-node:dev`, `pull_policy: build`); node2/3 use `image: clutch-node:dev, pull_policy: never`. Three parallel builds of one tag fail — don't "fix" this by adding builds to node2/3.
-- **Demo app**: no Dockerfile — plain `node:20-alpine` with `../clutch-hub-sdk-js` mounted **whole** at `/workspace`, working dir `/workspace/apps/demo`. A long inline `sh -c` script retries `npm ci` (up to 5x) once at the workspace root, builds the SDK, then launches Vite via `node /workspace/node_modules/vite/bin/vite.js` — deliberately not the `.bin/vite` shim, because Docker Desktop Windows bind mounts drop the execute bit. `node_modules` live in named volumes (not the bind mount), one per workspace plus the hoisted root. `CHOKIDAR_USEPOLLING=true` makes hot reload work on Windows mounts.
-  - **`../clutch-hub-demo-app` no longer exists.** The demo app and the SDK were merged into one npm workspace in `clutch-hub-sdk-js` on 2026-09-18 (`apps/demo` and `packages/sdk`). That is why there is one mount, one lockfile and one `npm ci` where there used to be two of each.
+- **Demo app**: no Dockerfile — plain `node:20-alpine` with `../clutch-hub` mounted **whole** at `/workspace`, working dir `/workspace/apps/demo`. A long inline `sh -c` script retries `npm ci` (up to 5x) once at the workspace root, builds the SDK, then launches Vite via `node /workspace/node_modules/vite/bin/vite.js` — deliberately not the `.bin/vite` shim, because Docker Desktop Windows bind mounts drop the execute bit. `node_modules` live in named volumes (not the bind mount), one per workspace plus the hoisted root. `CHOKIDAR_USEPOLLING=true` makes hot reload work on Windows mounts.
+  - **`../clutch-hub-demo-app` no longer exists.** The demo app and the SDK were merged into one npm workspace in `clutch-hub-sdk-js` on 2026-09-18 (`apps/demo` and `packages/sdk`); that repo is `clutch-hub` since 2026-09-24, and the Hub API joined it as `services/hub-api`. That is why there is one mount, one lockfile and one `npm ci` where there used to be two of each.
 - **Explorer frontend**: same Vite-in-container pattern against `../clutch-explorer/frontend`.
 - Explorer backend/indexer default to `APP_DEVELOPER_MODE=true`, `APP_CLEANUP_ON_START=true` (DB wiped on each start) in dev.
 - Rust source changes need `--build` (or `docker compose build <svc>`) — only the frontends hot-reload.
@@ -89,7 +89,7 @@ Always pass the full `-f` list and `-p` on every command — omitting them targe
 
 ## Stage deploy
 
-`.github/workflows/deploy-stage.yml` SSHes to the VPS (secrets `STAGE_HOST/USER/SSH_PASSWORD/DEPLOY_PATH`), does `git pull --ff-only origin main`, `compose pull`, `up -d --force-recreate --remove-orphans` — **no `--build`**; stage consumes GHCR images published by each repo's CI. Triggers: manual, push to `main` touching compose/config files, or `repository_dispatch` type `deploy-stage` (sent by sibling repos after image publish — e.g. `clutch-hub-sdk-js`'s `docker-publish.yml`, which builds the `apps/demo` image, does this in its `trigger-stage-deploy` job). VPS bootstrap steps: `docs/SSH-SERVER-SETUP.md`.
+`.github/workflows/deploy-stage.yml` SSHes to the VPS (secrets `STAGE_HOST/USER/SSH_PASSWORD/DEPLOY_PATH`), does `git pull --ff-only origin main`, `compose pull`, `up -d --force-recreate --remove-orphans` — **no `--build`**; stage consumes GHCR images published by each repo's CI. Triggers: manual, push to `main` touching compose/config files, or `repository_dispatch` type `deploy-stage` (sent by sibling repos after image publish — e.g. `clutch-hub`'s `docker-publish.yml`, which builds the `apps/demo` image, and its `hub-api-image.yml`, which builds the Hub API image, both do this in a trigger job). VPS bootstrap steps: `docs/SSH-SERVER-SETUP.md`.
 
 **`origin main` on that pull is load-bearing, and a failed pull now fails the deploy.** A bare
 `git pull --ff-only` resolves `FETCH_HEAD` against every branch it just fetched, so pushing two
@@ -144,7 +144,7 @@ Three write workflows exist alongside it, each requiring a typed confirmation:
 
 ## Gotchas
 
-- **Sibling layout is load-bearing**: dev build contexts are `../clutch-node`, `../clutch-hub-sdk-js/services/hub-api`, `../clutch-explorer/backend`; the demo app's bind mount reaches `../clutch-hub-sdk-js` (the whole workspace — the app is `apps/demo` inside it). Cloning clutch-deploy alone breaks dev mode.
+- **Sibling layout is load-bearing**: dev build contexts are `../clutch-node`, `../clutch-hub/services/hub-api`, `../clutch-explorer/backend`; the demo app's bind mount reaches `../clutch-hub` (the whole workspace — the app is `apps/demo` inside it). Cloning clutch-deploy alone breaks dev mode.
 - SDK changes appear in the dev demo app via the bind mount, and the container rebuilds the SDK on every start. But the `node_modules` volumes persist and `npm ci` is skipped when they look populated — if **dependencies** change, `down -v` (or remove `clutch-hub-node-modules`) to force a reinstall.
 - Port 80 is only taken by the optional nginx overlay; 3000/3030/5173/5174/8081-8083/8088/9090/5341 must be free for the base stack.
 - Seq first-run admin credentials only apply to a fresh `seq-data` volume; changing them later in `.env` has no effect.
