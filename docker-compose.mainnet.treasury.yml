@@ -61,6 +61,11 @@ services:
       # pair means watching the wrong token on the wrong network, and crediting nothing.
       - "APP_TRONGRID_URL=${TRONGRID_URL:?set TRONGRID_URL to https://api.trongrid.io in .env.mainnet}"
       - "APP_USDT_CONTRACT=${USDT_CONTRACT:?set USDT_CONTRACT in .env.mainnet — verify it on tronscan.org first}"
+      # The plain payout float at 2/0 of THIS deployment's wallet, which provision-treasury-secrets.sh
+      # writes from the signer's own /internal/xpub. Required here: the base file's default is the
+      # TESTNET float, and a mainnet reserve counting it would miss the real float entirely. The
+      # GasFree float is derived from this one (treasury-service's AppConfig::gasfree_float).
+      - "APP_PAYOUT_FLOAT_ADDRESS=${PAYOUT_FLOAT_ADDRESS:?set PAYOUT_FLOAT_ADDRESS in .env.mainnet — provision-treasury-secrets.sh writes it}"
     networks:
       - treasury-network
       - clutch-network

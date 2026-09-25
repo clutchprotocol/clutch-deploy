@@ -197,6 +197,23 @@ services:
       # account. If the delegated allowance runs out, payouts fall back to burning silently;
       # PROBE=energy prints EnergyLimit and EnergyUsed so an operator can see it coming.
       - APP_REDEMPTION_FEE_USDT=${REDEMPTION_FEE_USDT:-1000000}
+      # The GasFree rail (clutch-treasury docs/superpowers/specs/2026-09-24-gasfree-transfer-rail-design.md,
+      # §6). OFF while GASFREE_NETWORK is blank, which is the default: every line below is then empty,
+      # and this service runs the TRX rail exactly as before.
+      #
+      # The SAME .env names feed treasury-service, payment-orchestrator and tron-signer, so the three
+      # cannot read different values. check-monitoring-config.yml asserts each service maps them, and
+      # check-cap-invariants.sh, run before every stage deploy, asserts the set is complete. Once any
+      # user has a GasFree address, keep these set for as long as that address exists, even with
+      # TRANSFER_RAIL=trx: without them this service refuses deposits there, and the orchestrator will
+      # not show the address.
+      - APP_TRANSFER_RAIL=${TRANSFER_RAIL:-trx}
+      - APP_GASFREE_NETWORK=${GASFREE_NETWORK:-}
+      - APP_GASFREE_ACTIVATE_FEE_MAX_USDT=${GASFREE_ACTIVATE_FEE_MAX_USDT:-}
+      - APP_GASFREE_TRANSFER_FEE_MAX_USDT=${GASFREE_TRANSFER_FEE_MAX_USDT:-}
+      - APP_MIN_DEPOSIT_USDT=${MIN_DEPOSIT_USDT:-}
+      - APP_GASFREE_EXPECTED_IMPLEMENTATION=${GASFREE_EXPECTED_IMPLEMENTATION:-}
+      - APP_GASFREE_EXPECTED_CONTROLLER_IMPLEMENTATION=${GASFREE_EXPECTED_CONTROLLER_IMPLEMENTATION:-}
     restart: unless-stopped
     networks:
       - treasury-network   # its own Postgres
@@ -241,6 +258,23 @@ services:
       # 25 USDT default: the payout float is deliberately small, and this bounds a single request
       # against it. Raise it deliberately, not to make a failing payout succeed.
       - APP_PER_TX_PAYOUT_CAP_USDT=${PER_TX_PAYOUT_CAP_USDT:-25000000}
+      # The GasFree rail, from the same .env names as treasury-service's (see there). This service
+      # turns it on by GASFREE_API_KEY, the other two by GASFREE_NETWORK; check-cap-invariants.sh
+      # refuses a deploy with one set and not the other. TRANSFER_RAIL=gasfree here means payouts by
+      # permit from the GasFree float. The key and secret are relay credentials: they cannot move money
+      # (only a permit signed here can), and they live only in the host's .env.
+      - APP_TRANSFER_RAIL=${TRANSFER_RAIL:-trx}
+      - APP_GASFREE_NETWORK=${GASFREE_NETWORK:-}
+      - APP_GASFREE_API_URL=${GASFREE_API_URL:-}
+      - APP_GASFREE_API_KEY=${GASFREE_API_KEY:-}
+      - APP_GASFREE_API_SECRET=${GASFREE_API_SECRET:-}
+      - APP_GASFREE_SERVICE_PROVIDER=${GASFREE_SERVICE_PROVIDER:-}
+      - APP_GASFREE_ACTIVATE_FEE_MAX_USDT=${GASFREE_ACTIVATE_FEE_MAX_USDT:-}
+      - APP_GASFREE_TRANSFER_FEE_MAX_USDT=${GASFREE_TRANSFER_FEE_MAX_USDT:-}
+      - APP_GASFREE_EXPECTED_IMPLEMENTATION=${GASFREE_EXPECTED_IMPLEMENTATION:-}
+      - APP_GASFREE_EXPECTED_CONTROLLER_IMPLEMENTATION=${GASFREE_EXPECTED_CONTROLLER_IMPLEMENTATION:-}
+      # Sweeps pay into the GasFree float until it holds this much, then into custody (design §4).
+      - APP_PAYOUT_FLOAT_TARGET_USDT=${PAYOUT_FLOAT_TARGET_USDT:-}
       - APP_HTTP_ADDR=0.0.0.0:8093
     restart: unless-stopped
     networks:
@@ -336,6 +370,16 @@ services:
       # Rollout gate. Off means no NEW addresses are issued; it does not un-issue the ones already
       # handed out, and money sent to an address nothing watches is money nobody credits.
       - APP_PERMANENT_DEPOSIT_ADDRESSES_ENABLED=${PERMANENT_DEPOSIT_ADDRESSES_ENABLED:-true}
+      # The GasFree rail, from the same .env names as treasury-service's (see there). With
+      # TRANSFER_RAIL=gasfree a new user is given a GasFree address, shown with the fee "up to" and
+      # the minimum; a user keeps the kind of address they were given.
+      - APP_TRANSFER_RAIL=${TRANSFER_RAIL:-trx}
+      - APP_GASFREE_NETWORK=${GASFREE_NETWORK:-}
+      - APP_GASFREE_ACTIVATE_FEE_MAX_USDT=${GASFREE_ACTIVATE_FEE_MAX_USDT:-}
+      - APP_GASFREE_TRANSFER_FEE_MAX_USDT=${GASFREE_TRANSFER_FEE_MAX_USDT:-}
+      - APP_MIN_DEPOSIT_USDT=${MIN_DEPOSIT_USDT:-}
+      - APP_GASFREE_EXPECTED_IMPLEMENTATION=${GASFREE_EXPECTED_IMPLEMENTATION:-}
+      - APP_GASFREE_EXPECTED_CONTROLLER_IMPLEMENTATION=${GASFREE_EXPECTED_CONTROLLER_IMPLEMENTATION:-}
     restart: unless-stopped
     healthcheck:
       test: ["CMD", "curl", "-f", "http://127.0.0.1:8091/health"]
