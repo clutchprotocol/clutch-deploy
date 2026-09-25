@@ -15,8 +15,7 @@ This folder contains Docker Compose configs for the Clutch Protocol stack:
 Dev assumes you have these sibling repos next to `clutch-deploy/`:
 
 - `../clutch-node`
-- `../clutch-hub-sdk-js`: the `clutch-hub` repo. It holds the Hub API (`services/hub-api`), the SDK
-  and the demo app. The folder keeps its old name.
+- `../clutch-hub`: the Hub API (`services/hub-api`), the SDK and the demo app
 - `../clutch-explorer`
 
 Start dev (PowerShell):

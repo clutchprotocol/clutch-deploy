@@ -2,7 +2,7 @@ services:
   # Use local source for the API when developing
   clutch-hub-api:
     build:
-      context: ../clutch-hub-sdk-js/services/hub-api
+      context: ../clutch-hub/services/hub-api
       dockerfile: Dockerfile
     image: clutch-hub-api:dev
     # Reuse the same env and config as base compose
@@ -75,9 +75,11 @@ services:
       - 8.8.8.8
     # One mount of the whole workspace. The SDK and the demo app were merged into
     # clutch-hub-sdk-js on 2026-09-18 (packages/sdk and apps/demo), so ../clutch-hub-demo-app no
-    # longer exists and there is one lockfile instead of two.
+    # longer exists and there is one lockfile instead of two. That repo is clutch-hub since
+    # 2026-09-24. The npm workspace name and the volume names below still say clutch-hub-sdk-js,
+    # because the npm package keeps that name and renaming a volume would drop its node_modules.
     volumes:
-      - ../clutch-hub-sdk-js:/workspace
+      - ../clutch-hub:/workspace
       # npm workspaces hoists almost everything to the root node_modules; the per-package ones
       # hold only what cannot hoist (platform rollup binaries). They stay named volumes for the
       # same reason as before: Docker Desktop Windows bind mounts drop the executable bit.
