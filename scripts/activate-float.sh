@@ -10,12 +10,17 @@
 # the float to custody, paid for by the surplus the treasury already holds. Users are charged the
 # configured maxima, and the difference stays behind as backing — that is what pays for this.
 #
-# It refuses unless the latest reconciliation run is `ok`, under two hours old, and shows
+# It runs one reconciliation itself, then refuses unless that run is `ok`, under two hours old, and
+# shows
 #
-#   custody_reported - ledger_liability >= activate max + transfer max
+#   custody_reported - ledger_liability - owed >= activate max + transfer max
 #
-# with the maxima read from the RUNNING signer: the values that size the permit's maxFee. Custody gains
-# the amount moved; the reserve loses only the relay's fee, which the surplus covers.
+# where `owed` is what redemptions burned and not yet paid took off the liability: a burn lowers
+# ledger_liability at once, and its USDT stays in the float until the payout confirms. Without it,
+# a redemption waiting for this activation would be counted as surplus that pays for it.
+#
+# The maxima are read from the RUNNING signer: the values that size the permit's maxFee. Custody
+# gains the amount moved; the reserve loses only the relay's fee, which the surplus covers.
 #
 # The endpoint takes no parameters — the float, custody, the amount and the fee cap are all the
 # signer's own — and this script passes none. It must never grow any.
@@ -24,6 +29,7 @@ set -euo pipefail
 
 SIGNER=clutch-stage-tron-signer-1
 PG=clutch-stage-treasury-postgres-1
+TREASURY=clutch-stage-treasury-service-1
 
 # Whether the surplus pays for the activation. Pure, so test-activate-float.sh can run it.
 #
@@ -41,7 +47,7 @@ can_activate() {
     echo "the latest reconciliation run is '$status', not ok"
     return 1
   fi
-  for v in "$age" "$reserve" "$liability"; do
+  for v in "$age" "$reserve" "$liability" "$owed"; do
     case "$v" in
       ''|*[!0-9-]*)
         echo "the latest reconciliation run is unreadable: '$v'"
@@ -49,17 +55,17 @@ can_activate() {
     esac
   done
   if [ "$age" -gt 7200 ]; then
-    echo "the latest reconciliation run is ${age}s old; wait for one under two hours old"
+    echo "the latest reconciliation run is ${age}s old, so the run above did not finish; read its output, then run this again"
     return 1
   fi
-  local surplus=$((reserve - liability)) need=$((act + xfer))
-  echo "the surplus is $surplus micro-USDT; activation may cost up to $need"
+  local surplus=$((reserve - liability - owed)) need=$((act + xfer))
+  echo "the surplus is $surplus micro-USDT; activation may cost up to $need (after $owed micro-USDT owed to redemptions not yet paid)"
   [ "$surplus" -ge "$need" ]
 }
 
 main() {
   local c run status age reserve liability owed act xfer msg resp
-  for c in "$PG" "$SIGNER"; do
+  for c in "$PG" "$SIGNER" "$TREASURY"; do
     if ! docker ps --format '{{.Names}}' | grep -qx "$c"; then
       echo "ABORT: container $c is not running."
       exit 1
@@ -73,6 +79,11 @@ main() {
 
   echo ""
   echo "=== does the surplus pay for the activation? ==="
+  # One reconciliation first, so the decision below reads a run taken now, not up to an hour ago.
+  # --reconcile-once prints the status and exits: it starts no worker and moves nothing
+  # (clutch-treasury's treasury-service main.rs). A failed run changes nothing here: the check
+  # below then reads an older run and refuses.
+  docker exec "$TREASURY" treasury-service --reconcile-once 2>&1 | tail -3 | sed 's/^/    /' || true
   # A burn lowers ledger_liability at once, but its USDT stays in the float until the payout
   # confirms, so a redemption not yet paid would count as surplus. Its whole amount_clt, not the
   # payout: that is the most it takes out of the reserve (the payout, plus a relay fee its redemption

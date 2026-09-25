@@ -2,8 +2,8 @@
 #
 # The float's first outgoing transfer also pays for deploying its contract, which a redemption's fee
 # does not cover. This makes that first transfer — the smallest amount, from the float to custody —
-# paid for by the reserve's surplus, and refuses unless the latest reconciliation run shows the
-# surplus covers the most it may cost. Until it has run, redemptions answer "not available yet".
+# paid for by the reserve's surplus. It runs a fresh reconciliation, and refuses unless the surplus, less what
+# redemptions not yet paid are owed, covers the most it may cost. Until it has run, redemptions answer "not available yet".
 #
 # It moves money, so it is manual and attributed, like fund-float. It takes no address, no amount and
 # no destination, because the endpoint behind it takes none either.
@@ -30,9 +30,11 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Check the confirmation
+        env:
+          CONFIRM: ${{ inputs.confirm }}
         run: |
-          if [ "${{ inputs.confirm }}" != "activate" ]; then
-            echo "Refusing: confirm was '${{ inputs.confirm }}', expected 'activate'."
+          if [ "$CONFIRM" != "activate" ]; then
+            echo "Refusing: confirm was '$CONFIRM', expected 'activate'."
             exit 1
           fi
 
