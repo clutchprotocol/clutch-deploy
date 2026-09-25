@@ -55,6 +55,20 @@ case "$INDEX" in
     exit 1;;
 esac
 
+# An index with a GasFree account is the sweeper's alone. The signer sweeps an index's GasFree account
+# first whenever it holds USDT, and the treasury follows to the chain only the permits it asked for
+# itself (sweeper/gasfree_sweep.rs): deposits moved by a permit asked for here would stay "unswept" on
+# the books for good. The table exists from migration 0014; before it, the count reads 0.
+GASFREE=$(docker exec "$PG" psql -U treasury -d treasury -tAc \
+  "select count(*) from gasfree_accounts where derivation_index = $INDEX;" 2>/dev/null | tr -d '[:space:]' || true)
+if [ "${GASFREE:-0}" != "0" ]; then
+  echo ""
+  echo "ABORT: derivation index $INDEX has a GasFree account. The sweeper sweeps its credited deposits"
+  echo "  every minute and follows each permit to the chain; a permit asked for here would not be followed."
+  echo "  PROBE=sweeper shows what it is waiting on. See docs/ON-CALL.md, \"The GasFree rail\"."
+  exit 1
+fi
+
 echo ""
 echo "=== sweeping derivation index $INDEX ==="
 echo "    (destination is the signer's own custody config, not a parameter)"
@@ -100,6 +114,21 @@ case "$RESP" in
   *'"status":"fee_account_dry"'*)
     echo "ABORT-ish: the fee account cannot pay for the sweep. Top it up (the address is above),"
     echo "then run this again. Nothing moved."
+    exit 1
+    ;;
+  *'"status":"below_fee"'*)
+    # The plain address is empty, and this index's GasFree account holds no more than the relay's fee:
+    # for this address the same as nothing_to_sweep, so the same backfill.
+    docker exec "$PG" psql -U treasury -d treasury -c       "update mint_intents set swept_at = now()
+        where deposit_address = '$ADDRESS' and swept_at is null and status = 'credited';" 2>&1 | sed 's/^/    /'
+    echo "nothing to sweep here: the address is empty, and its GasFree account holds only what the"
+    echo "relay's fee would take. No USDT moved."
+    ;;
+  *'"status":"pending"'*|*'"status":"busy"'*|*'"status":"rejected"'*|*'"status":"halted"'*)
+    echo "the signer answered for this index's GasFree account, which it sweeps before the plain"
+    echo "address. Nothing was recorded for $ADDRESS. A 'pending' answer means a permit the treasury"
+    echo "did not ask for is with the relay: once it runs, the USDT is in custody or the float and"
+    echo "still counted, but the treasury will not mark it swept. Read docs/ON-CALL.md before retrying."
     exit 1
     ;;
   *)

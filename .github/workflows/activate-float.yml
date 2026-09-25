@@ -1,0 +1,69 @@
+# Activate the GasFree payout float, once (clutch-treasury's GasFree design §4).
+#
+# The float's first outgoing transfer also pays for deploying its contract, which a redemption's fee
+# does not cover. This makes that first transfer — the smallest amount, from the float to custody —
+# paid for by the reserve's surplus. It runs a fresh reconciliation, and refuses unless the surplus, less what
+# redemptions not yet paid are owed, covers the most it may cost. Until it has run, redemptions answer "not available yet".
+#
+# It moves money, so it is manual and attributed, like fund-float. It takes no address, no amount and
+# no destination, because the endpoint behind it takes none either.
+
+name: Activate the GasFree payout float (stage)
+
+on:
+  workflow_dispatch:
+    inputs:
+      reason:
+        description: "Why the float is being activated now. Recorded in this log and nowhere else."
+        required: true
+      confirm:
+        description: 'Type "activate" to confirm moving money'
+        required: true
+        default: ""
+
+concurrency:
+  group: activate-float
+  cancel-in-progress: false
+
+jobs:
+  activate:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check the confirmation
+        env:
+          CONFIRM: ${{ inputs.confirm }}
+        run: |
+          if [ "$CONFIRM" != "activate" ]; then
+            echo "Refusing: confirm was '$CONFIRM', expected 'activate'."
+            exit 1
+          fi
+
+      # Through env, never interpolated into the script body: a reason containing backticks or
+      # $(...) would otherwise execute as shell.
+      - name: Record who and why
+        env:
+          ACTOR: ${{ github.actor }}
+          REASON: ${{ inputs.reason }}
+        run: |
+          echo "dispatched by $ACTOR"
+          echo "reason: $REASON"
+
+      - name: Activate via SSH
+        env:
+          SSHPASS: ${{ secrets.STAGE_SSH_PASSWORD }}
+          CLUTCH_SSH_HOST: ${{ secrets.STAGE_HOST }}
+          CLUTCH_SSH_USER: ${{ secrets.STAGE_USER }}
+        run: |
+          # The same transport as fund-float.yml: plain ssh, and the script travels as a file.
+          set -euo pipefail
+          command -v sshpass >/dev/null || { sudo apt-get update -qq && sudo apt-get install -y -qq sshpass; }
+          R="/tmp/clutch-ci-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
+          SSH_OPTS="-o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o ConnectTimeout=30 -o ServerAliveInterval=30"
+          cat > "$RUNNER_TEMP/clutch-remote.sh" <<'CLUTCH_REMOTE_EOF'
+          set -euo pipefail
+          cd "${{ secrets.STAGE_DEPLOY_PATH }}"
+          git pull --ff-only origin main
+          bash scripts/activate-float.sh
+          CLUTCH_REMOTE_EOF
+          sshpass -e ssh $SSH_OPTS "$CLUTCH_SSH_USER@$CLUTCH_SSH_HOST" "cat > $R.sh" < "$RUNNER_TEMP/clutch-remote.sh"
+          timeout 10m sshpass -e ssh $SSH_OPTS "$CLUTCH_SSH_USER@$CLUTCH_SSH_HOST" "find /tmp -maxdepth 1 -name 'clutch-ci-*' -mtime +1 -delete 2>/dev/null; bash $R.sh"

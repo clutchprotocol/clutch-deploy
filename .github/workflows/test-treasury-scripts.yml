@@ -1,0 +1,60 @@
+# Self-checks for the scripts that guard the treasury's settings and move its money.
+#
+# check-cap-invariants.sh gates every stage deploy (deploy-stage.sh): a bug in it either lets a
+# broken limit through or stops every deploy. No secrets, no host access, no docker — copies of the
+# scripts, fixtures, and a temp directory. Same shape as test-nginx-block.yml.
+
+name: Test treasury scripts
+
+on:
+  pull_request:
+    paths:
+      - "scripts/check-cap-invariants.sh"
+      - "scripts/test-cap-invariants.sh"
+      - "scripts/gasfree-fee-check.sh"
+      - "scripts/test-gasfree-fee-check.sh"
+      - "scripts/inspect-stage.sh"
+      - "scripts/activate-float.sh"
+      - "scripts/test-activate-float.sh"
+      - "scripts/provision-treasury-secrets.sh"
+      - "scripts/sweep-address.sh"
+      - "scripts/deploy-stage.sh"
+      - ".github/workflows/test-treasury-scripts.yml"
+  push:
+    branches: [main]
+    paths:
+      - "scripts/check-cap-invariants.sh"
+      - "scripts/test-cap-invariants.sh"
+      - "scripts/gasfree-fee-check.sh"
+      - "scripts/test-gasfree-fee-check.sh"
+      - "scripts/inspect-stage.sh"
+      - "scripts/activate-float.sh"
+      - "scripts/test-activate-float.sh"
+      - "scripts/provision-treasury-secrets.sh"
+      - "scripts/sweep-address.sh"
+      - "scripts/deploy-stage.sh"
+  workflow_dispatch:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Syntax
+        run: |
+          bash -n scripts/check-cap-invariants.sh
+          bash -n scripts/test-cap-invariants.sh
+          bash -n scripts/gasfree-fee-check.sh
+          bash -n scripts/test-gasfree-fee-check.sh
+          bash -n scripts/inspect-stage.sh
+          bash -n scripts/activate-float.sh
+          bash -n scripts/test-activate-float.sh
+          bash -n scripts/provision-treasury-secrets.sh
+          bash -n scripts/sweep-address.sh
+          bash -n scripts/deploy-stage.sh
+      - name: Cap invariants
+        run: bash scripts/test-cap-invariants.sh
+      - name: GasFree fee check
+        run: bash scripts/test-gasfree-fee-check.sh
+      - name: Float activation decision
+        run: bash scripts/test-activate-float.sh
