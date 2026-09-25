@@ -104,6 +104,16 @@ if [ "$TREASURY" = "true" ] && grep -q '^USDT_CONTRACT=TXLAQ63Xg1NAzckPwKHvzw7CS
   exit 1
 fi
 
+# The treasury's limits and its GasFree settings must agree with each other before anything is pulled
+# or recreated. A broken relationship fails quietly in production — a limit that refuses everything,
+# one that protects nothing, or three services reading GasFree differently — so a deploy that would
+# run one stops here, with the stack as it was.
+if [ "$TREASURY" = "true" ] && ! bash scripts/check-cap-invariants.sh; then
+  echo ""
+  echo "DEPLOY ABORTED — check-cap-invariants.sh found a broken relationship (above). Nothing was changed."
+  exit 1
+fi
+
 # Alertmanager's destination. Telegram needs a bot token AND a chat id, and only the token can be
 # read from a file (`bot_token_file`) -- `chat_id` has to sit in the config itself. So the config is
 # a TEMPLATE here and the rendered alertmanager.yml is gitignored, which keeps both values out of a
