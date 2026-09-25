@@ -26,7 +26,6 @@
 
 set -euo pipefail
 
-SIGNER_IMAGE="ghcr.io/clutchprotocol/clutch-tron-signer:latest"
 PROBE="tron-signer-xpub-probe"
 
 # Secrets we can generate ourselves. 32 random bytes covers all of them: the four-eyes tokens and
@@ -52,6 +51,11 @@ GENERATED="TREASURY_POSTGRES_PASSWORD ORCHESTRATOR_POSTGRES_PASSWORD MINT_AUTHOR
 # Nothing else changes. The no-overwrite rule matters more here, not less: replacing a mnemonic
 # orphans every address already handed out, on a network where those addresses hold real money.
 ENV_FILE="${ENV_FILE:-.env}"
+
+# The xpub probe below starts the signer PINNED for this env file's stack, the same build that
+# runs, never `latest`: a newer build is code nobody has deployed yet.
+if [ "$ENV_FILE" = ".env" ]; then PIN_ENV=stage; else PIN_ENV=mainnet; fi
+SIGNER_IMAGE="ghcr.io/clutchprotocol/clutch-tron-signer:$(bash "$(dirname "$0")/set-image.sh" "$PIN_ENV" clutch-tron-signer)"
 
 if [ ! -f "$ENV_FILE" ]; then
   echo "ABORT: no $ENV_FILE here ($(pwd)). Expected the stage deploy checkout."

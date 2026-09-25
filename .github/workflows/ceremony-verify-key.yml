@@ -89,7 +89,8 @@ jobs:
           fi
 
           image=$(docker inspect -f '{{.Config.Image}}' clutch-stage-treasury-1 2>/dev/null || true)
-          [ -n "$image" ] || image="ghcr.io/clutchprotocol/clutch-treasury:latest"
+          # No stage treasury container: fall back to the pinned tag, never `latest`.
+          [ -n "$image" ] || image="ghcr.io/clutchprotocol/clutch-treasury:$(bash scripts/set-image.sh stage clutch-treasury)"
           echo "image: $image"
           docker pull -q "$image" >/dev/null || true
 

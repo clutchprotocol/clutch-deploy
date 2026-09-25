@@ -1,11 +1,16 @@
 # Clutch Protocol - Full Stack Deployment
 # Node + API + Monitoring
 # Uses pre-built images from GHCR / Docker Hub
+#
+# Every image is pinned to an exact tag, never `latest`: a deploy ships what this file says and
+# nothing newer. Clutch images move with scripts/set-image.sh (the deploy workflow calls it for a
+# new build); the monitoring images move by a reviewed edit here. scripts/test-set-image.sh fails
+# any PR that brings `latest` back.
 
 services:
   # Clutch blockchain nodes
   node1:
-    image: ghcr.io/clutchprotocol/clutch-node:latest
+    image: ghcr.io/clutchprotocol/clutch-node:sha-c3e301f
     stop_grace_period: 30s
     # DB_PATH keeps RocksDB on the volume below. Without it the node writes to its working
     # directory — the container's WRITABLE LAYER — and `up -d --force-recreate`, which every
@@ -27,7 +32,7 @@ services:
     restart: unless-stopped
 
   node2:
-    image: ghcr.io/clutchprotocol/clutch-node:latest
+    image: ghcr.io/clutchprotocol/clutch-node:sha-c3e301f
     stop_grace_period: 30s
     # DB_PATH keeps RocksDB on the volume below. Without it the node writes to its working
     # directory — the container's WRITABLE LAYER — and `up -d --force-recreate`, which every
@@ -51,7 +56,7 @@ services:
     restart: unless-stopped
 
   node3:
-    image: ghcr.io/clutchprotocol/clutch-node:latest
+    image: ghcr.io/clutchprotocol/clutch-node:sha-c3e301f
     stop_grace_period: 30s
     # DB_PATH keeps RocksDB on the volume below. Without it the node writes to its working
     # directory — the container's WRITABLE LAYER — and `up -d --force-recreate`, which every
@@ -76,7 +81,7 @@ services:
 
   # Clutch Hub API (bridges apps to node)
   clutch-hub-api:
-    image: ghcr.io/clutchprotocol/clutch-hub-api:latest
+    image: ghcr.io/clutchprotocol/clutch-hub-api:sha-21a26a3
     depends_on:
       - node1
       - seq
@@ -112,7 +117,7 @@ services:
 
   # Prometheus - metrics collection
   prometheus:
-    image: prom/prometheus
+    image: prom/prometheus:v3.15.0
     networks:
       - clutch-network
     ports:
@@ -160,7 +165,7 @@ services:
 
   # Grafana - dashboards 
   grafana:
-    image: grafana/grafana
+    image: grafana/grafana:13.2.2
     depends_on:
       - prometheus
     networks:
@@ -186,7 +191,7 @@ services:
 
   # Seq - structured logging
   seq:
-    image: datalust/seq
+    image: datalust/seq:2026.1.17182
     networks:
       - clutch-network
     ports:
@@ -202,7 +207,7 @@ services:
 
   # Demo app (React + map-based ride request)
   clutch-hub-demo-app:
-    image: ghcr.io/clutchprotocol/clutch-hub-demo-app:latest
+    image: ghcr.io/clutchprotocol/clutch-hub-demo-app:sha-9b27014
     ports:
       - "5173:80"
     depends_on:
@@ -212,7 +217,7 @@ services:
     restart: unless-stopped
 
   clutch-explorer-backend:
-    image: ghcr.io/clutchprotocol/clutch-explorer-backend:latest
+    image: ghcr.io/clutchprotocol/clutch-explorer-backend:sha-a0f4f0f
     stop_grace_period: 30s
     depends_on:
       - node1
@@ -252,7 +257,7 @@ services:
       - ./config/explorer:/app/config:ro
 
   clutch-explorer-indexer:
-    image: ghcr.io/clutchprotocol/clutch-explorer-backend:latest
+    image: ghcr.io/clutchprotocol/clutch-explorer-backend:sha-a0f4f0f
     stop_grace_period: 30s
     depends_on:
       - node1
@@ -315,7 +320,7 @@ services:
       - clutch-network
 
   clutch-explorer-frontend:
-    image: ghcr.io/clutchprotocol/clutch-explorer-frontend:latest
+    image: ghcr.io/clutchprotocol/clutch-explorer-frontend:sha-a0f4f0f
     ports:
       - "5174:80"
     depends_on:

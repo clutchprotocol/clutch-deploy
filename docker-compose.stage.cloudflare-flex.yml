@@ -47,25 +47,23 @@ services:
   seq:
     ports: !reset []
 
-  # Pre-built image (see clutch-hub-demo-app CI). `docker compose pull` updates stage without --build.
+  # No `image:` on these, on purpose. The pinned tags live in docker-compose.yml, and an image set
+  # here would silently win the merge and undo the pin. scripts/test-set-image.sh refuses a PR
+  # that adds one back.
   clutch-hub-demo-app:
     ports: !reset []
-    image: ghcr.io/clutchprotocol/clutch-hub-demo-app:latest
 
   clutch-explorer-backend:
     ports: !reset []
-    image: ghcr.io/clutchprotocol/clutch-explorer-backend:latest
     environment:
       - APP_DEVELOPER_MODE=true
       - APP_CLEANUP_ON_START=true
 
   clutch-explorer-frontend:
     ports: !reset []
-    image: ghcr.io/clutchprotocol/clutch-explorer-frontend:latest
 
   clutch-explorer-indexer:
     ports: !reset []
-    image: ghcr.io/clutchprotocol/clutch-explorer-backend:latest
     environment:
       - APP_DEVELOPER_MODE=true
       - APP_CLEANUP_ON_START=true
