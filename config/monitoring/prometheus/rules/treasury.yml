@@ -115,8 +115,9 @@ groups:
         annotations:
           summary: "A burned redemption has not been paid for over two hours"
           description: >-
-            Its CLT is burned and its USDT not yet sent: a dry float, a cap, a payout the treasury
-            could not confirm, or the GasFree float not yet activated. Read the P1 alerts and the
+            Its CLT is burned and its USDT not yet sent: a dry float, a cap, the breaker set (a
+            mismatch, a person, or the GasFree tripwire), a payout the treasury could not confirm, or
+            the GasFree float not yet activated. Read the P1 alerts and the
             treasury probe. Never return a GasFree payout to payout_pending before the time its page
             names.
 

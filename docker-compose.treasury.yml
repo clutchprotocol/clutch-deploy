@@ -204,9 +204,9 @@ services:
       # The SAME .env names feed treasury-service, payment-orchestrator and tron-signer, so the three
       # cannot read different values. check-monitoring-config.yml asserts each service maps them, and
       # check-cap-invariants.sh, run before every stage deploy, asserts the set is complete. Once any
-      # user has a GasFree address, keep these set for as long as that address exists, even with
-      # TRANSFER_RAIL=trx: without them this service refuses deposits there, and the orchestrator will
-      # not show the address.
+      # user has a GasFree address, keep these set for as long as that address exists or the GasFree
+      # float holds USDT, even with TRANSFER_RAIL=trx: without them this service refuses deposits
+      # there, the orchestrator will not show the address, and the reserve stops counting the float.
       - APP_TRANSFER_RAIL=${TRANSFER_RAIL:-trx}
       - APP_GASFREE_NETWORK=${GASFREE_NETWORK:-}
       - APP_GASFREE_ACTIVATE_FEE_MAX_USDT=${GASFREE_ACTIVATE_FEE_MAX_USDT:-}
