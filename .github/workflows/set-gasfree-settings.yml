@@ -1,0 +1,78 @@
+# Write the GasFree rail's settings into stage's .env: step 2.2 of the rollout (clutch-treasury's
+# docs/superpowers/plans/2026-09-25-gasfree-rollout.md, Task 10).
+#
+# Only the settings that are not secrets, with .env.example's Nile values. The relay's key and secret
+# are put in .env by hand, and this refuses to run without them. It restarts nothing: "Deploy stage
+# (VPS)" applies the values, and runs check-cap-invariants.sh first — as this does at the end.
+#
+# It changes what the treasury does with new deposits, so it is manual and attributed, like
+# set-mint-caps. It takes no values: the only choice is the network, and only the testnet's exist.
+
+name: Set GasFree settings (stage)
+
+on:
+  workflow_dispatch:
+    inputs:
+      network:
+        description: "Whose values to write. Only the testnet's (nile) are decided."
+        type: choice
+        default: nile
+        options:
+          - nile
+      reason:
+        description: "Why the GasFree settings are being written now. Recorded in this log and nowhere else."
+        required: true
+      confirm:
+        description: 'Type "gasfree" to confirm writing to the stage host'
+        required: true
+        default: ""
+
+concurrency:
+  group: set-gasfree-settings
+  cancel-in-progress: false
+
+jobs:
+  set:
+    runs-on: ubuntu-latest
+    steps:
+      # Through env, never interpolated into the script body.
+      - name: Check the confirmation
+        env:
+          CONFIRM: ${{ inputs.confirm }}
+        run: |
+          if [ "$CONFIRM" != "gasfree" ]; then
+            echo "Refusing: confirm was '$CONFIRM', expected 'gasfree'."
+            exit 1
+          fi
+
+      - name: Record who and why
+        env:
+          ACTOR: ${{ github.actor }}
+          REASON: ${{ inputs.reason }}
+        run: |
+          echo "dispatched by $ACTOR"
+          echo "reason: $REASON"
+
+      - name: Apply via SSH
+        env:
+          SSHPASS: ${{ secrets.STAGE_SSH_PASSWORD }}
+          CLUTCH_SSH_HOST: ${{ secrets.STAGE_HOST }}
+          CLUTCH_SSH_USER: ${{ secrets.STAGE_USER }}
+          NETWORK: ${{ inputs.network }}
+        run: |
+          # The same transport as set-mint-caps.yml: plain ssh, the script travels as a file, and the
+          # input reaches the host as a file of shell-quoted assignments, never as part of a command.
+          set -euo pipefail
+          command -v sshpass >/dev/null || { sudo apt-get update -qq && sudo apt-get install -y -qq sshpass; }
+          R="/tmp/clutch-ci-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
+          SSH_OPTS="-o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o ConnectTimeout=30 -o ServerAliveInterval=30"
+          printf 'NETWORK=%q\n' "$NETWORK" > "$RUNNER_TEMP/clutch-env.sh"
+          sshpass -e ssh $SSH_OPTS "$CLUTCH_SSH_USER@$CLUTCH_SSH_HOST" "cat > $R.env" < "$RUNNER_TEMP/clutch-env.sh"
+          cat > "$RUNNER_TEMP/clutch-remote.sh" <<'CLUTCH_REMOTE_EOF'
+          set -euo pipefail
+          cd "${{ secrets.STAGE_DEPLOY_PATH }}"
+          git pull --ff-only origin main
+          bash scripts/set-gasfree-settings.sh
+          CLUTCH_REMOTE_EOF
+          sshpass -e ssh $SSH_OPTS "$CLUTCH_SSH_USER@$CLUTCH_SSH_HOST" "cat > $R.sh" < "$RUNNER_TEMP/clutch-remote.sh"
+          timeout 10m sshpass -e ssh $SSH_OPTS "$CLUTCH_SSH_USER@$CLUTCH_SSH_HOST" "find /tmp -maxdepth 1 -name 'clutch-ci-*' -mtime +1 -delete 2>/dev/null; bash -c 'set -a; . $R.env; set +a; rm -f $R.env; exec bash $R.sh'"
