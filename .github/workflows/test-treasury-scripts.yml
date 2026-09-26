@@ -19,6 +19,9 @@ on:
       - "scripts/provision-treasury-secrets.sh"
       - "scripts/sweep-address.sh"
       - "scripts/deploy-stage.sh"
+      - "scripts/set-gasfree-settings.sh"
+      - "scripts/test-set-gasfree-settings.sh"
+      - ".env.example"
       - ".github/workflows/test-treasury-scripts.yml"
   push:
     branches: [main]
@@ -33,6 +36,9 @@ on:
       - "scripts/provision-treasury-secrets.sh"
       - "scripts/sweep-address.sh"
       - "scripts/deploy-stage.sh"
+      - "scripts/set-gasfree-settings.sh"
+      - "scripts/test-set-gasfree-settings.sh"
+      - ".env.example"
   workflow_dispatch:
 
 jobs:
@@ -52,9 +58,13 @@ jobs:
           bash -n scripts/provision-treasury-secrets.sh
           bash -n scripts/sweep-address.sh
           bash -n scripts/deploy-stage.sh
+          bash -n scripts/set-gasfree-settings.sh
+          bash -n scripts/test-set-gasfree-settings.sh
       - name: Cap invariants
         run: bash scripts/test-cap-invariants.sh
       - name: GasFree fee check
         run: bash scripts/test-gasfree-fee-check.sh
       - name: Float activation decision
         run: bash scripts/test-activate-float.sh
+      - name: GasFree settings writer
+        run: bash scripts/test-set-gasfree-settings.sh
