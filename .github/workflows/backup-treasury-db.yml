@@ -57,13 +57,18 @@ jobs:
           rc=0
           bash scripts/backup-treasury-db.sh || rc=1
           # The mainnet treasury is backed up once it exists, and a mainnet treasury that exists but
-          # cannot be backed up fails the run. Before its first start there is nothing to dump.
+          # cannot be backed up fails the run. Before its first start there is nothing to dump. A
+          # database container that exists and is stopped cannot be dumped, so it fails the run
+          # here, with the reason, instead of failing inside pg_dump every night.
           . scripts/lib/chain.sh
           chain_select mainnet
-          if docker inspect "$CH_TREASURY_PG" >/dev/null 2>&1; then
-            CHAIN=mainnet bash scripts/backup-treasury-db.sh || rc=1
-          else
+          if ! docker inspect "$CH_TREASURY_PG" >/dev/null 2>&1; then
             echo "mainnet treasury: no containers yet, nothing to back up"
+          elif [ "$(docker inspect -f '{{.State.Running}}' "$CH_TREASURY_PG" 2>/dev/null)" != true ]; then
+            echo "mainnet treasury: $CH_TREASURY_PG exists but is not running: NOT backed up"
+            rc=1
+          else
+            CHAIN=mainnet bash scripts/backup-treasury-db.sh || rc=1
           fi
           exit "$rc"
           CLUTCH_REMOTE_EOF

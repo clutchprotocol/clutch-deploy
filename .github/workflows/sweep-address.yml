@@ -15,6 +15,10 @@
 # This does NOT credit anyone CLT. Sweeping restores custody and the reserve; paying a depositor what
 # a failed mint owed them is a separate correction through mint-intent-create.yml, and that one can
 # only pass the reserve check after the sweep has landed.
+#
+# Stage only: a mainnet address would be printed into the public run log before anything could refuse it.
+# The address is an input of the run and the step "Record who and why" prints it. scripts/sweep-address.sh
+# also refuses CHAIN=mainnet, as a second guard.
 
 name: Sweep one deposit address (stage)
 
@@ -27,15 +31,8 @@ on:
       reason:
         description: "Why this address is being swept by hand. Recorded in this log and nowhere else."
         required: true
-      chain:
-        description: "Which treasury"
-        type: choice
-        default: stage
-        options:
-          - stage
-          - mainnet
       confirm:
-        description: 'Type "sweep" to confirm moving money (type "sweep mainnet" for the mainnet treasury)'
+        description: 'Type "sweep" to confirm moving money'
         required: true
         default: ""
 
@@ -50,12 +47,10 @@ jobs:
       - name: Check the confirmation
         env:
           CONFIRM: ${{ inputs.confirm }}
-          CHAIN: ${{ inputs.chain }}
         run: |
           want="sweep"
-          [ "$CHAIN" = "mainnet" ] && want="sweep mainnet"
           if [ "$CONFIRM" != "$want" ]; then
-            echo "::error::confirm must be exactly '$want' for $CHAIN — got '$CONFIRM'"
+            echo "::error::confirm must be exactly 'sweep' — got '$CONFIRM'"
             exit 1
           fi
 
@@ -77,7 +72,6 @@ jobs:
           CLUTCH_SSH_HOST: ${{ secrets.STAGE_HOST }}
           CLUTCH_SSH_USER: ${{ secrets.STAGE_USER }}
           ADDRESS: ${{ inputs.address }}
-          CHAIN: ${{ inputs.chain }}
         run: |
           # Plain ssh, not appleboy/ssh-action. That action downloads a drone-ssh binary from
           # GitHub releases on EVERY run -- unconditionally, there is no skip-if-present -- and on
@@ -97,7 +91,7 @@ jobs:
           # input gave us, kept deliberately: a workflow input must not be able to become part of
           # the command that runs. The file is deleted on the host the moment it has been read.
           : > "$RUNNER_TEMP/clutch-env.sh"
-          for v in ADDRESS CHAIN; do printf '%s=%q\n' "$v" "${!v-}" >> "$RUNNER_TEMP/clutch-env.sh"; done
+          for v in ADDRESS; do printf '%s=%q\n' "$v" "${!v-}" >> "$RUNNER_TEMP/clutch-env.sh"; done
           sshpass -e ssh $SSH_OPTS "$CLUTCH_SSH_USER@$CLUTCH_SSH_HOST" "cat > $R.env" < "$RUNNER_TEMP/clutch-env.sh"
           cat > "$RUNNER_TEMP/clutch-remote.sh" <<'CLUTCH_REMOTE_EOF'
           set -euo pipefail

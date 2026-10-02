@@ -14,8 +14,12 @@ on:
         required: true
         default: ""
 
+# One shared group for the four workflows that write or read .env / .env.mainnet
+# (provision-treasury-secrets, set-gasfree-settings, set-mint-caps, mainnet-treasury-up), so they
+# queue and never run together. GitHub keeps one waiting run per group: start the next one after
+# the one before it has finished.
 concurrency:
-  group: mainnet-treasury-up
+  group: env-file-writers
   cancel-in-progress: false
 
 jobs:

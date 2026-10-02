@@ -46,7 +46,10 @@ env_get() {
 # The environment wins over .env, so a rehearsal can inject an ephemeral passphrase
 # without writing a secret to the host. Real backups still take theirs from .env.
 BACKUP_PASSPHRASE="${BACKUP_PASSPHRASE:-$(env_get BACKUP_PASSPHRASE)}"
-BACKUP_REMOTE="${BACKUP_REMOTE:-$(env_get BACKUP_REMOTE)}"
+# `-` and not `:-`, on purpose. The restore rehearsal (rehearse-restore.yml) passes BACKUP_REMOTE=""
+# to mean "no upload". `:-` reads an empty value as unset and takes the real remote from the env
+# file, so the rehearsal would upload its dumps there.
+BACKUP_REMOTE="${BACKUP_REMOTE-$(env_get BACKUP_REMOTE)}"
 RETAIN="${BACKUP_RETAIN:-$(env_get BACKUP_RETAIN)}"
 RETAIN="${RETAIN:-14}"
 TREASURY_PASSWORD="$(env_get TREASURY_POSTGRES_PASSWORD)"
@@ -93,10 +96,14 @@ dump_one() {
   #
   # pipefail is set, so a pg_dump failure fails the script rather than leaving a valid encryption
   # of a truncated dump — which would look exactly like a good backup.
+  #
+  # The redirect creates $out before pg_dump runs, so a failed dump leaves a small file behind. The
+  # retention below counts files and would, after enough failed nights, prune the good dumps in
+  # favour of those. So a failure removes the partial file before it stops.
   echo "  dumping $db from $container"
   docker exec -e "PGPASSWORD=$password" -i "$container" pg_dump -U "$user" -d "$db" -Fc \
     | openssl enc -aes-256-cbc -pbkdf2 -iter 600000 -salt -pass env:BACKUP_PASSPHRASE \
-    > "$out"
+    > "$out" || { rm -f "$out"; echo "ABORT: dumping $db from $container failed; the partial file was removed."; exit 1; }
   chmod 600 "$out"
 
   # An empty or trivially small output means the dump failed in a way the exit code missed.

@@ -82,13 +82,14 @@ compose_unselected() {
     chain_compose up -d x 2>/dev/null || echo refused
   )
 }
-# What CH_NAME holds after a good chain_select and then a refused one.
+# What all twelve CH_* names hold after a good chain_select and then a refused one: they are printed
+# one after the other, so any name that was left behind shows between the brackets.
 name_after_refusal() {
   (
     . scripts/lib/chain.sh
     chain_select mainnet >/dev/null
     chain_select testnet 2>/dev/null || true
-    echo "[${CH_NAME:-}]"
+    echo "[${CH_NAME:-}${CH_ENV_FILE:-}${CH_PROJECT:-}${CH_SVC_TREASURY:-}${CH_SVC_SIGNER:-}${CH_SVC_ORCH:-}${CH_TREASURY:-}${CH_SIGNER:-}${CH_ORCH:-}${CH_TREASURY_PG:-}${CH_ORCH_PG:-}${CH_BACKUP_DIR:-}]"
   )
 }
 # The files after -f in the compose arguments that are not in the repository root (the working directory).

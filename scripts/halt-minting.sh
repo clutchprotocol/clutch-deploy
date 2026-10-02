@@ -85,7 +85,7 @@ if [ "$NOW" = "t" ]; then
   echo "minting is halted. Deposits are still credited and the reserve total is still correct;"
   echo "no new CLT is being issued."
   echo ""
-  echo "To clear it: Actions -> Resume minting (stage). That refuses while the latest"
+  echo "To clear it: Actions -> Resume minting, and choose chain $CH_NAME. That refuses while the latest"
   echo "reconciliation is still a mismatch, which is deliberate — see docs/ON-CALL.md."
   exit 0
 fi

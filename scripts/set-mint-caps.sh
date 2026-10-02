@@ -36,6 +36,24 @@ if [ ! -f "$E" ]; then
   exit 1
 fi
 
+# Mainnet only: two more refusals, before anything is copied or written. The log of the workflow that
+# runs this is public, so nothing printed below may quote a line of $E.
+#   - $CH_TREASURY must be running. Without it, the restart below would start that one service alone,
+#     with no database behind it.
+#   - $E must be plain NAME=value lines (pf_lint). docker compose quotes a line it cannot read into
+#     its error message, and a stray line of this file can be a secret.
+if [ "$CH_NAME" = mainnet ]; then
+  . "$(dirname "$0")/lib/mainnet-preflight.sh"
+  if ! docker ps --format '{{.Names}}' | grep -qx "$CH_TREASURY"; then
+    echo "ABORT: $CH_TREASURY is not running. Start the mainnet treasury first (Mainnet — start the treasury)."
+    exit 1
+  fi
+  if ! pf_lint "$E"; then
+    echo "ABORT: $E is not well-formed (see above). Nothing was changed."
+    exit 1
+  fi
+fi
+
 # One backup, overwritten each run. Every copy holds DEPOSIT_MNEMONIC, so the timestamped naming
 # this replaces left one more plaintext copy of it on the host per run. Copy before deleting; the
 # glob requires a character after `.bak.`, so it cannot match .env.bak itself.
@@ -54,7 +72,13 @@ set_var() {
 }
 
 echo "=== before ==="
-grep -E '^(PER_TX|DAILY)_MINT_CAP_CLT=' "$E" | sed 's/^/    /' || echo "    (unset — compose defaults: 50000000 / 500000000)"
+# The stage compose file has defaults for the caps. The mainnet one requires them and has none.
+if [ "$CH_NAME" = mainnet ]; then
+  UNSET_NOTE="the mainnet compose file has no default for the mint caps"
+else
+  UNSET_NOTE="compose defaults: 50000000 / 500000000"
+fi
+grep -E '^(PER_TX|DAILY)_MINT_CAP_CLT=' "$E" | sed 's/^/    /' || echo "    (unset — $UNSET_NOTE)"
 
 set_var PER_TX_MINT_CAP_CLT "$PER_TX"
 set_var DAILY_MINT_CAP_CLT "$DAILY"
@@ -68,7 +92,16 @@ grep -E '^(PER_TX|DAILY)_MINT_CAP_CLT=' "$E" | sed 's/^/    /'
 # consumes these, and recreating the whole stack restarts nodes for no reason.
 echo ""
 echo "=== restarting $CH_SVC_TREASURY ==="
-chain_compose up -d --force-recreate --no-deps "$CH_SVC_TREASURY" 2>&1 | tail -5
+if [ "$CH_NAME" = mainnet ]; then
+  # All of compose's output is dropped on mainnet: its error text quotes the line of $E it cannot
+  # read, and this log is public. A failure prints the command to run on the host instead.
+  if ! chain_compose up -d --force-recreate --no-deps "$CH_SVC_TREASURY" >/dev/null 2>&1; then
+    echo "ABORT: recreating $CH_SVC_TREASURY failed. The output is not printed, because the log is public. Run on the host: docker compose -p $CH_PROJECT --env-file $CH_ENV_FILE -f docker-compose.mainnet.treasury.yml up -d --force-recreate --no-deps $CH_SVC_TREASURY"
+    exit 1
+  fi
+else
+  chain_compose up -d --force-recreate --no-deps "$CH_SVC_TREASURY" 2>&1 | tail -5
+fi
 
 echo ""
 echo "=== what the container now sees ==="
@@ -81,6 +114,12 @@ for i in $(seq 1 20); do
     if [ "$v" = "$PER_TX" ] && [ "$d" = "$DAILY" ]; then
       echo ""
       echo "caps applied."
+      # Only this one service was recreated, so only it read the whole file again. A setting other
+      # than the two caps that changed in $E since the last start is still the old value in the
+      # other two services.
+      if [ "$CH_NAME" = mainnet ]; then
+        echo "only $CH_SVC_TREASURY was restarted. If you also changed other settings in $E, run \"Mainnet — start the treasury\" so that every service reads them."
+      fi
       # Re-check the WHOLE limit set, not just the two values written. These caps are not
       # independent: the redemption bounds live in two services that do not derive from each
       # other, and the fee has to stay under the minimum. Changing one number can break a

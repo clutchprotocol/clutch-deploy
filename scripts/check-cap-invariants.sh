@@ -30,6 +30,13 @@ if [ -n "${ENV_FILE:-}" ] && [ ! -f "$ENV_FILE" ]; then
   echo "ABORT: ENV_FILE is '$ENV_FILE', but there is no such file. A path is relative to the repository root." >&2
   exit 1
 fi
+# A file this user cannot read is refused too: val() below reads it with `|| true`, so an unreadable
+# file would look like a file with no values, and the compose defaults would pass in its place.
+# Not tested: CI runs as root, and root can read any file, so a test cannot show this refusal.
+if [ -n "${ENV_FILE:-}" ] && [ ! -r "$ENV_FILE" ]; then
+  echo "ABORT: ENV_FILE is '$ENV_FILE', but it is not readable by this user." >&2
+  exit 1
+fi
 ENV_FILE="${ENV_FILE:-.env}"
 
 fail=0

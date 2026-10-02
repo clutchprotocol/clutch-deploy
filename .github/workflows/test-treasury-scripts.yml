@@ -3,6 +3,9 @@
 # check-cap-invariants.sh gates every stage deploy (deploy-stage.sh): a bug in it either lets a
 # broken limit through or stops every deploy. No secrets, no host access, no docker — copies of the
 # scripts, fixtures, and a temp directory. Same shape as test-nginx-block.yml.
+#
+# Any edit of a workflow file runs it too (the glob in `paths`), and the last step parses every
+# workflow file, so a YAML mistake shows here and not only when the workflow is first dispatched.
 
 name: Test treasury scripts
 
@@ -16,6 +19,7 @@ on:
       - "scripts/inspect-stage.sh"
       - "scripts/activate-float.sh"
       - "scripts/test-activate-float.sh"
+      - "scripts/fund-float.sh"
       - "scripts/provision-treasury-secrets.sh"
       - "scripts/sweep-address.sh"
       - "scripts/deploy-stage.sh"
@@ -35,6 +39,8 @@ on:
       - "scripts/mainnet-treasury-up.sh"
       - "docker-compose.treasury.yml"
       - "docker-compose.mainnet.treasury.yml"
+      - "docker-compose.stage.cloudflare-flex.yml"
+      - "docker-compose.stage.treasury.yml"
       - ".env.example"
       - ".env.mainnet.example"
       - ".github/workflows/halt-minting.yml"
@@ -44,6 +50,7 @@ on:
       - ".github/workflows/sweep-address.yml"
       - ".github/workflows/backup-treasury-db.yml"
       - ".github/workflows/mainnet-treasury-up.yml"
+      - ".github/workflows/*.yml"
       - ".github/workflows/test-treasury-scripts.yml"
   push:
     branches: [main]
@@ -55,6 +62,7 @@ on:
       - "scripts/inspect-stage.sh"
       - "scripts/activate-float.sh"
       - "scripts/test-activate-float.sh"
+      - "scripts/fund-float.sh"
       - "scripts/provision-treasury-secrets.sh"
       - "scripts/sweep-address.sh"
       - "scripts/deploy-stage.sh"
@@ -74,6 +82,8 @@ on:
       - "scripts/mainnet-treasury-up.sh"
       - "docker-compose.treasury.yml"
       - "docker-compose.mainnet.treasury.yml"
+      - "docker-compose.stage.cloudflare-flex.yml"
+      - "docker-compose.stage.treasury.yml"
       - ".env.example"
       - ".env.mainnet.example"
       - ".github/workflows/halt-minting.yml"
@@ -83,6 +93,7 @@ on:
       - ".github/workflows/sweep-address.yml"
       - ".github/workflows/backup-treasury-db.yml"
       - ".github/workflows/mainnet-treasury-up.yml"
+      - ".github/workflows/*.yml"
   workflow_dispatch:
 
 jobs:
@@ -99,6 +110,7 @@ jobs:
           bash -n scripts/inspect-stage.sh
           bash -n scripts/activate-float.sh
           bash -n scripts/test-activate-float.sh
+          bash -n scripts/fund-float.sh
           bash -n scripts/provision-treasury-secrets.sh
           bash -n scripts/sweep-address.sh
           bash -n scripts/deploy-stage.sh
@@ -140,3 +152,9 @@ jobs:
       - name: Mainnet preflight
         if: ${{ !cancelled() }}
         run: bash scripts/test-mainnet-preflight.sh
+      # A YAML mistake in a workflow file is otherwise found only after the merge, when the workflow
+      # is dispatched. A block scalar, because a plain one would end at the " #" inside the ruby code.
+      - name: Workflow files parse
+        if: ${{ !cancelled() }}
+        run: |
+          ruby -ryaml -e 'ARGV.each { |f| YAML.load_file(f); puts "ok    #{f}" }' .github/workflows/*.yml

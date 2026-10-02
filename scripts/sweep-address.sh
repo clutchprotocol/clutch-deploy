@@ -29,6 +29,12 @@ esac
 
 . "$(dirname "$0")/lib/chain.sh"
 chain_select "${CHAIN:-stage}" || exit 1
+# Stage only. The workflow that runs this has no chain choice, and this is the second guard: the
+# psql output below prints the address and every mint intent of it, and that log is public.
+if [ "$CH_NAME" = mainnet ]; then
+  echo "ABORT: sweeping a mainnet deposit address would print the address and its mint intents into a public log. No mainnet deposit address exists yet; make that log safe first."
+  exit 1
+fi
 PG=$CH_TREASURY_PG
 SIGNER=$CH_SIGNER
 echo "treasury: $CH_NAME"

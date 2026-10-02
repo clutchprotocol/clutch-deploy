@@ -16,11 +16,11 @@ on:
   workflow_dispatch:
     inputs:
       per_tx:
-        description: "Per-transaction cap in micro-dollars (pilot default: 50000000 = $50)"
+        description: "Per-transaction mint cap in micro-CLT (stage pilot default 50000000; mainnet launch value 1000000000)"
         required: true
         default: "50000000"
       daily:
-        description: "Daily cap in micro-dollars (pilot default: 500000000 = $500)"
+        description: "Daily mint cap in micro-CLT (stage pilot default 500000000; mainnet launch value 2000000000)"
         required: true
         default: "500000000"
       reason:
@@ -38,8 +38,12 @@ on:
         required: true
         default: ""
 
+# One shared group for the four workflows that write or read .env / .env.mainnet
+# (provision-treasury-secrets, set-gasfree-settings, set-mint-caps, mainnet-treasury-up), so they
+# queue and never run together. GitHub keeps one waiting run per group: start the next one after
+# the one before it has finished.
 concurrency:
-  group: mint-caps
+  group: env-file-writers
   cancel-in-progress: false
 
 jobs:

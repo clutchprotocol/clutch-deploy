@@ -325,8 +325,7 @@ fi
 
 chmod 600 "$ENV_FILE"
 echo ""
-echo "=== public material (safe to copy) ==="
-echo "    account_xpub = $XPUB"
+echo "=== public material (the account xpub is not printed: this log is public; it is in the env file and on the signer's /internal/xpub) ==="
 echo "    fee_address  = $FEE"
 echo "    payout_float = $FLOAT"
 echo ""
