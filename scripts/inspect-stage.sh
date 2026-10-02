@@ -2,7 +2,7 @@
 #
 # Read-only inspection of the stage VPS. Run ON the host, from the clutch-deploy checkout.
 #
-#   PROBE=nginx|containers|git|treasury|sweeper|chain|metrics|bitcart|energy bash scripts/inspect-stage.sh
+#   PROBE=nginx|containers|git|treasury|sweeper|chain|metrics|bitcart|energy|mainnet-treasury bash scripts/inspect-stage.sh
 #
 # VHOST=<name> with PROBE=nginx also dumps that vhost's whole server block. Only
 # *.clutchprotocol.io is allowed: this log is public and the same file serves v2ray's vhosts.
@@ -988,7 +988,7 @@ if [ "$PROBE" = "metrics" ]; then
   # "unreachable" on its own pipeline quirk while the target list says the target is up.
   # The same expressions the Grafana Treasury row uses, so this probe and the dashboard cannot
   # drift into disagreeing about what the numbers are.
-  for q in clutch_treasury_up clutch_treasury_minting_halted            'clutch_treasury_clt_liability / 1000000'            'clutch_treasury_custody_usdt / 1000000'            '100 * clutch_treasury_custody_usdt / clamp_min(clutch_treasury_clt_liability, 1)'            'clutch_treasury_mint_intents{status="credited"}'            'sum(clutch_treasury_mint_intents{status="needs_manual"}) + sum(clutch_orchestrator_deposit_intents{status="needs_manual"})'            clutch_treasury_unswept_deposit_addresses            'clutch_treasury_reconciliation_status{status="ok"}'            clutch_treasury_reconciliation_age_seconds            'sum(increase(clutch_treasury_alerts_total{severity="p1"}[24h])) + sum(increase(clutch_orchestrator_alerts_total{severity="p1"}[24h]))'            clutch_orchestrator_up            clutch_orchestrator_addresses_never_polled            clutch_treasury_chain_cursor_height            'max(latest_block_index{chain="testnet",role="validator"})' 'max(latest_block_index{chain="mainnet",role="validator"})'            'clutch_treasury_chain_cursor_height - scalar(max(latest_block_index{chain="testnet",role="validator"}))'            'max(delta(latest_block_index{chain="testnet",role="validator"}[5m]))' 'max(delta(latest_block_index{chain="mainnet",role="validator"}[5m]))'            'max(latest_block_index{chain="testnet",role="validator"}) - min(latest_block_index{chain="testnet",role="validator"})' 'max(latest_block_index{chain="mainnet",role="validator"}) - min(latest_block_index{chain="mainnet",role="validator"})'            'count(latest_block{chain="testnet",role="validator"})' 'count(latest_block{chain="mainnet",role="validator"})'            'count(up{chain="testnet",role="validator"} == 0) or vector(0)' 'count(up{chain="mainnet",role="validator"} == 0) or vector(0)' 'count(up{role="hub"} == 1) or vector(0)'; do
+  for q in clutch_treasury_up clutch_treasury_minting_halted            'clutch_treasury_clt_liability / 1000000'            'clutch_treasury_custody_usdt / 1000000'            '100 * clutch_treasury_custody_usdt / clamp_min(clutch_treasury_clt_liability, 1)'            'clutch_treasury_mint_intents{status="credited"}'            'sum(clutch_treasury_mint_intents{status="needs_manual"}) + sum(clutch_orchestrator_deposit_intents{status="needs_manual"})'            clutch_treasury_unswept_deposit_addresses            'clutch_treasury_reconciliation_status{status="ok"}'            clutch_treasury_reconciliation_age_seconds            'sum(increase(clutch_treasury_alerts_total{severity="p1"}[24h])) + sum(increase(clutch_orchestrator_alerts_total{severity="p1"}[24h]))'            clutch_orchestrator_up            'min(up{job=~"mainnet-treasury-service|mainnet-payment-orchestrator"})'            clutch_orchestrator_addresses_never_polled            clutch_treasury_chain_cursor_height            'max(latest_block_index{chain="testnet",role="validator"})' 'max(latest_block_index{chain="mainnet",role="validator"})'            'clutch_treasury_chain_cursor_height - scalar(max(latest_block_index{chain="testnet",role="validator"}))'            'max(delta(latest_block_index{chain="testnet",role="validator"}[5m]))' 'max(delta(latest_block_index{chain="mainnet",role="validator"}[5m]))'            'max(latest_block_index{chain="testnet",role="validator"}) - min(latest_block_index{chain="testnet",role="validator"})' 'max(latest_block_index{chain="mainnet",role="validator"}) - min(latest_block_index{chain="mainnet",role="validator"})'            'count(latest_block{chain="testnet",role="validator"})' 'count(latest_block{chain="mainnet",role="validator"})'            'count(up{chain="testnet",role="validator"} == 0) or vector(0)' 'count(up{chain="mainnet",role="validator"} == 0) or vector(0)' 'count(up{role="hub"} == 1) or vector(0)'; do
     # '+' is a SPACE in form-encoded data, so any expression adding two terms arrived at
     # Prometheus mangled and came back empty -- which read as "no such metric" rather than "this
     # probe sent nonsense". Encode it.
@@ -1293,6 +1293,12 @@ if [ "$PROBE" = "gasfree" ]; then
       printf '%s' "$out" | tr '{' '\n' | grep -F "$GFM_USDT" | head -1 \
         | sed -E 's/.*"activateFee" *: *([0-9]+).*"transferFee" *: *([0-9]+).*/\1 \2/' \
         | awk -v tok="$GFM_USDT" '$1 ~ /^[0-9]+$/ && $2 ~ /^[0-9]+$/ { printf "    activateFee %s (%.6f USDT), once per GasFree address\n    transferFee %s (%.6f USDT), every transfer\n", $1, $1/1000000, $2, $2/1000000; ok=1 } END { if (!ok) print "    could not find the fees of " tok " in the reply (not listed, or another format): read the raw table below" }'
+      GFM_ACT=$(sed -n 's/^GASFREE_ACTIVATE_FEE_MAX_USDT=//p' .env.mainnet 2>/dev/null | head -1 | tr -d '\r')
+      GFM_XFER=$(sed -n 's/^GASFREE_TRANSFER_FEE_MAX_USDT=//p' .env.mainnet 2>/dev/null | head -1 | tr -d '\r')
+      if [ -n "$GFM_ACT" ] && [ -n "$GFM_XFER" ]; then
+        echo "--- the live fees against the maxima in .env.mainnet ---"
+        printf '%s' "$out" | bash scripts/gasfree-fee-check.sh "$GFM_USDT" "$GFM_ACT" "$GFM_XFER" | sed 's/^/    /'
+      fi
       echo "--- the fee table, raw ---"
       printf '%s' "$out" | tr '{' '\n' | grep -E 'tokenAddress|activateFee|transferFee|symbol' | sed 's/^/    /' | head -20
       echo "--- providers (raw): GASFREE_SERVICE_PROVIDER must pin one of these addresses ---"
@@ -1342,6 +1348,113 @@ if [ "$PROBE" = "gasfree" ]; then
       echo "    $1 $2 runs $live -- NOT the reviewed value in $src ('${want:-none}'): do not switch GasFree on until someone has read the new code"
     fi
   done
+fi
+
+if [ "$PROBE" = "mainnet-treasury" ]; then
+  # The MAINNET treasury: docker-compose.mainnet.treasury.yml, project clutch-main-treasury. What runs,
+  # what it is set to, what it has done, and whether any service name resolves to two containers.
+  # Read-only. The run log is public: nothing secret, no address of a user and no user identifier is
+  # printed (see Plan 5, Task 5).
+  . scripts/lib/chain.sh
+  chain_select mainnet
+  tq() {  # tq <title> <sql>: one query against the mainnet treasury's database
+    echo "--- $1"
+    docker exec "$CH_TREASURY_PG" psql -U treasury -d treasury -c "$2" 2>&1 | sed 's/^/    /'
+  }
+
+  echo "=== containers ==="
+  docker ps -a --filter "label=com.docker.compose.project=$CH_PROJECT" --format '{{.Names}}  {{.Status}}  {{.Image}}' 2>&1 | sed 's/^/    /'
+  if [ -z "$(docker ps -aq --filter "label=com.docker.compose.project=$CH_PROJECT" 2>/dev/null)" ]; then
+    echo "    (no container: the mainnet treasury has not been started; run \"Mainnet — start the treasury\")"
+  fi
+
+  echo ""
+  echo "=== health, from inside the project's network ==="
+  for pair in "$CH_SVC_TREASURY:8090" "$CH_SVC_SIGNER:8093" "$CH_SVC_ORCH:8091"; do
+    name="${pair%%:*}" port="${pair##*:}"
+    code=$(docker run --rm --network "${CH_PROJECT}_treasury-network" curlimages/curl:8.10.1 \
+             -s -o /dev/null -w '%{http_code}' -m 5 "http://${name}:${port}/health" 2>/dev/null || true)
+    echo "    $name /health -> ${code:-no answer}"
+  done
+
+  echo ""
+  echo "=== published ports (there must be none) and networks (never a stage network) ==="
+  for c in "$CH_TREASURY" "$CH_SIGNER" "$CH_ORCH" "$CH_TREASURY_PG" "$CH_ORCH_PG"; do
+    ports=$(docker port "$c" 2>/dev/null | tr '\n' ' ')
+    nets=$(docker inspect -f '{{range $k, $v := .NetworkSettings.Networks}}{{$k}} {{end}}' "$c" 2>/dev/null)
+    echo "    $c: ports ${ports:-none}; networks ${nets:-<not running>}"
+  done
+
+  echo ""
+  echo "=== does every treasury service name resolve to exactly one address? ==="
+  echo "    (a name that answers with two addresses is two containers behind one name)"
+  dns_count() {  # dns_count <network> <name>
+    docker run --rm --network "$1" busybox:1.36 nslookup "$2" 2>/dev/null \
+      | awk '/^Name:/ {f=1} f && /^Address/ {n++} END {print n+0}'
+  }
+  for pair in "clutch-stage_clutch-network:treasury-service" "clutch-stage_clutch-network:tron-signer" \
+              "clutch-stage_clutch-network:payment-orchestrator" "clutch-stage_clutch-network:$CH_SVC_ORCH" \
+              "clutch-mainnet:$CH_SVC_TREASURY" "clutch-mainnet:$CH_SVC_SIGNER" "clutch-mainnet:$CH_SVC_ORCH"; do
+    net="${pair%%:*}" name="${pair##*:}"
+    echo "    $name on $net: $(dns_count "$net" "$name") address(es)"
+  done
+  echo "    (expected: 1 each, and 0 for $CH_SVC_ORCH on the stage network: it must not be there)"
+
+  echo ""
+  echo "=== settings (non-secret) ==="
+  for pair in "$CH_TREASURY:APP_CHAIN_ID APP_SIGNER_KIND APP_NODE_WS_URL APP_TRONGRID_URL APP_USDT_CONTRACT APP_PER_TX_MINT_CAP_CLT APP_DAILY_MINT_CAP_CLT APP_DAILY_PAYOUT_CAP_CLT APP_REDEMPTION_FEE_USDT APP_RECONCILIATION_INTERVAL_SECS APP_TRANSFER_RAIL APP_GASFREE_NETWORK APP_GASFREE_ACTIVATE_FEE_MAX_USDT APP_GASFREE_TRANSFER_FEE_MAX_USDT APP_MIN_DEPOSIT_USDT" \
+              "$CH_SIGNER:APP_PER_TX_PAYOUT_CAP_USDT APP_PAYOUT_FLOAT_TARGET_USDT APP_TRANSFER_RAIL APP_GASFREE_NETWORK APP_GASFREE_API_URL" \
+              "$CH_ORCH:APP_MAX_REDEMPTION_CLT APP_MIN_REDEMPTION_CLT APP_REDEMPTIONS_ENABLED APP_ALLOWED_ORIGINS APP_TRANSFER_RAIL APP_GASFREE_NETWORK APP_MIN_DEPOSIT_USDT"; do
+    c="${pair%%:*}"
+    echo "--- $c"
+    for k in ${pair#*:}; do
+      v=$(docker exec "$c" printenv "$k" 2>/dev/null || true)
+      if [ -n "$v" ]; then echo "    $k=$v"; else echo "    $k=<empty>"; fi
+    done
+  done
+  echo "--- secrets: presence only"
+  for pair in "$CH_TREASURY:APP_AZURE_CLIENT_SECRET APP_APPROVER_TOKEN APP_MINT_AUTHORITY_SECRET" \
+              "$CH_SIGNER:APP_DEPOSIT_MNEMONIC APP_SIGNER_TOKEN APP_GASFREE_API_KEY APP_GASFREE_API_SECRET" \
+              "$CH_ORCH:APP_JWT_SECRET APP_TREASURY_INITIATOR_TOKEN"; do
+    c="${pair%%:*}"
+    for k in ${pair#*:}; do
+      v=$(docker exec "$c" printenv "$k" 2>/dev/null || true)
+      if [ -n "$v" ]; then echo "    $c $k=<set, ${#v} chars>"; else echo "    $c $k=<empty>"; fi
+    done
+  done
+  echo "    (APP_MINT_AUTHORITY_SECRET must be <empty>: the mint authority is the KMS key)"
+
+  echo ""
+  echo "=== the treasury's own state ==="
+  tq "breaker" "select minting_halted, halt_reason, updated_at from breaker_state;"
+  tq "last reconciliation runs" "select status, ledger_liability, custody_reported, run_at from reconciliation_runs order by run_at desc limit 5;"
+  tq "open alerts (addresses masked, cut to 70 characters; the log is public)" \
+     "select severity, source, left(regexp_replace(message, 'T[1-9A-HJ-NP-Za-km-z]{33}', '<address>', 'g'), 70) as message, created_at from alerts order by created_at desc limit 6;"
+  tq "mint intents by status" "select status, count(*), sum(amount_clt) as clt from mint_intents group by status order by status;"
+  tq "last mint intents (amounts and times only)" \
+     "select left(id::text, 8) as id, status, amount_clt, expected_amount_usdt, swept_at is not null as swept, created_at from mint_intents order by created_at desc limit 8;"
+  tq "redemptions not yet paid" \
+     "select status, count(*), sum(amount_clt) as clt, min(created_at) as oldest from redemption_intents where status in ('burn_confirmed', 'payout_pending', 'payout_submitted') group by status;"
+  tq "last redemptions (amounts and times only)" \
+     "select status, amount_clt, payout_amount_usdt, created_at, updated_at from redemption_intents order by created_at desc limit 5;"
+
+  echo ""
+  echo "=== the GasFree float ==="
+  GFM_F=$(docker exec "$CH_SIGNER" sh -c 'curl -fsS -H "Authorization: Bearer $APP_SIGNER_TOKEN" http://localhost:8093/internal/xpub' 2>/dev/null \
+            | sed -n 's/.*"payout_gasfree_address"[ ]*:[ ]*"\([^"]*\)".*/\1/p')
+  if [ -z "$GFM_F" ]; then
+    echo "    the signer names no GasFree float: GasFree is off in tron-signer, or it is not running"
+  else
+    GFM_TG=$(sed -n 's/^TRONGRID_URL=//p' .env.mainnet 2>/dev/null | head -1 | tr -d '\r')
+    [ -n "$GFM_TG" ] || GFM_TG=https://api.trongrid.io
+    GFM_C=$(curl -fsS --max-time 20 -X POST "$GFM_TG/wallet/getcontract" -H 'Content-Type: application/json' \
+              -d "{\"value\":\"$GFM_F\",\"visible\":true}" 2>/dev/null || true)
+    case "$GFM_C" in
+      *'"contract_address"'*) echo "    the GasFree float is activated" ;;
+      '{}')                   echo "    the GasFree float is NOT activated: redemptions answer 'not available yet' until activate-float.yml runs (CHAIN=mainnet)" ;;
+      *)                      echo "    the GasFree float's activation could not be read" ;;
+    esac
+  fi
 fi
 
 # Always succeed. This is a read-only probe whose OUTPUT is the deliverable — a trailing non-zero
