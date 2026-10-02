@@ -30,6 +30,9 @@ on:
       - "scripts/resume-minting.sh"
       - "scripts/set-mint-caps.sh"
       - "scripts/backup-treasury-db.sh"
+      - "scripts/lib/mainnet-preflight.sh"
+      - "scripts/test-mainnet-preflight.sh"
+      - "scripts/mainnet-treasury-up.sh"
       - "docker-compose.treasury.yml"
       - "docker-compose.mainnet.treasury.yml"
       - ".env.example"
@@ -39,6 +42,7 @@ on:
       - ".github/workflows/activate-float.yml"
       - ".github/workflows/sweep-address.yml"
       - ".github/workflows/backup-treasury-db.yml"
+      - ".github/workflows/mainnet-treasury-up.yml"
       - ".github/workflows/test-treasury-scripts.yml"
   push:
     branches: [main]
@@ -64,6 +68,9 @@ on:
       - "scripts/resume-minting.sh"
       - "scripts/set-mint-caps.sh"
       - "scripts/backup-treasury-db.sh"
+      - "scripts/lib/mainnet-preflight.sh"
+      - "scripts/test-mainnet-preflight.sh"
+      - "scripts/mainnet-treasury-up.sh"
       - "docker-compose.treasury.yml"
       - "docker-compose.mainnet.treasury.yml"
       - ".env.example"
@@ -73,6 +80,7 @@ on:
       - ".github/workflows/activate-float.yml"
       - ".github/workflows/sweep-address.yml"
       - ".github/workflows/backup-treasury-db.yml"
+      - ".github/workflows/mainnet-treasury-up.yml"
   workflow_dispatch:
 
 jobs:
@@ -103,6 +111,9 @@ jobs:
           bash -n scripts/resume-minting.sh
           bash -n scripts/set-mint-caps.sh
           bash -n scripts/backup-treasury-db.sh
+          bash -n scripts/lib/mainnet-preflight.sh
+          bash -n scripts/test-mainnet-preflight.sh
+          bash -n scripts/mainnet-treasury-up.sh
       - name: Cap invariants
         if: ${{ !cancelled() }}
         run: bash scripts/test-cap-invariants.sh
@@ -124,3 +135,6 @@ jobs:
       - name: Chain-aware tools
         if: ${{ !cancelled() }}
         run: bash scripts/test-chain-names.sh
+      - name: Mainnet preflight
+        if: ${{ !cancelled() }}
+        run: bash scripts/test-mainnet-preflight.sh
