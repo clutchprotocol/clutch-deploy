@@ -35,6 +35,8 @@ That one probe answers most questions: service settings, reserve numbers, what i
 human, and the TRX fee account's balance. Then `metrics` for what Prometheus holds and whether its
 rules are loaded, `chain` for node heights, `containers` for what is actually running.
 
+If the alert says `chain: mainnet`, use probe `mainnet-treasury` and read "The mainnet treasury" below.
+
 Read heights from the `chain` probe and nothing else. Grepping node logs returns the block numbers a
 node is *serving* to a syncing peer, which once looked like a node falling from 117,573 to 17,463
 while it was feeding another. The JSON-RPC ports speak WebSocket only, so curling them returns
@@ -108,21 +110,27 @@ example `halt`) is refused.
 | See everything | `Inspect stage (read-only)`, probe `mainnet-treasury` | It shows the containers, their ports and networks, and whether each service name has one address. It shows the settings, the breaker, reconciliation runs, alerts, mint intents, redemptions and the GasFree float. The run log is public, so it prints no address of a user. |
 | Halt minting | `Halt minting (stage, sets the breaker)`, chain `mainnet`, type `halt mainnet` | It sets the breaker of the mainnet treasury only. Rules 1 and 2 at the top of this page apply as before. |
 | Resume | `Resume minting (stage, clears the breaker)`, chain `mainnet`, type `resume mainnet` | It refuses while the latest reconciliation run is a mismatch. It also refuses when there is no run yet. |
-| Change the mint caps | `Set mint caps (stage)`, chain `mainnet`, type `set mainnet` | It refuses unless `clutch-main-treasury-mainnet-treasury-service-1` is running. It checks the form of `.env.mainnet` first. It restarts only `mainnet-treasury-service`. If you changed other settings in `.env.mainnet`, run `Mainnet — start the treasury` so that the other services read them. It prints no output of `docker compose`, because the run log is public. Afterwards it runs `check-cap-invariants.sh` on `.env.mainnet`. |
-| Write the GasFree settings and the decided limits | `Set GasFree settings (stage)`, network `mainnet`, type `gasfree mainnet` | It writes 17 values into `.env.mainnet`: the GasFree settings and the decided limits. Before you run it, put `GASFREE_API_KEY` and `GASFREE_API_SECRET` into `.env.mainnet` by hand, as plain `NAME=value` lines. It refuses if one is missing, blank or in quote marks. Until it has run, the start refuses a key without the network. That is on purpose. It restarts nothing. **Order:** run it, then `Mainnet — start the treasury`, so that all three services read the new values. Run `Set mint caps` only after that. **Running it again writes the decided limits again.** The lower mint caps of a pilot go back to the values of readiness item B4, so run `Set mint caps` again after it. |
-| Activate the GasFree float | `Activate the GasFree payout float (stage)`, chain `mainnet`, type `activate mainnet` | It moves money. It needs two things. **1.** The GasFree float must hold at least the smallest transfer plus 4.00 USDT, the two fee maxima together. If it holds less, the signer answers `float_dry` and nothing is signed. USDT sent to the custody address does not fill the float. The float fills from the sweep of a real deposit, or from USDT sent to the float's GasFree address. **2.** The reserve must be at least 4.00 USDT more than the liabilities (CLT in circulation, and what unpaid redemptions are owed). The script checks this and refuses if it is not true. It runs a fresh reconciliation first. |
+| Change the mint caps | `Set mint caps (stage)`, chain `mainnet`, type `set mainnet` | It refuses unless `clutch-main-treasury-mainnet-treasury-service-1` is running. It first checks that `.env.mainnet` has only blank lines, `#` comments and plain `NAME=value` lines. The form's default values are the stage pilot values, so type the mainnet values. It restarts only `mainnet-treasury-service`. If you changed other settings in `.env.mainnet`, run `Mainnet — start the treasury` so that the other services read them. It prints no output of `docker compose`, because the run log is public. Afterwards it runs `check-cap-invariants.sh` on `.env.mainnet`. |
+| Write the GasFree settings and the decided limits | `Set GasFree settings (stage)`, network `mainnet`, type `gasfree mainnet` | **Order: run this workflow, then `Mainnet — start the treasury`, then `Set mint caps (stage)`.** The start makes all three services read the new values. Run `Set mint caps (stage)` only after the start. This workflow writes 17 values into `.env.mainnet`: the GasFree settings and the decided limits. Before you run it, put `GASFREE_API_KEY` and `GASFREE_API_SECRET` into `.env.mainnet` by hand, as plain `NAME=value` lines. It refuses if one is missing, blank or in quote marks. Until it has run, the start refuses a key without the network. That is on purpose. It restarts nothing. **Running it again writes the decided limits again.** The lower mint caps of a pilot go back to the values of readiness item B4, so run `Set mint caps (stage)` again after it. |
+| Activate the GasFree float | `Activate the GasFree payout float (stage)`, chain `mainnet`, type `activate mainnet` | It moves money. It needs two things. **1.** The GasFree float must hold at least 4.00 USDT (the two fee maxima together) plus the smallest transfer. If it holds less, the signer answers `float_dry` and nothing is signed. USDT sent to the custody address does not fill the float. The float fills from the sweep of a real deposit, or from USDT sent to the float's GasFree address. **2.** The reserve must be at least 4.00 USDT more than the liabilities (CLT in circulation, and what unpaid redemptions are owed). The script checks this and refuses if it is not true. It runs a fresh reconciliation first. |
 | Sweep one deposit address | `Sweep one deposit address (stage)` | **Stage only for now.** The workflow has no chain choice. It prints the address you type into the public run log before any check could refuse it. `scripts/sweep-address.sh` also refuses `CHAIN=mainnet`. Nothing needs it before the first real deposit. |
-| Start it, or bring it up to date | `Mainnet — start the treasury`, type `START MAINNET TREASURY` | It checks the env files, the limits, the mainnet chain and the compose file first. It starts nothing until all checks pass. The first check, `preflight`, prints `OK` or `FAIL` for each point. A `FAIL` line names a setting or a line number, never a value. Fix what it names on the host, then run the workflow again. It never runs `down`. It pulls only the three app images. If a service is not healthy, it prints the command `docker logs --tail 50 <container>`. Run that command on the host: the script prints no service log, because the run log is public. A later run can restart both databases, if a stage deploy has pulled a newer `postgres:16-alpine` in the meantime. |
+| Start it, or bring it up to date | `Mainnet — start the treasury`, type `START MAINNET TREASURY` | It checks the env files, the limits, the mainnet chain and the compose file first. It starts nothing until all checks pass. The first check, `preflight`, prints `OK` or `FAIL` for each point. A `FAIL` line names a setting or a line number, never a value. Fix what it names on the host, then run the workflow again. It never runs `down`. It pulls only the three app images. If a service is not healthy, it prints the command `docker logs --tail 50 <container>`, with the real container name filled in. Run that command on the host: the script prints no service log, because the run log is public. A later run can restart both databases, if a stage deploy has pulled a newer `postgres:16-alpine` in the meantime. |
 
 **The GasFree rail section above.** It talks about `.env`, a deploy and `resume-minting.yml`. For
-the mainnet treasury, read `.env.mainnet`, `Mainnet — start the treasury` and `Resume minting` with
-chain `mainnet`.
+the mainnet treasury, read `.env.mainnet`, `Mainnet — start the treasury` and
+`Resume minting (stage, clears the breaker)` with chain `mainnet`.
 
 **One queue for the env files.** These four workflows share one concurrency group,
-`env-file-writers`: `Set mint caps`, `Set GasFree settings`, `Provision treasury secrets` and
-`Mainnet — start the treasury`. They wait for each other, so two of them never write `.env.mainnet`
-at the same time. GitHub keeps only one waiting run per group. If you start a third run, the waiting
-run is cancelled. Start the next run after the one before it has finished.
+`env-file-writers`:
+
+- `Set mint caps (stage)`
+- `Set GasFree settings (stage)`
+- `Provision treasury secrets (stage, writes .env or .env.mainnet)`
+- `Mainnet — start the treasury`
+
+They wait for each other, so two of them never write `.env.mainnet` at the same time. GitHub keeps
+only one waiting run per group. If you start a third run, the waiting run is cancelled. Start the
+next run after the one before it has finished.
 
 **The nightly backup.** `Backup treasury databases (stage)` also dumps the mainnet databases into
 `backups/mainnet`, once they exist. If they exist but are stopped, the run fails. It prints
@@ -134,11 +142,22 @@ treasury on purpose, the nightly backup fails every night. The run leaves no par
 jobs `mainnet-treasury-service` and `mainnet-payment-orchestrator`, and the Telegram text says
 `chain: mainnet`. `TreasuryServiceDown` does not page for a mainnet treasury that has never run. It
 pages when a mainnet service stops, if that service has been up in the last 7 days. Three things
-follow from that 7-day memory:
+follow from the 7-day check:
 
 1. A treasury that you stop on purpose sends a critical alert every hour, until you start it or
-   silence the alert. Alertmanager's port is not published, so run `amtool silence add` inside the
-   Alertmanager container.
+   silence the alert. A silence stops the page until it ends. Alertmanager's port is not published
+   on stage, so run `amtool` inside the Alertmanager container. This command silences
+   `TreasuryServiceDown` for both mainnet jobs for 24 hours:
+
+   ```
+   docker exec clutch-stage-alertmanager-1 amtool --alertmanager.url=http://localhost:9093 silence add alertname=TreasuryServiceDown chain=mainnet --duration=24h --comment="mainnet treasury stopped on purpose"
+   ```
+
+   This command was not run when this page was written. Run it once, and check it before you rely
+   on it. To check, run the same command with `silence query` in place of `silence add ...`. The
+   silence ends by itself after 24 hours, and then the page starts again. Renew it with the same
+   command. To end it early, run the same command with `silence expire <id>`; `silence query` shows
+   the id. Do not keep an old silence: it would hide the next real stop.
 2. If it stays down for more than 7 days, Telegram sends `RESOLVED: TreasuryServiceDown` while it is
    still down.
 3. A stage deploy with `reset_chain=true` deletes Prometheus's data. A mainnet treasury that is down

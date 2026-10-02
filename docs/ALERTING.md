@@ -36,7 +36,7 @@ in three groups:
 
 `rules/chain.yml` covers the chain those fourteen read from — readiness item **D4**, added after the
 stage halt of 2026-09-14, which ran for most of a day and was reported by a human as "the explorer
-has no data". Four rules:
+has no data". Six rules, in two groups:
 
 | Alert | Fires when | Severity |
 |---|---|---|
@@ -44,6 +44,10 @@ has no data". Four rules:
 | `ChainNodeDown` | a node stops answering scrapes for 3m | critical |
 | `ChainNodeBehind` | validators disagree on height by more than 50 blocks for 10m | warning |
 | `ChainLatestBlockHashMissing` | no node publishes `latest_block{block_hash}` for 10m | warning |
+| `HubApiDown` | a Hub API stops answering scrapes for 3m | critical |
+
+`ChainLatestBlockHashMissing` exists once for each chain, the testnet and the mainnet. So the six
+rules have five names.
 
 Height is a usable liveness signal only because Aura authors an **empty** block every slot when
 there is nothing to include, so a quiet chain still climbs. A consensus that produced on demand

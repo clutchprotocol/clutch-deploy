@@ -160,16 +160,16 @@ Three write workflows exist alongside it, each requiring a typed confirmation:
 
 Its app services have `mainnet-` names (`mainnet-treasury-service`, `mainnet-tron-signer`, `mainnet-payment-orchestrator`) **on purpose**. Compose adds a service's name as an alias on every network the service joins. A second `treasury-service` or `payment-orchestrator` on a network that Prometheus or nginx share would answer next to the stage one. Then requests, scrapes and the orchestrator's calls to its treasury would reach either stack.
 
-`scripts/check-mainnet-compose.sh` keeps the copy honest. CI runs it (`check-monitoring-config.yml`), and it fails on: a service name shared with stage, a published port, a stage network, a stage setting missing from the mainnet services, a stage host in a mainnet URL, an image that is not pinned to a `sha-<7>` tag, and a value that is not the mainnet one (the chain id, the KMS signer, the mainnet nodes, TronGrid and USDT contract).
+`scripts/check-mainnet-compose.sh` checks that the copy has not drifted from the stage file. CI runs it (`check-monitoring-config.yml`), and it fails on: a service name shared with stage, a published port, a stage network, a stage setting missing from the mainnet services, a stage host in a mainnet URL, an image that is not pinned to a `sha-<7>` tag, and a value that is not the mainnet one (the chain id, the KMS signer, the mainnet nodes, TronGrid and USDT contract).
 
 - **Nothing reaches it from outside** until a later plan opens it: no published port, no stage network, `/payment/` answers 503, redemptions are off (`APP_REDEMPTIONS_ENABLED=false`).
 - **One switch for the operator tools: `CHAIN=stage|mainnet`** (`scripts/lib/chain.sh`). `halt-minting.yml`, `resume-minting.yml`, `set-mint-caps.yml` and `activate-float.yml` have a `chain` choice (default stage) and ask for `<word> mainnet` on mainnet. `set-gasfree-settings.yml` has a `network` choice. `backup-treasury-db.yml` backs up both chains. `ENV_FILE` does the same for `check-cap-invariants.sh`. Still stage-only: `fund-float`, `mint-intent`, `redrive-mint`, `reverse-mint`, `close-repaid-deposit` and the restore rehearsal. `sweep-address` is stage-only on purpose: its run log prints the address you type.
 - **Start it with the workflow "Mainnet — start the treasury"** (confirm `START MAINNET TREASURY`). It runs `scripts/mainnet-treasury-up.sh`, which starts nothing until every check has passed. The steps, in order:
   - The preflight (`scripts/lib/mainnet-preflight.sh`) prints OK or FAIL for each check. It names settings and line numbers, never values. It refuses:
     - a `.env.mainnet` that its group or other users can read (`chmod 600`);
-    - a line that is not blank, a `#` comment (the `#` in column 1) or a plain `NAME=value` with an upper-case name, and a name that is set twice. A plain value has no quote at the start, no `$`, no backtick, no space followed by `#`, no blank at either end and no carriage return;
+    - a line that is none of these: blank, a `#` comment (with the `#` in column 1), or a plain `NAME=value` with an upper-case name; and a name that is set twice. A plain value has no quote at the start, no `$`, no backtick, no space followed by `#`, no blank at either end and no carriage return;
     - a missing `BACKUP_PASSPHRASE`, or any other required setting that is empty;
-    - a `GASFREE_NETWORK` other than `mainnet`;
+    - a `GASFREE_NETWORK` that is set to anything but `mainnet` (an unset one passes);
     - a `TRONGRID_URL` that is not the mainnet TronGrid, or a `USDT_CONTRACT` that is not the mainnet one;
     - a secret, token, password, custody address, float address, backup passphrase or backup remote that equals the stage one (the mnemonic is compared by its words);
     - a `JWT_SECRET` that is not `.env`'s `MAINNET_JWT_SECRET`;
@@ -179,7 +179,7 @@ Its app services have `mainnet-` names (`mainnet-treasury-service`, `mainnet-tro
   - The compose file renders. Compose's own message is not printed, because it can quote a line of the env file.
   - Then it pulls only the three app images, never Postgres: `postgres:16-alpine` is a floating tag, and a pull that moved it would make the next `up -d` recreate both databases. A stage deploy can move it, so a later start can still recreate them.
   - Then it starts the five services and waits for each to be healthy. It prints no service log, because the run log is public. An unhealthy service gets the command `docker logs --tail 50 <container>`, to run on the host.
-  - It never runs `down` and never takes `-v`.
+  - It never runs `down` and never takes `-v`. Never run `down -v` against `clutch-main-treasury`: its two databases are in its volumes.
 - **`PROBE=mainnet-treasury`** shows what runs, its ports and networks, whether every service name resolves to one address, its settings (secrets as presence only), the breaker, reconciliation, alerts, mint intents, redemptions and the GasFree float. The run log is public, so it prints no address and no identifier of a user: alert texts are masked.
 - `set-gasfree-settings.yml` (network mainnet, confirm `gasfree mainnet`) writes the GasFree block and the decided limits (17 values) into `.env.mainnet`. The relay's key pair is put there by hand, as plain lines: the script refuses if either is missing, blank or quoted.
 - **`test-treasury-scripts.yml` parses every workflow file with Ruby** (the step "Workflow files parse", `ruby -ryaml`). A YAML mistake in a workflow is otherwise found only after the merge, when someone dispatches it.
