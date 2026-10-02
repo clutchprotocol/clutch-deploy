@@ -74,6 +74,8 @@ check "without ENV_FILE the checker still reads .env" 0 "fee is 20% of the small
 rm -f "$T/.env"
 printf '%s\n' GASFREE_API_KEY=key-marker-7f3a > "$T/keyonly.env"
 check "a key without the network in ENV_FILE is refused" 1 "GASFREE_API_KEY is set while GASFREE_NETWORK is not" ENV_FILE=keyonly.env
+check "ENV_FILE names a file that does not exist: refused" 1 "there is no such file" ENV_FILE=missing.env
+check "the environment wins over ENV_FILE" 0 "fee is 4% of the smallest allowed redemption" ENV_FILE=mainnet.env REDEMPTION_FEE_USDT=1000000
 
 # The key and the secret are never printed, whatever else happens.
 out=$(env -i PATH="$PATH" "${NILE[@]}" bash "$T/scripts/check-cap-invariants.sh" 2>&1 || true)

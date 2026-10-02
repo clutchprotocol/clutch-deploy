@@ -57,6 +57,9 @@ chain_select() {
       ;;
     *)
       echo "ABORT: CHAIN must be stage or mainnet, got '${1}'." >&2
+      # A refusal leaves no earlier chain's names behind, so nothing after it can act on them.
+      unset CH_NAME CH_ENV_FILE CH_PROJECT CH_SVC_TREASURY CH_SVC_SIGNER CH_SVC_ORCH \
+        CH_TREASURY CH_SIGNER CH_ORCH CH_TREASURY_PG CH_ORCH_PG CH_BACKUP_DIR
       return 1
       ;;
   esac
@@ -76,6 +79,7 @@ chain_compose_args() {
 
 # chain_compose <docker compose arguments>: docker compose for the selected stack.
 chain_compose() {
+  [ -n "${CH_NAME:-}" ] || { echo "ABORT: call chain_select before chain_compose." >&2; return 1; }
   local args=() a
   while IFS= read -r a; do args+=("$a"); done < <(chain_compose_args)
   docker compose "${args[@]}" "$@"

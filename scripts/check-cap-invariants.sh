@@ -13,6 +13,11 @@
 #
 # Reads the live values from .env (or the file ENV_FILE names) where set, falling back to the compose defaults, so it checks the
 # configuration that will actually run rather than the one in the file you last edited.
+#
+# "The compose defaults" are the STAGE compose file's defaults, also when ENV_FILE names
+# .env.mainnet (the mainnet compose file has none). So a pass on .env.mainnet proves how the
+# values relate to each other. It does not prove that every cap is set in that file: the
+# preflight of scripts/mainnet-treasury-up.sh checks that by name.
 
 set -euo pipefail
 
@@ -20,6 +25,11 @@ cd "$(dirname "$0")/.."
 
 # The file the live values come from: .env (the stage stack) unless ENV_FILE names another, as the
 # mainnet treasury's is .env.mainnet. Relative to the repository root, where this script runs.
+# A name that is not a file is refused: a typo must not fall back to the defaults and pass.
+if [ -n "${ENV_FILE:-}" ] && [ ! -f "$ENV_FILE" ]; then
+  echo "ABORT: ENV_FILE is '$ENV_FILE', but there is no such file. A path is relative to the repository root." >&2
+  exit 1
+fi
 ENV_FILE="${ENV_FILE:-.env}"
 
 fail=0

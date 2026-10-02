@@ -58,6 +58,51 @@ args_of() {
     chain_compose_args | tr '\n' ' '
   )
 }
+# A refused chain must return, not exit: the caller decides what to do next.
+refusal_survived() {
+  (
+    . scripts/lib/chain.sh
+    chain_select testnet 2>/dev/null || true
+    echo survived
+  )
+}
+# chain_compose against a stub docker that prints each argument it gets, followed by |.
+compose_of() {
+  (
+    . scripts/lib/chain.sh
+    chain_select "$1" >/dev/null
+    docker() { printf '%s|' "$@"; }
+    chain_compose up -d x
+  )
+}
+compose_unselected() {
+  (
+    . scripts/lib/chain.sh
+    docker() { printf '%s|' "$@"; }
+    chain_compose up -d x 2>/dev/null || echo refused
+  )
+}
+# What CH_NAME holds after a good chain_select and then a refused one.
+name_after_refusal() {
+  (
+    . scripts/lib/chain.sh
+    chain_select mainnet >/dev/null
+    chain_select testnet 2>/dev/null || true
+    echo "[${CH_NAME:-}]"
+  )
+}
+# The files after -f in the compose arguments that are not in the repository root (the working directory).
+missing_files_of() {
+  (
+    . scripts/lib/chain.sh
+    chain_select "$1" >/dev/null
+    prev=""
+    while IFS= read -r a; do
+      if [ "$prev" = "-f" ] && [ ! -f "$a" ]; then printf ' %s' "$a"; fi
+      prev="$a"
+    done < <(chain_compose_args)
+  )
+}
 
 STAGE="stage|.env|clutch-stage|treasury-service|tron-signer|payment-orchestrator|clutch-stage-treasury-service-1|clutch-stage-tron-signer-1|clutch-stage-payment-orchestrator-1|clutch-stage-treasury-postgres-1|clutch-stage-orchestrator-postgres-1|backups"
 MAINNET="mainnet|.env.mainnet|clutch-main-treasury|mainnet-treasury-service|mainnet-tron-signer|mainnet-payment-orchestrator|clutch-main-treasury-mainnet-treasury-service-1|clutch-main-treasury-mainnet-tron-signer-1|clutch-main-treasury-mainnet-payment-orchestrator-1|clutch-main-treasury-treasury-postgres-1|clutch-main-treasury-orchestrator-postgres-1|backups/mainnet"
@@ -86,6 +131,13 @@ check "no mainnet container name is a stage container name" "" "$overlap"
 
 check "stage compose arguments" "-p clutch-stage -f docker-compose.yml -f docker-compose.treasury.yml -f docker-compose.stage.cloudflare-flex.yml -f docker-compose.stage.treasury.yml " "$(args_of stage)"
 check "mainnet compose arguments" "-p clutch-main-treasury --env-file .env.mainnet -f docker-compose.mainnet.treasury.yml " "$(args_of mainnet)"
+
+check "a refused chain returns instead of exiting" "survived" "$(refusal_survived)"
+check "chain_compose passes the stage arguments to docker" "compose|-p|clutch-stage|-f|docker-compose.yml|-f|docker-compose.treasury.yml|-f|docker-compose.stage.cloudflare-flex.yml|-f|docker-compose.stage.treasury.yml|up|-d|x|" "$(compose_of stage)"
+check "chain_compose passes the mainnet arguments to docker" "compose|-p|clutch-main-treasury|--env-file|.env.mainnet|-f|docker-compose.mainnet.treasury.yml|up|-d|x|" "$(compose_of mainnet)"
+check "chain_compose without chain_select refuses" "refused" "$(compose_unselected)"
+check "a refused chain_select clears the earlier names" "[]" "$(name_after_refusal)"
+check "every compose file the arguments name exists" "" "$(missing_files_of stage)$(missing_files_of mainnet)"
 
 echo ""
 echo "$passed passed, $failed failed"
