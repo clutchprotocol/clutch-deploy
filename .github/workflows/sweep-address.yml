@@ -15,6 +15,10 @@
 # This does NOT credit anyone CLT. Sweeping restores custody and the reserve; paying a depositor what
 # a failed mint owed them is a separate correction through mint-intent-create.yml, and that one can
 # only pass the reserve check after the sweep has landed.
+#
+# Stage only: a mainnet address would be printed into the public run log before anything could refuse it.
+# The address is an input of the run and the step "Record who and why" prints it. scripts/sweep-address.sh
+# also refuses CHAIN=mainnet, as a second guard.
 
 name: Sweep one deposit address (stage)
 
@@ -41,9 +45,12 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Check the confirmation
+        env:
+          CONFIRM: ${{ inputs.confirm }}
         run: |
-          if [ "${{ inputs.confirm }}" != "sweep" ]; then
-            echo "Refusing: confirm was '${{ inputs.confirm }}', expected 'sweep'."
+          want="sweep"
+          if [ "$CONFIRM" != "$want" ]; then
+            echo "::error::confirm must be exactly 'sweep' — got '$CONFIRM'"
             exit 1
           fi
 

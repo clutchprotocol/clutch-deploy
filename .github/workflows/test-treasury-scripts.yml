@@ -3,6 +3,9 @@
 # check-cap-invariants.sh gates every stage deploy (deploy-stage.sh): a bug in it either lets a
 # broken limit through or stops every deploy. No secrets, no host access, no docker — copies of the
 # scripts, fixtures, and a temp directory. Same shape as test-nginx-block.yml.
+#
+# Any edit of a workflow file runs it too (the glob in `paths`), and the last step parses every
+# workflow file, so a YAML mistake shows here and not only when the workflow is first dispatched.
 
 name: Test treasury scripts
 
@@ -16,12 +19,38 @@ on:
       - "scripts/inspect-stage.sh"
       - "scripts/activate-float.sh"
       - "scripts/test-activate-float.sh"
+      - "scripts/fund-float.sh"
       - "scripts/provision-treasury-secrets.sh"
       - "scripts/sweep-address.sh"
       - "scripts/deploy-stage.sh"
       - "scripts/set-gasfree-settings.sh"
       - "scripts/test-set-gasfree-settings.sh"
+      - "scripts/check-mainnet-compose.sh"
+      - "scripts/test-check-mainnet-compose.sh"
+      - "scripts/lib/chain.sh"
+      - "scripts/test-chain.sh"
+      - "scripts/test-chain-names.sh"
+      - "scripts/halt-minting.sh"
+      - "scripts/resume-minting.sh"
+      - "scripts/set-mint-caps.sh"
+      - "scripts/backup-treasury-db.sh"
+      - "scripts/lib/mainnet-preflight.sh"
+      - "scripts/test-mainnet-preflight.sh"
+      - "scripts/mainnet-treasury-up.sh"
+      - "docker-compose.treasury.yml"
+      - "docker-compose.mainnet.treasury.yml"
+      - "docker-compose.stage.cloudflare-flex.yml"
+      - "docker-compose.stage.treasury.yml"
       - ".env.example"
+      - ".env.mainnet.example"
+      - ".github/workflows/halt-minting.yml"
+      - ".github/workflows/resume-minting.yml"
+      - ".github/workflows/set-mint-caps.yml"
+      - ".github/workflows/activate-float.yml"
+      - ".github/workflows/sweep-address.yml"
+      - ".github/workflows/backup-treasury-db.yml"
+      - ".github/workflows/mainnet-treasury-up.yml"
+      - ".github/workflows/*.yml"
       - ".github/workflows/test-treasury-scripts.yml"
   push:
     branches: [main]
@@ -33,12 +62,38 @@ on:
       - "scripts/inspect-stage.sh"
       - "scripts/activate-float.sh"
       - "scripts/test-activate-float.sh"
+      - "scripts/fund-float.sh"
       - "scripts/provision-treasury-secrets.sh"
       - "scripts/sweep-address.sh"
       - "scripts/deploy-stage.sh"
       - "scripts/set-gasfree-settings.sh"
       - "scripts/test-set-gasfree-settings.sh"
+      - "scripts/check-mainnet-compose.sh"
+      - "scripts/test-check-mainnet-compose.sh"
+      - "scripts/lib/chain.sh"
+      - "scripts/test-chain.sh"
+      - "scripts/test-chain-names.sh"
+      - "scripts/halt-minting.sh"
+      - "scripts/resume-minting.sh"
+      - "scripts/set-mint-caps.sh"
+      - "scripts/backup-treasury-db.sh"
+      - "scripts/lib/mainnet-preflight.sh"
+      - "scripts/test-mainnet-preflight.sh"
+      - "scripts/mainnet-treasury-up.sh"
+      - "docker-compose.treasury.yml"
+      - "docker-compose.mainnet.treasury.yml"
+      - "docker-compose.stage.cloudflare-flex.yml"
+      - "docker-compose.stage.treasury.yml"
       - ".env.example"
+      - ".env.mainnet.example"
+      - ".github/workflows/halt-minting.yml"
+      - ".github/workflows/resume-minting.yml"
+      - ".github/workflows/set-mint-caps.yml"
+      - ".github/workflows/activate-float.yml"
+      - ".github/workflows/sweep-address.yml"
+      - ".github/workflows/backup-treasury-db.yml"
+      - ".github/workflows/mainnet-treasury-up.yml"
+      - ".github/workflows/*.yml"
   workflow_dispatch:
 
 jobs:
@@ -55,16 +110,51 @@ jobs:
           bash -n scripts/inspect-stage.sh
           bash -n scripts/activate-float.sh
           bash -n scripts/test-activate-float.sh
+          bash -n scripts/fund-float.sh
           bash -n scripts/provision-treasury-secrets.sh
           bash -n scripts/sweep-address.sh
           bash -n scripts/deploy-stage.sh
           bash -n scripts/set-gasfree-settings.sh
           bash -n scripts/test-set-gasfree-settings.sh
+          bash -n scripts/check-mainnet-compose.sh
+          bash -n scripts/test-check-mainnet-compose.sh
+          bash -n scripts/lib/chain.sh
+          bash -n scripts/test-chain.sh
+          bash -n scripts/test-chain-names.sh
+          bash -n scripts/halt-minting.sh
+          bash -n scripts/resume-minting.sh
+          bash -n scripts/set-mint-caps.sh
+          bash -n scripts/backup-treasury-db.sh
+          bash -n scripts/lib/mainnet-preflight.sh
+          bash -n scripts/test-mainnet-preflight.sh
+          bash -n scripts/mainnet-treasury-up.sh
       - name: Cap invariants
+        if: ${{ !cancelled() }}
         run: bash scripts/test-cap-invariants.sh
       - name: GasFree fee check
+        if: ${{ !cancelled() }}
         run: bash scripts/test-gasfree-fee-check.sh
       - name: Float activation decision
+        if: ${{ !cancelled() }}
         run: bash scripts/test-activate-float.sh
       - name: GasFree settings writer
+        if: ${{ !cancelled() }}
         run: bash scripts/test-set-gasfree-settings.sh
+      - name: Mainnet compose guard
+        if: ${{ !cancelled() }}
+        run: bash scripts/test-check-mainnet-compose.sh
+      - name: Chain helper
+        if: ${{ !cancelled() }}
+        run: bash scripts/test-chain.sh
+      - name: Chain-aware tools
+        if: ${{ !cancelled() }}
+        run: bash scripts/test-chain-names.sh
+      - name: Mainnet preflight
+        if: ${{ !cancelled() }}
+        run: bash scripts/test-mainnet-preflight.sh
+      # A YAML mistake in a workflow file is otherwise found only after the merge, when the workflow
+      # is dispatched. A block scalar, because a plain one would end at the " #" inside the ruby code.
+      - name: Workflow files parse
+        if: ${{ !cancelled() }}
+        run: |
+          ruby -ryaml -e 'ARGV.each { |f| YAML.load_file(f); puts "ok    #{f}" }' .github/workflows/*.yml

@@ -6,6 +6,9 @@
 # exactly as sensitive as .env itself and must never be committable.
 .env.bak
 .env.bak.*
+.env.mainnet
+.env.mainnet.bak
+.env.mainnet.bak.*
 
 # IDE
 .idea/

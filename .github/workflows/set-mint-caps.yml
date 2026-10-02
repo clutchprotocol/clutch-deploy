@@ -16,23 +16,34 @@ on:
   workflow_dispatch:
     inputs:
       per_tx:
-        description: "Per-transaction cap in micro-dollars (pilot default: 50000000 = $50)"
+        description: "Per-transaction mint cap in micro-CLT (stage pilot default 50000000; mainnet launch value 1000000000)"
         required: true
         default: "50000000"
       daily:
-        description: "Daily cap in micro-dollars (pilot default: 500000000 = $500)"
+        description: "Daily mint cap in micro-CLT (stage pilot default 500000000; mainnet launch value 2000000000)"
         required: true
         default: "500000000"
       reason:
         description: "Why the limits are changing. Recorded in this log and nowhere else."
         required: true
+      chain:
+        description: "Which treasury"
+        type: choice
+        default: stage
+        options:
+          - stage
+          - mainnet
       confirm:
-        description: 'Type "set" to confirm changing a safety limit'
+        description: 'Type "set" to confirm changing a safety limit (type "set mainnet" for the mainnet treasury)'
         required: true
         default: ""
 
+# One shared group for the four workflows that write or read .env / .env.mainnet
+# (provision-treasury-secrets, set-gasfree-settings, set-mint-caps, mainnet-treasury-up), so they
+# queue and never run together. GitHub keeps one waiting run per group: start the next one after
+# the one before it has finished.
 concurrency:
-  group: mint-caps
+  group: env-file-writers
   cancel-in-progress: false
 
 jobs:
@@ -40,9 +51,14 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Check the confirmation
+        env:
+          CONFIRM: ${{ inputs.confirm }}
+          CHAIN: ${{ inputs.chain }}
         run: |
-          if [ "${{ inputs.confirm }}" != "set" ]; then
-            echo "Refusing: confirm was '${{ inputs.confirm }}', expected 'set'."
+          want="set"
+          [ "$CHAIN" = "mainnet" ] && want="set mainnet"
+          if [ "$CONFIRM" != "$want" ]; then
+            echo "::error::confirm must be exactly '$want' for $CHAIN — got '$CONFIRM'"
             exit 1
           fi
 
@@ -63,6 +79,7 @@ jobs:
           CLUTCH_SSH_USER: ${{ secrets.STAGE_USER }}
           PER_TX: ${{ inputs.per_tx }}
           DAILY: ${{ inputs.daily }}
+          CHAIN: ${{ inputs.chain }}
         run: |
           # Plain ssh, not appleboy/ssh-action. That action downloads a drone-ssh binary from
           # GitHub releases on EVERY run -- unconditionally, there is no skip-if-present -- and on
@@ -82,7 +99,7 @@ jobs:
           # input gave us, kept deliberately: a workflow input must not be able to become part of
           # the command that runs. The file is deleted on the host the moment it has been read.
           : > "$RUNNER_TEMP/clutch-env.sh"
-          for v in PER_TX DAILY; do printf '%s=%q\n' "$v" "${!v-}" >> "$RUNNER_TEMP/clutch-env.sh"; done
+          for v in PER_TX DAILY CHAIN; do printf '%s=%q\n' "$v" "${!v-}" >> "$RUNNER_TEMP/clutch-env.sh"; done
           sshpass -e ssh $SSH_OPTS "$CLUTCH_SSH_USER@$CLUTCH_SSH_HOST" "cat > $R.env" < "$RUNNER_TEMP/clutch-env.sh"
           cat > "$RUNNER_TEMP/clutch-remote.sh" <<'CLUTCH_REMOTE_EOF'
           set -euo pipefail

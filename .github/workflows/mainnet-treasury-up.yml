@@ -1,0 +1,59 @@
+# Start, or bring up to date, the MAINNET treasury: docker-compose.mainnet.treasury.yml, project
+# clutch-main-treasury, env file .env.mainnet. The checks come first (scripts/mainnet-treasury-up.sh:
+# the preflight, check-cap-invariants.sh on .env.mainnet, the chain is up), and nothing is started
+# until they all pass. It never runs `down`, has no reset input, and publishes no port: no user can
+# reach what it starts. Typed confirmation, like the chain's own start.
+
+name: Mainnet — start the treasury
+
+on:
+  workflow_dispatch:
+    inputs:
+      confirm:
+        description: 'Type "START MAINNET TREASURY" to confirm'
+        required: true
+        default: ""
+
+# One shared group for the four workflows that write or read .env / .env.mainnet
+# (provision-treasury-secrets, set-gasfree-settings, set-mint-caps, mainnet-treasury-up), so they
+# queue and never run together. GitHub keeps one waiting run per group: start the next one after
+# the one before it has finished.
+concurrency:
+  group: env-file-writers
+  cancel-in-progress: false
+
+jobs:
+  up:
+    runs-on: ubuntu-latest
+    steps:
+      # Through env, never interpolated into the script body.
+      - name: Check the confirmation
+        env:
+          CONFIRM: ${{ inputs.confirm }}
+        run: |
+          if [ "$CONFIRM" != "START MAINNET TREASURY" ]; then
+            echo "Refusing: confirm was '$CONFIRM', expected 'START MAINNET TREASURY'."
+            exit 1
+          fi
+
+      - name: Start via SSH
+        env:
+          SSHPASS: ${{ secrets.STAGE_SSH_PASSWORD }}
+          CLUTCH_SSH_HOST: ${{ secrets.STAGE_HOST }}
+          CLUTCH_SSH_USER: ${{ secrets.STAGE_USER }}
+        run: |
+          # The same transport as set-mint-caps.yml and set-gasfree-settings.yml: plain ssh, and the
+          # script travels as a file. No input reaches the host (the typed word is checked above, on
+          # the runner), so there is no env file.
+          set -euo pipefail
+          command -v sshpass >/dev/null || { sudo apt-get update -qq && sudo apt-get install -y -qq sshpass; }
+          R="/tmp/clutch-ci-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
+          SSH_OPTS="-o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o ConnectTimeout=30 -o ServerAliveInterval=30"
+          cat > "$RUNNER_TEMP/clutch-remote.sh" <<'CLUTCH_REMOTE_EOF'
+          set -euo pipefail
+          cd "${{ secrets.STAGE_DEPLOY_PATH }}"
+          git pull --ff-only origin main
+          bash scripts/mainnet-treasury-up.sh
+          CLUTCH_REMOTE_EOF
+          sshpass -e ssh $SSH_OPTS "$CLUTCH_SSH_USER@$CLUTCH_SSH_HOST" "cat > $R.sh" < "$RUNNER_TEMP/clutch-remote.sh"
+          timeout 15m sshpass -e ssh $SSH_OPTS "$CLUTCH_SSH_USER@$CLUTCH_SSH_HOST" "find /tmp -maxdepth 1 -name 'clutch-ci-*' -mtime +1 -delete 2>/dev/null; bash $R.sh"

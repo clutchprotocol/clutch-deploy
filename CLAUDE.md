@@ -95,7 +95,7 @@ Always pass the full `-f` list and `-p` on every command — omitting them targe
 
 **A deploy ships exactly the tags in the compose files, and nothing newer** (#103, 2026-09-25). Before that every deploy pulled the newest `latest` of every image, so a deploy for one repo's change also shipped whatever any other repo had built since: that day a demo-app deploy would have rolled out the GasFree treasury images (treasury #53), which nobody had decided to ship, and Prometheus had moved to v3.15.0 that morning without anyone choosing it.
 
-- **Where the pins live.** Clutch images use the `sha-<7>` tag their own CI already pushes. Stage: `docker-compose.yml` + `docker-compose.treasury.yml`. Mainnet: `docker-compose.mainnet.yml` + `docker-compose.mainnet.treasury.yml` (the mainnet treasury overlay pins its 3 images itself, so a stage treasury pin never moves mainnet). The stage overlays set no Clutch image: an overlay's `image:` silently wins the merge. Monitoring images carry exact versions and move by a reviewed edit.
+- **Where the pins live.** Clutch images use the `sha-<7>` tag their own CI already pushes. Stage: `docker-compose.yml` + `docker-compose.treasury.yml`. Mainnet: `docker-compose.mainnet.yml` + `docker-compose.mainnet.treasury.yml` (the mainnet treasury file pins its 3 images itself, so a stage treasury pin never moves mainnet). The stage overlays set no Clutch image: an overlay's `image:` silently wins the merge. Monitoring images carry exact versions and move by a reviewed edit.
 - **`scripts/set-image.sh`** is the one way a Clutch tag moves. `set-image.sh stage clutch-node` prints a pin; `set-image.sh stage clutch-node=sha-xxxxxxx ...` moves pins after checking every pair (a known image, already pinned there, a `sha-<7>` tag, and ghcr.io has it); `PUSH=1` also commits and pushes to main (CI only). `scripts/test-set-image.sh` (workflow `test-set-image.yml`) tests it and fails any PR that brings `latest` or an untagged image back.
 - **Stage moves by itself for the node, the Hub API, the demo app and the explorer.** Each image workflow's dispatch carries `client_payload.set_images`; the `pin` job commits it to main, then the `deploy` job runs. Only `deploy` is in the `deploy-stage` concurrency group: GitHub keeps one pending run per group and cancels the older pending one, which would drop a pin if the whole workflow were in it. A replaced pending deploy loses nothing, because its pin is already on main.
 - **The treasury moves only by hand.** Its CI sends no dispatch, on purpose. Run "Deploy stage (VPS)" with `set_images` = `clutch-treasury=sha-… clutch-orchestrator=sha-… clutch-tron-signer=sha-…`.
@@ -143,7 +143,7 @@ All six clutch vhosts and all four upstreams are repo-owned. Everything outside 
 
 Guards, in order: the `server_name` set must be unchanged, no upstream may disappear, `nginx -t`, then reload — with a restore from backup on failure. Then 18 post-reload gates across all six vhosts (`/health`, real WebSocket handshakes expecting 101, the nodes' `location /` expecting 404), any of which restores the previous config and fails the deploy. `scripts/test-nginx-clutch-block.sh` covers the block script against a fixture shaped like the host's config; CI runs it on any PR touching those paths.
 
-`.github/workflows/inspect-stage.yml` is a read-only probe for exactly this class of question — what is actually running and what is actually mounted. Reach for it before assuming the repo describes the host. Probes: `nginx`, `containers`, `git`, `treasury`, `sweeper`, `chain`, `metrics`, `balance`, `energy`, `bitcart`, `bitcart-daemon`.
+`.github/workflows/inspect-stage.yml` is a read-only probe for exactly this class of question — what is actually running and what is actually mounted. Reach for it before assuming the repo describes the host. Probes: `nginx`, `containers`, `git`, `treasury`, `sweeper`, `mainnet-treasury`, `chain`, `metrics`, `balance`, `energy`, `bitcart`, `bitcart-daemon`.
 
 The `nginx` probe also takes `vhost=` — a comma-separated list, restricted to `*.clutchprotocol.io` because that run log is public and the same file serves v2ray's vhosts — and dumps each whole `server` block. It reports the nginx version, every upstream name with clutch bodies, both kinds of managed block, and what the edge rate limiter would have refused.
 
@@ -153,6 +153,36 @@ Three write workflows exist alongside it, each requiring a typed confirmation:
 `provision-treasury-secrets.yml` (fills missing `.env` values, never overwrites),
 `resume-minting.yml` (clears the breaker, refuses while reconciliation is still a mismatch), and
 `mint-intent-create.yml` / `mint-intent-approve.yml` (the four-eyes manual mint, deliberately two dispatches so one run cannot be both roles).
+
+## The mainnet treasury
+
+`docker-compose.mainnet.treasury.yml` is a complete file, not an overlay on `docker-compose.treasury.yml`. It is for compose project `clutch-main-treasury`, and its env file is `.env.mainnet` (gitignored, on the host only; `.env.mainnet.example` is the template).
+
+Its app services have `mainnet-` names (`mainnet-treasury-service`, `mainnet-tron-signer`, `mainnet-payment-orchestrator`) **on purpose**. Compose adds a service's name as an alias on every network the service joins. A second `treasury-service` or `payment-orchestrator` on a network that Prometheus or nginx share would answer next to the stage one. Then requests, scrapes and the orchestrator's calls to its treasury would reach either stack.
+
+`scripts/check-mainnet-compose.sh` checks that the copy has not drifted from the stage file. CI runs it (`check-monitoring-config.yml`), and it fails on: a service name shared with stage, a published port, a stage network, a stage setting missing from the mainnet services, a stage host in a mainnet URL, an image that is not pinned to a `sha-<7>` tag, and a value that is not the mainnet one (the chain id, the KMS signer, the mainnet nodes, TronGrid and USDT contract).
+
+- **Nothing reaches it from outside** until a later plan opens it: no published port, no stage network, `/payment/` answers 503, redemptions are off (`APP_REDEMPTIONS_ENABLED=false`).
+- **One switch for the operator tools: `CHAIN=stage|mainnet`** (`scripts/lib/chain.sh`). `halt-minting.yml`, `resume-minting.yml`, `set-mint-caps.yml` and `activate-float.yml` have a `chain` choice (default stage) and ask for `<word> mainnet` on mainnet. `set-gasfree-settings.yml` has a `network` choice. `backup-treasury-db.yml` backs up both chains. `ENV_FILE` does the same for `check-cap-invariants.sh`. Still stage-only: `fund-float`, `mint-intent`, `redrive-mint`, `reverse-mint`, `close-repaid-deposit` and the restore rehearsal. `sweep-address` is stage-only on purpose: its run log prints the address you type.
+- **Start it with the workflow "Mainnet — start the treasury"** (confirm `START MAINNET TREASURY`). It runs `scripts/mainnet-treasury-up.sh`, which starts nothing until every check has passed. The steps, in order:
+  - The preflight (`scripts/lib/mainnet-preflight.sh`) prints OK or FAIL for each check. It names settings and line numbers, never values. It refuses:
+    - a `.env.mainnet` that its group or other users can read (`chmod 600`);
+    - a line that is none of these: blank, a `#` comment (with the `#` in column 1), or a plain `NAME=value` with an upper-case name; and a name that is set twice. A plain value has no quote at the start, no `$`, no backtick, no space followed by `#`, no blank at either end and no carriage return;
+    - a missing `BACKUP_PASSPHRASE`, or any other required setting that is empty;
+    - a `GASFREE_NETWORK` that is set to anything but `mainnet` (an unset one passes);
+    - a `TRONGRID_URL` that is not the mainnet TronGrid, or a `USDT_CONTRACT` that is not the mainnet one;
+    - a secret, token, password, custody address, float address, backup passphrase or backup remote that equals the stage one (the mnemonic is compared by its words);
+    - a `JWT_SECRET` that is not `.env`'s `MAINNET_JWT_SECRET`;
+    - a plaintext mint key.
+  - `check-cap-invariants.sh` on `.env.mainnet` (`ENV_FILE=.env.mainnet`). `ENV_FILE` must name a file that exists.
+  - The network `clutch-mainnet` exists and `mainnet-node3` runs.
+  - The compose file renders. Compose's own message is not printed, because it can quote a line of the env file.
+  - Then it pulls only the three app images, never Postgres: `postgres:16-alpine` is a floating tag, and a pull that moved it would make the next `up -d` recreate both databases. A stage deploy can move it, so a later start can still recreate them.
+  - Then it starts the five services and waits for each to be healthy. It prints no service log, because the run log is public. An unhealthy service gets the command `docker logs --tail 50 <container>`, to run on the host.
+  - It never runs `down` and never takes `-v`. Never run `down -v` against `clutch-main-treasury`: its two databases are in its volumes.
+- **`PROBE=mainnet-treasury`** shows what runs, its ports and networks, whether every service name resolves to one address, its settings (secrets as presence only), the breaker, reconciliation, alerts, mint intents, redemptions and the GasFree float. The run log is public, so it prints no address and no identifier of a user: alert texts are masked.
+- `set-gasfree-settings.yml` (network mainnet, confirm `gasfree mainnet`) writes the GasFree block and the decided limits (17 values) into `.env.mainnet`. The relay's key pair is put there by hand, as plain lines: the script refuses if either is missing, blank or quoted.
+- **`test-treasury-scripts.yml` parses every workflow file with Ruby** (the step "Workflow files parse", `ruby -ryaml`). A YAML mistake in a workflow is otherwise found only after the merge, when someone dispatches it.
 
 ## Gotchas
 

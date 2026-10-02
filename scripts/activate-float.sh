@@ -27,9 +27,7 @@
 
 set -euo pipefail
 
-SIGNER=clutch-stage-tron-signer-1
-PG=clutch-stage-treasury-postgres-1
-TREASURY=clutch-stage-treasury-service-1
+. "$(dirname "${BASH_SOURCE[0]}")/lib/chain.sh"
 
 # Whether the surplus pays for the activation. Pure, so test-activate-float.sh can run it.
 #
@@ -65,6 +63,11 @@ can_activate() {
 
 main() {
   local c run status age reserve liability owed act xfer msg resp
+  chain_select "${CHAIN:-stage}" || exit 1
+  SIGNER=$CH_SIGNER
+  PG=$CH_TREASURY_PG
+  TREASURY=$CH_TREASURY
+  echo "treasury: $CH_NAME"
   for c in "$PG" "$SIGNER" "$TREASURY"; do
     if ! docker ps --format '{{.Names}}' | grep -qx "$c"; then
       echo "ABORT: container $c is not running."
@@ -75,7 +78,7 @@ main() {
   echo "=== the float, from the signer itself ==="
   docker exec "$SIGNER" sh -c \
     "curl -fsS -H \"Authorization: Bearer \$APP_SIGNER_TOKEN\" http://localhost:8093/internal/xpub" \
-    2>/dev/null | sed 's/,/,\n    /g' | sed 's/^/    /' || echo "    (could not read /internal/xpub)"
+    2>/dev/null | sed 's/,/,\n    /g' | grep -v '"account_xpub"' | sed 's/^/    /' || echo "    (could not read /internal/xpub)"
 
   echo ""
   echo "=== does the surplus pay for the activation? ==="
