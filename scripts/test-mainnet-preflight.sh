@@ -121,13 +121,15 @@ else
   failed=$((failed + 1)); echo "FAIL  a missing stage file fails: exit $code"; printf '%s\n' "$out" | sed 's/^/        /'
 fi
 
-# No value from either file is ever printed, even when the check that fails compares it.
+# No value from either file is ever printed, even when the check that fails compares it, and
+# neither is the content of a stray line.
 cp "$T/mainnet.env.base" "$T/mainnet.env"; cp "$T/stage.env.base" "$T/stage.env"
 sed -i -e 's/^DEPOSIT_MNEMONIC=.*/DEPOSIT_MNEMONIC=stage mnemonic words/' -e 's/^SIGNER_TOKEN=.*/SIGNER_TOKEN=stage-signer/' "$T/mainnet.env"
+echo "strayfragment+secret" >> "$T/mainnet.env"
 chmod 600 "$T/mainnet.env" "$T/stage.env"
 code=0; out=$(preflight "$T/mainnet.env" "$T/stage.env" 2>&1) || code=$?
 leak=""
-for secret in "stage mnemonic words" "stage-signer" "main-i" "main-pg1" "jwt-mainnet-x" "client-secret-value" "mainnet mnemonic" "main-backup-pass"; do
+for secret in "stage mnemonic words" "stage-signer" "main-i" "main-pg1" "jwt-mainnet-x" "client-secret-value" "mainnet mnemonic" "main-backup-pass" "strayfragment+secret"; do
   printf '%s' "$out" | grep -qF -- "$secret" && leak="$leak [$secret]"
 done
 if [ "$code" -eq 1 ] && [ -z "$leak" ]; then
@@ -135,6 +137,63 @@ if [ "$code" -eq 1 ] && [ -z "$leak" ]; then
 else
   failed=$((failed + 1)); echo "FAIL  no value from either file is printed: exit $code, printed:$leak"
 fi
+
+# A stage secret copied by hand from .env can differ in its raw text and still be the same secret to
+# compose and to tron-signer: compose trims a value, cuts a " #" comment and uses the LAST of a
+# duplicate name, and tron-signer reads any run of whitespace in the mnemonic as one space. So the
+# preflight must read both files the way they will be read. (The replacement of the first case ends
+# with a space, on purpose.)
+check "a stage xpub with a trailing space fails" 1 "DEPOSIT_ACCOUNT_XPUB has leading or trailing whitespace" 's/^DEPOSIT_ACCOUNT_XPUB=.*/DEPOSIT_ACCOUNT_XPUB=xpub6Cstage /'
+check "a single-quoted stage mnemonic fails" 1 "DEPOSIT_MNEMONIC starts with a quote" "s/^DEPOSIT_MNEMONIC=.*/DEPOSIT_MNEMONIC='stage mnemonic words'/"
+check "a mnemonic with a double space fails" 1 "DEPOSIT_MNEMONIC is the same in both files" 's/^DEPOSIT_MNEMONIC=.*/DEPOSIT_MNEMONIC=stage  mnemonic words/'
+check "a stray line fails" 1 "is not blank, a # comment, or NAME=value" '$a straypart+of+a+secret'
+check "a name set twice fails" 1 "SIGNER_TOKEN is set more than once" '$a SIGNER_TOKEN=a-second-value'
+# The stage side is read the way compose reads it: the quotes come off and the trailing space goes.
+check "a quoted stage value with a space is still the same secret" 1 "DEPOSIT_MNEMONIC is the same in both files" \
+  's/^DEPOSIT_MNEMONIC=.*/DEPOSIT_MNEMONIC=stage mnemonic words/' \
+  's/^DEPOSIT_MNEMONIC=.*/DEPOSIT_MNEMONIC="stage mnemonic words" /'
+
+# A mainnet file the group can read.
+cp "$T/mainnet.env.base" "$T/mainnet.env"; cp "$T/stage.env.base" "$T/stage.env"
+chmod 640 "$T/mainnet.env"; chmod 600 "$T/stage.env"
+code=0; out=$(preflight "$T/mainnet.env" "$T/stage.env" 2>&1) || code=$?
+if [ "$code" -eq 1 ] && printf '%s' "$out" | grep -qF "readable by other users or its group"; then
+  passed=$((passed + 1)); echo "ok    a mainnet file the group can read fails"
+else
+  failed=$((failed + 1)); echo "FAIL  a mainnet file the group can read fails: exit $code"; printf '%s\n' "$out" | sed 's/^/        /'
+fi
+
+# Settings that must not be the stage ones, and the GasFree network.
+check "the stage float address fails" 1 "PAYOUT_FLOAT_ADDRESS is the same in both files" '' '$a PAYOUT_FLOAT_ADDRESS=TMainFloat'
+check "a GasFree network that is not mainnet fails" 1 "GASFREE_NETWORK is set and is not mainnet" '$a GASFREE_NETWORK=nile'
+check "the stage backup remote fails" 1 "BACKUP_REMOTE is the same in both files" '$a BACKUP_REMOTE=r2:bucket' '$a BACKUP_REMOTE=r2:bucket'
+
+# The template the operator copies passes the same line rule.
+code=0; out=$(pf_lint .env.mainnet.example 2>&1) || code=$?
+if [ "$code" -eq 0 ] && printf '%s' "$out" | grep -qF "each name once"; then
+  passed=$((passed + 1)); echo "ok    the example file is well-formed"
+else
+  failed=$((failed + 1)); echo "FAIL  the example file is well-formed: exit $code"; printf '%s\n' "$out" | sed 's/^/        /'
+fi
+
+# One case for each of the other rules, with SIGNER_TOKEN standing for any setting (main-signer is the
+# mainnet fixture's value, stage-signer the stage one). Cases 32 to 36 each break one rule of the
+# mainnet file. The sed script of case 32 holds a backslash and an r, which GNU sed turns into a
+# carriage return; those of cases 34 and 35 hold a dollar sign and a backtick, which stay literal
+# inside single quotes.
+check "a value with a carriage return fails" 1 "SIGNER_TOKEN has a carriage return" 's/^SIGNER_TOKEN=.*/&\r/'
+check "a value with a space-hash comment fails" 1 "SIGNER_TOKEN contains a space-hash comment, a dollar sign or a backtick" 's/^SIGNER_TOKEN=.*/SIGNER_TOKEN=main-signer #old/'
+check "a value with a dollar sign fails" 1 "SIGNER_TOKEN contains a space-hash comment, a dollar sign or a backtick" 's/^SIGNER_TOKEN=.*/SIGNER_TOKEN=main$signer/'
+check "a value with a backtick fails" 1 "SIGNER_TOKEN contains a space-hash comment, a dollar sign or a backtick" 's/^SIGNER_TOKEN=.*/SIGNER_TOKEN=main`signer/'
+check "a value with leading whitespace fails" 1 "SIGNER_TOKEN has leading or trailing whitespace" 's/^SIGNER_TOKEN=.*/SIGNER_TOKEN= main-signer/'
+# Cases 37 to 39 are about the stage file, which compose reads by its own rules: it takes the LAST of
+# a duplicated name, cuts a " #" comment and trims the value. The replacement of case 39 ends with a
+# space, on purpose.
+check "the last of a duplicated stage line is the one that counts" 1 "SIGNER_TOKEN is the same in both files" '' '$a SIGNER_TOKEN=main-signer'
+check "a stage value with a comment is still the same secret" 1 "SIGNER_TOKEN is the same in both files" \
+  's/^SIGNER_TOKEN=.*/SIGNER_TOKEN=stage-signer/' \
+  's/^SIGNER_TOKEN=.*/SIGNER_TOKEN=stage-signer # the old one/'
+check "a stage JWT secret with a trailing space still matches" 0 "JWT_SECRET matches MAINNET_JWT_SECRET" '' 's/^MAINNET_JWT_SECRET=.*/MAINNET_JWT_SECRET=jwt-mainnet-x /'
 
 echo ""
 echo "$passed passed, $failed failed"
