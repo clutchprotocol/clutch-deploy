@@ -19,6 +19,8 @@ on:
       - 'docker-compose.stage.cloudflare-flex.yml'
       - 'docker-compose.treasury.yml'
       - 'docker-compose.mainnet.treasury.yml'
+      - 'scripts/check-mainnet-compose.sh'
+      - '.env.mainnet.example'
       - '.github/workflows/check-monitoring-config.yml'
   workflow_dispatch:
 
@@ -65,11 +67,11 @@ jobs:
           echo "--- base + stage overlay ---"
           docker compose -f docker-compose.yml -f docker-compose.stage.cloudflare-flex.yml config -q
 
-          # The mainnet treasury overlay, merged the way the host merges it: --env-file, which is
-          # what keeps its secrets separate from the testnet's. Proves the MERGE -- the networks
-          # being re-pointed, the environment overrides, the profile on the explorer stub -- and
-          # not the host wiring, which only a deploy can prove.
-          echo "--- treasury + mainnet treasury overlay ---"
+          # The mainnet treasury, rendered the way the host renders it: its own file and --env-file,
+          # which is what keeps its secrets separate from the testnet's. `config -q` proves it parses,
+          # and the guard below proves what a parse cannot: the KMS signer, the chain, no shared name,
+          # no published port, no stage network, no setting lost from the stage services.
+          echo "--- mainnet treasury ---"
           sed -e 's/#.*//' -e '/^[[:space:]]*$/d' .env.mainnet.example > /tmp/t.env
           for v in CUSTODY_TRON_ADDRESS TRONGRID_API_KEY AZURE_TENANT_ID AZURE_CLIENT_ID \
                    AZURE_CLIENT_SECRET AZURE_KEY_VERSION DEPOSIT_MNEMONIC DEPOSIT_ACCOUNT_XPUB \
@@ -78,22 +80,19 @@ jobs:
                    ORCHESTRATOR_POSTGRES_PASSWORD JWT_SECRET PAYOUT_FLOAT_ADDRESS; do
             echo "$v=ci" >> /tmp/t.env
           done
-          docker compose --env-file /tmp/t.env \
-            -f docker-compose.treasury.yml -f docker-compose.mainnet.treasury.yml config -q
+          docker compose --env-file /tmp/t.env -f docker-compose.mainnet.treasury.yml config -q
+          docker compose --env-file /tmp/t.env -f docker-compose.mainnet.treasury.yml config --format json > /tmp/mainnet.json
 
-          # The overlay's whole job in one assertion: treasury-service must end up with the KMS
-          # signer and an EMPTY plaintext mint secret. Merged wrongly, it silently keeps the base's
-          # env signer and this chain could never mint -- a `config -q` that only checks syntax
-          # would pass on that.
-          merged=$(docker compose --env-file /tmp/t.env \
-            -f docker-compose.treasury.yml -f docker-compose.mainnet.treasury.yml config)
-          echo "$merged" | grep -q 'APP_SIGNER_KIND: azure_kms' \
-            || { echo "::error::the merge lost APP_SIGNER_KIND=azure_kms"; exit 1; }
-          echo "$merged" | grep -qE 'APP_MINT_AUTHORITY_SECRET: (""|\x27\x27)?$' \
-            || { echo "::error::APP_MINT_AUTHORITY_SECRET is not empty after the merge — treasury-service will panic"; exit 1; }
-          echo "$merged" | grep -q 'APP_NODE_WS_URL: ws://mainnet-node3:8183/ws' \
-            || { echo "::error::the merge did not repoint the node URL at the mainnet chain"; exit 1; }
-          echo "merge asserted: KMS signer, empty plaintext secret, mainnet node URL"
+          # The stage side of the comparison: the base and its treasury file, as the GasFree step renders them.
+          {
+            for v in JWT_SECRET GRAFANA_ADMIN_PASSWORD TREASURY_POSTGRES_PASSWORD ORCHESTRATOR_POSTGRES_PASSWORD \
+                     MINT_AUTHORITY_SECRET TREASURY_INITIATOR_TOKEN TREASURY_APPROVER_TOKEN TREASURY_READONLY_TOKEN \
+                     SIGNER_TOKEN DEPOSIT_MNEMONIC CUSTODY_TRON_ADDRESS DEPOSIT_ACCOUNT_XPUB; do
+              echo "$v=ci"
+            done
+          } > /tmp/s.env
+          docker compose --env-file /tmp/s.env -f docker-compose.yml -f docker-compose.treasury.yml config --format json > /tmp/stage.json
+          bash scripts/check-mainnet-compose.sh /tmp/stage.json /tmp/mainnet.json
 
           echo "all compose files parse"
 
