@@ -25,9 +25,12 @@
 set -euo pipefail
 
 cd "$(dirname "$0")/.."
+. scripts/lib/chain.sh
+chain_select "${CHAIN:-stage}" || exit 1
+ENV_FILE="$CH_ENV_FILE"
 
-if [ ! -f .env ]; then
-  echo "ABORT: no .env here ($(pwd))."
+if [ ! -f "$ENV_FILE" ]; then
+  echo "ABORT: no $ENV_FILE here ($(pwd))."
   exit 1
 fi
 
@@ -37,7 +40,7 @@ env_get() {
   # a grep that matches nothing fails the pipeline and kills the script inside a command
   # substitution -- which is exactly how the first rehearsal died, on an unset optional setting,
   # before printing a single line. The first real backup would have died the same way.
-  grep -E "^$1=" .env 2>/dev/null | head -1 | cut -d= -f2- | sed -e 's/^"//' -e 's/"$//' || true
+  grep -E "^$1=" "$ENV_FILE" 2>/dev/null | head -1 | cut -d= -f2- | sed -e 's/^"//' -e 's/"$//' || true
 }
 
 # The environment wins over .env, so a rehearsal can inject an ephemeral passphrase
@@ -52,27 +55,27 @@ ORCHESTRATOR_PASSWORD="$(env_get ORCHESTRATOR_POSTGRES_PASSWORD)"
 # A ledger dump in the clear is worse than no dump: it is every user's pk, deposit address and
 # amount, in a file somebody will eventually copy somewhere convenient.
 if [ -z "$BACKUP_PASSPHRASE" ]; then
-  echo "ABORT: BACKUP_PASSPHRASE is not set in .env."
+  echo "ABORT: BACKUP_PASSPHRASE is not set in $ENV_FILE."
   echo "  Generate one:  openssl rand -base64 48"
   echo "  Then store it somewhere that is NOT this host. A dump you cannot decrypt is not a"
   echo "  backup, and a passphrase living next to the dump protects nothing."
   exit 1
 fi
 if [ -z "$TREASURY_PASSWORD" ] || [ -z "$ORCHESTRATOR_PASSWORD" ]; then
-  echo "ABORT: TREASURY_POSTGRES_PASSWORD or ORCHESTRATOR_POSTGRES_PASSWORD missing from .env."
+  echo "ABORT: TREASURY_POSTGRES_PASSWORD or ORCHESTRATOR_POSTGRES_PASSWORD missing from $ENV_FILE."
   exit 1
 fi
 export BACKUP_PASSPHRASE
 
-BACKUP_DIR="${BACKUP_DIR:-backups}"
+BACKUP_DIR="${BACKUP_DIR:-$CH_BACKUP_DIR}"
 STAMP="$(date -u +%Y%m%dT%H%M%SZ)"
 mkdir -p "$BACKUP_DIR"
 chmod 700 "$BACKUP_DIR"
 
 # Overridable because the dev compose project uses a different prefix, and a container name is a
 # worse thing to hardcode than to parameterise.
-TREASURY_CONTAINER="${TREASURY_CONTAINER:-clutch-stage-treasury-postgres-1}"
-ORCHESTRATOR_CONTAINER="${ORCHESTRATOR_CONTAINER:-clutch-stage-orchestrator-postgres-1}"
+TREASURY_CONTAINER="${TREASURY_CONTAINER:-$CH_TREASURY_PG}"
+ORCHESTRATOR_CONTAINER="${ORCHESTRATOR_CONTAINER:-$CH_ORCH_PG}"
 
 dump_one() {
   local container="$1" db="$2" user="$3" password="$4" out="$5"
@@ -107,7 +110,7 @@ dump_one() {
   echo "  wrote $out (${size} bytes, encrypted)"
 }
 
-echo "=== treasury backup $STAMP ==="
+echo "=== treasury backup $STAMP ($CH_NAME) ==="
 dump_one "$TREASURY_CONTAINER" treasury treasury "$TREASURY_PASSWORD" \
   "$BACKUP_DIR/treasury-$STAMP.dump.enc"
 dump_one "$ORCHESTRATOR_CONTAINER" orchestrator orchestrator "$ORCHESTRATOR_PASSWORD" \

@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 #
-# Set the treasury's mint caps on stage and restart the service so it reads them.
+# Set the treasury's mint caps (CHAIN=stage by default, or CHAIN=mainnet) and restart the service so it reads them.
 #
 #   PER_TX=1000000000 DAILY=2000000000 bash scripts/set-mint-caps.sh
 #
@@ -12,6 +12,10 @@
 # over the daily figure is refused even when the per-transaction one allows it.
 
 set -euo pipefail
+. "$(dirname "$0")/lib/chain.sh"
+chain_select "${CHAIN:-stage}" || exit 1
+E="$CH_ENV_FILE"
+echo "treasury: $CH_NAME ($E)"
 
 PER_TX="${PER_TX:?PER_TX must be set (micro-dollars; 1 USD = 1000000)}"
 DAILY="${DAILY:?DAILY must be set (micro-dollars)}"
@@ -27,55 +31,50 @@ if [ "$PER_TX" -gt "$DAILY" ]; then
   exit 1
 fi
 
-if [ ! -f .env ]; then
-  echo "ABORT: no .env here ($(pwd))."
+if [ ! -f "$E" ]; then
+  echo "ABORT: no $E here ($(pwd))."
   exit 1
 fi
 
 # One backup, overwritten each run. Every copy holds DEPOSIT_MNEMONIC, so the timestamped naming
 # this replaces left one more plaintext copy of it on the host per run. Copy before deleting; the
 # glob requires a character after `.bak.`, so it cannot match .env.bak itself.
-cp -a .env .env.bak
-chmod 600 .env.bak
-rm -f .env.bak.*
+cp -a "$E" "$E.bak"
+chmod 600 "$E.bak"
+rm -f "$E".bak.*
 
 # Replace in place if present, append if not. sed -i on the file itself, NOT a mv: .env is
 # bind-mounted by inode elsewhere in this stack and moving it silently detaches the mount.
 set_var() {
-  if grep -qE "^$1=" .env; then
-    sed -i "s#^$1=.*#$1=$2#" .env
+  if grep -qE "^$1=" "$E"; then
+    sed -i "s#^$1=.*#$1=$2#" "$E"
   else
-    printf '%s=%s\n' "$1" "$2" >> .env
+    printf '%s=%s\n' "$1" "$2" >> "$E"
   fi
 }
 
 echo "=== before ==="
-grep -E '^(PER_TX|DAILY)_MINT_CAP_CLT=' .env | sed 's/^/    /' || echo "    (unset — compose defaults: 50000000 / 500000000)"
+grep -E '^(PER_TX|DAILY)_MINT_CAP_CLT=' "$E" | sed 's/^/    /' || echo "    (unset — compose defaults: 50000000 / 500000000)"
 
 set_var PER_TX_MINT_CAP_CLT "$PER_TX"
 set_var DAILY_MINT_CAP_CLT "$DAILY"
-chmod 600 .env
+chmod 600 "$E"
 
 echo ""
 echo "=== after ==="
-grep -E '^(PER_TX|DAILY)_MINT_CAP_CLT=' .env | sed 's/^/    /'
+grep -E '^(PER_TX|DAILY)_MINT_CAP_CLT=' "$E" | sed 's/^/    /'
 
 # Recreate treasury-service so it reads the new environment. Only that service: nothing else
 # consumes these, and recreating the whole stack restarts nodes for no reason.
 echo ""
-echo "=== restarting treasury-service ==="
-docker compose -p clutch-stage \
-  -f docker-compose.yml \
-  -f docker-compose.treasury.yml \
-  -f docker-compose.stage.cloudflare-flex.yml \
-  -f docker-compose.stage.treasury.yml \
-  up -d --force-recreate --no-deps treasury-service 2>&1 | tail -5
+echo "=== restarting $CH_SVC_TREASURY ==="
+chain_compose up -d --force-recreate --no-deps "$CH_SVC_TREASURY" 2>&1 | tail -5
 
 echo ""
 echo "=== what the container now sees ==="
 for i in $(seq 1 20); do
-  v=$(docker exec clutch-stage-treasury-service-1 printenv APP_PER_TX_MINT_CAP_CLT 2>/dev/null || true)
-  d=$(docker exec clutch-stage-treasury-service-1 printenv APP_DAILY_MINT_CAP_CLT 2>/dev/null || true)
+  v=$(docker exec "$CH_TREASURY" printenv APP_PER_TX_MINT_CAP_CLT 2>/dev/null || true)
+  d=$(docker exec "$CH_TREASURY" printenv APP_DAILY_MINT_CAP_CLT 2>/dev/null || true)
   if [ -n "$v" ]; then
     echo "    APP_PER_TX_MINT_CAP_CLT=$v"
     echo "    APP_DAILY_MINT_CAP_CLT=$d"
@@ -88,7 +87,7 @@ for i in $(seq 1 20); do
       # relationship elsewhere, and every one of those failures is quiet — a limit that refuses
       # everything, or one that protects nothing, or a burn that cannot be paid.
       echo ""
-      bash scripts/check-cap-invariants.sh
+      ENV_FILE="$E" bash scripts/check-cap-invariants.sh
       exit 0
     fi
     echo "ABORT: the container is not reporting the values just written."
@@ -96,5 +95,5 @@ for i in $(seq 1 20); do
   fi
   sleep 2
 done
-echo "ABORT: treasury-service did not come back up."
+echo "ABORT: $CH_SVC_TREASURY did not come back up."
 exit 1

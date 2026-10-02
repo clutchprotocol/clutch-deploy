@@ -16,8 +16,15 @@ name: Resume minting (stage, clears the breaker)
 on:
   workflow_dispatch:
     inputs:
+      chain:
+        description: "Which treasury"
+        type: choice
+        default: stage
+        options:
+          - stage
+          - mainnet
       confirm:
-        description: 'Type "resume" to confirm clearing the minting breaker'
+        description: 'Type "resume" to confirm clearing the minting breaker (type "resume mainnet" for the mainnet treasury)'
         required: true
         default: ""
 
@@ -30,9 +37,14 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Check the confirmation
+        env:
+          CONFIRM: ${{ inputs.confirm }}
+          CHAIN: ${{ inputs.chain }}
         run: |
-          if [ "${{ inputs.confirm }}" != "resume" ]; then
-            echo "Refusing: confirm was '${{ inputs.confirm }}', expected 'resume'."
+          want="resume"
+          [ "$CHAIN" = "mainnet" ] && want="resume mainnet"
+          if [ "$CONFIRM" != "$want" ]; then
+            echo "::error::confirm must be exactly '$want' for $CHAIN — got '$CONFIRM'"
             exit 1
           fi
 
@@ -41,6 +53,7 @@ jobs:
           SSHPASS: ${{ secrets.STAGE_SSH_PASSWORD }}
           CLUTCH_SSH_HOST: ${{ secrets.STAGE_HOST }}
           CLUTCH_SSH_USER: ${{ secrets.STAGE_USER }}
+          CHAIN: ${{ inputs.chain }}
         run: |
           # Plain ssh, not appleboy/ssh-action. That action downloads a drone-ssh binary from
           # GitHub releases on EVERY run -- unconditionally, there is no skip-if-present -- and on
@@ -55,6 +68,8 @@ jobs:
           command -v sshpass >/dev/null || { sudo apt-get update -qq && sudo apt-get install -y -qq sshpass; }
           R="/tmp/clutch-ci-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
           SSH_OPTS="-o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o ConnectTimeout=30 -o ServerAliveInterval=30"
+          printf 'CHAIN=%q\n' "$CHAIN" > "$RUNNER_TEMP/clutch-env.sh"
+          sshpass -e ssh $SSH_OPTS "$CLUTCH_SSH_USER@$CLUTCH_SSH_HOST" "cat > $R.env" < "$RUNNER_TEMP/clutch-env.sh"
           cat > "$RUNNER_TEMP/clutch-remote.sh" <<'CLUTCH_REMOTE_EOF'
           set -euo pipefail
           cd "${{ secrets.STAGE_DEPLOY_PATH }}"
@@ -64,4 +79,4 @@ jobs:
           sshpass -e ssh $SSH_OPTS "$CLUTCH_SSH_USER@$CLUTCH_SSH_HOST" "cat > $R.sh" < "$RUNNER_TEMP/clutch-remote.sh"
           # Old files from earlier runs are swept here rather than in a cleanup step that
           # a cancelled job would skip.
-          timeout 10m sshpass -e ssh $SSH_OPTS "$CLUTCH_SSH_USER@$CLUTCH_SSH_HOST" "find /tmp -maxdepth 1 -name 'clutch-ci-*' -mtime +1 -delete 2>/dev/null; bash $R.sh"
+          timeout 10m sshpass -e ssh $SSH_OPTS "$CLUTCH_SSH_USER@$CLUTCH_SSH_HOST" "find /tmp -maxdepth 1 -name 'clutch-ci-*' -mtime +1 -delete 2>/dev/null; bash -c 'set -a; . $R.env; set +a; rm -f $R.env; exec bash $R.sh'"

@@ -54,7 +54,18 @@ jobs:
           # stays a wrapper, and git pull runs above the call so the script that runs is the
           # one just pulled. Run with `bash`, not the exec bit — chmod +x on a tracked file
           # reads as a local modification and blocks the next `git pull --ff-only` on this host.
-          bash scripts/backup-treasury-db.sh
+          rc=0
+          bash scripts/backup-treasury-db.sh || rc=1
+          # The mainnet treasury is backed up once it exists, and a mainnet treasury that exists but
+          # cannot be backed up fails the run. Before its first start there is nothing to dump.
+          . scripts/lib/chain.sh
+          chain_select mainnet
+          if docker inspect "$CH_TREASURY_PG" >/dev/null 2>&1; then
+            CHAIN=mainnet bash scripts/backup-treasury-db.sh || rc=1
+          else
+            echo "mainnet treasury: no containers yet, nothing to back up"
+          fi
+          exit "$rc"
           CLUTCH_REMOTE_EOF
           sshpass -e ssh $SSH_OPTS "$CLUTCH_SSH_USER@$CLUTCH_SSH_HOST" "cat > $R.sh" < "$RUNNER_TEMP/clutch-remote.sh"
           # Old files from earlier runs are swept here rather than in a cleanup step that

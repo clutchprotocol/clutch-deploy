@@ -27,8 +27,11 @@ case "$ADDRESS" in
   *) echo "ABORT: '$ADDRESS' is not a TRON base58 address (expected it to start with T)."; exit 1;;
 esac
 
-PG=clutch-stage-treasury-postgres-1
-SIGNER=clutch-stage-tron-signer-1
+. "$(dirname "$0")/lib/chain.sh"
+chain_select "${CHAIN:-stage}" || exit 1
+PG=$CH_TREASURY_PG
+SIGNER=$CH_SIGNER
+echo "treasury: $CH_NAME"
 
 for c in "$PG" "$SIGNER"; do
   if ! docker ps --format '{{.Names}}' | grep -qx "$c"; then

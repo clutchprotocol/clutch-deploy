@@ -16,8 +16,15 @@ on:
       reason:
         description: "Why the float is being activated now. Recorded in this log and nowhere else."
         required: true
+      chain:
+        description: "Which treasury"
+        type: choice
+        default: stage
+        options:
+          - stage
+          - mainnet
       confirm:
-        description: 'Type "activate" to confirm moving money'
+        description: 'Type "activate" to confirm moving money (type "activate mainnet" for the mainnet treasury)'
         required: true
         default: ""
 
@@ -32,9 +39,12 @@ jobs:
       - name: Check the confirmation
         env:
           CONFIRM: ${{ inputs.confirm }}
+          CHAIN: ${{ inputs.chain }}
         run: |
-          if [ "$CONFIRM" != "activate" ]; then
-            echo "Refusing: confirm was '$CONFIRM', expected 'activate'."
+          want="activate"
+          [ "$CHAIN" = "mainnet" ] && want="activate mainnet"
+          if [ "$CONFIRM" != "$want" ]; then
+            echo "::error::confirm must be exactly '$want' for $CHAIN — got '$CONFIRM'"
             exit 1
           fi
 
@@ -53,12 +63,15 @@ jobs:
           SSHPASS: ${{ secrets.STAGE_SSH_PASSWORD }}
           CLUTCH_SSH_HOST: ${{ secrets.STAGE_HOST }}
           CLUTCH_SSH_USER: ${{ secrets.STAGE_USER }}
+          CHAIN: ${{ inputs.chain }}
         run: |
           # The same transport as fund-float.yml: plain ssh, and the script travels as a file.
           set -euo pipefail
           command -v sshpass >/dev/null || { sudo apt-get update -qq && sudo apt-get install -y -qq sshpass; }
           R="/tmp/clutch-ci-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
           SSH_OPTS="-o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o ConnectTimeout=30 -o ServerAliveInterval=30"
+          printf 'CHAIN=%q\n' "$CHAIN" > "$RUNNER_TEMP/clutch-env.sh"
+          sshpass -e ssh $SSH_OPTS "$CLUTCH_SSH_USER@$CLUTCH_SSH_HOST" "cat > $R.env" < "$RUNNER_TEMP/clutch-env.sh"
           cat > "$RUNNER_TEMP/clutch-remote.sh" <<'CLUTCH_REMOTE_EOF'
           set -euo pipefail
           cd "${{ secrets.STAGE_DEPLOY_PATH }}"
@@ -66,4 +79,4 @@ jobs:
           bash scripts/activate-float.sh
           CLUTCH_REMOTE_EOF
           sshpass -e ssh $SSH_OPTS "$CLUTCH_SSH_USER@$CLUTCH_SSH_HOST" "cat > $R.sh" < "$RUNNER_TEMP/clutch-remote.sh"
-          timeout 10m sshpass -e ssh $SSH_OPTS "$CLUTCH_SSH_USER@$CLUTCH_SSH_HOST" "find /tmp -maxdepth 1 -name 'clutch-ci-*' -mtime +1 -delete 2>/dev/null; bash $R.sh"
+          timeout 10m sshpass -e ssh $SSH_OPTS "$CLUTCH_SSH_USER@$CLUTCH_SSH_HOST" "find /tmp -maxdepth 1 -name 'clutch-ci-*' -mtime +1 -delete 2>/dev/null; bash -c 'set -a; . $R.env; set +a; rm -f $R.env; exec bash $R.sh'"
