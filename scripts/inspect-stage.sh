@@ -988,7 +988,7 @@ if [ "$PROBE" = "metrics" ]; then
   # "unreachable" on its own pipeline quirk while the target list says the target is up.
   # The same expressions the Grafana Treasury row uses, so this probe and the dashboard cannot
   # drift into disagreeing about what the numbers are.
-  for q in clutch_treasury_up clutch_treasury_minting_halted            'clutch_treasury_clt_liability / 1000000'            'clutch_treasury_custody_usdt / 1000000'            '100 * clutch_treasury_custody_usdt / clamp_min(clutch_treasury_clt_liability, 1)'            'clutch_treasury_mint_intents{status="credited"}'            'sum(clutch_treasury_mint_intents{status="needs_manual"}) + sum(clutch_orchestrator_deposit_intents{status="needs_manual"})'            clutch_treasury_unswept_deposit_addresses            'clutch_treasury_reconciliation_status{status="ok"}'            clutch_treasury_reconciliation_age_seconds            'sum(increase(clutch_treasury_alerts_total{severity="p1"}[24h])) + sum(increase(clutch_orchestrator_alerts_total{severity="p1"}[24h]))'            clutch_orchestrator_up            'min(up{job=~"mainnet-treasury-service|mainnet-payment-orchestrator"})'            clutch_orchestrator_addresses_never_polled            clutch_treasury_chain_cursor_height            'max(latest_block_index{chain="testnet",role="validator"})' 'max(latest_block_index{chain="mainnet",role="validator"})'            'clutch_treasury_chain_cursor_height - scalar(max(latest_block_index{chain="testnet",role="validator"}))'            'max(delta(latest_block_index{chain="testnet",role="validator"}[5m]))' 'max(delta(latest_block_index{chain="mainnet",role="validator"}[5m]))'            'max(latest_block_index{chain="testnet",role="validator"}) - min(latest_block_index{chain="testnet",role="validator"})' 'max(latest_block_index{chain="mainnet",role="validator"}) - min(latest_block_index{chain="mainnet",role="validator"})'            'count(latest_block{chain="testnet",role="validator"})' 'count(latest_block{chain="mainnet",role="validator"})'            'count(up{chain="testnet",role="validator"} == 0) or vector(0)' 'count(up{chain="mainnet",role="validator"} == 0) or vector(0)' 'count(up{role="hub"} == 1) or vector(0)'; do
+  for q in clutch_treasury_up clutch_treasury_minting_halted            'clutch_treasury_clt_liability / 1000000'            'clutch_treasury_custody_usdt / 1000000'            '100 * clutch_treasury_custody_usdt / clamp_min(clutch_treasury_clt_liability, 1)'            'clutch_treasury_mint_intents{status="credited"}'            'sum(clutch_treasury_mint_intents{status="needs_manual"}) + sum(clutch_orchestrator_deposit_intents{status="needs_manual"})'            clutch_treasury_unswept_deposit_addresses            'clutch_treasury_reconciliation_status{status="ok"}'            clutch_treasury_reconciliation_age_seconds            'sum(increase(clutch_treasury_alerts_total{severity="p1"}[24h])) + sum(increase(clutch_orchestrator_alerts_total{severity="p1"}[24h]))'            clutch_orchestrator_up            'min(up{job=~"mainnet-treasury-service|mainnet-payment-orchestrator"})'            clutch_orchestrator_addresses_never_polled            'clutch_treasury_chain_cursor_height{chain="testnet"}'            'max(latest_block_index{chain="testnet",role="validator"})' 'max(latest_block_index{chain="mainnet",role="validator"})'            'clutch_treasury_chain_cursor_height{chain="testnet"} - scalar(max(latest_block_index{chain="testnet",role="validator"}))' 'clutch_treasury_chain_cursor_height{chain="mainnet"} - scalar(max(latest_block_index{chain="mainnet",role="validator"}))'            'count(up{job=~"treasury-service|payment-orchestrator",chain="testnet"})'            'max(delta(latest_block_index{chain="testnet",role="validator"}[5m]))' 'max(delta(latest_block_index{chain="mainnet",role="validator"}[5m]))'            'max(latest_block_index{chain="testnet",role="validator"}) - min(latest_block_index{chain="testnet",role="validator"})' 'max(latest_block_index{chain="mainnet",role="validator"}) - min(latest_block_index{chain="mainnet",role="validator"})'            'count(latest_block{chain="testnet",role="validator"})' 'count(latest_block{chain="mainnet",role="validator"})'            'count(up{chain="testnet",role="validator"} == 0) or vector(0)' 'count(up{chain="mainnet",role="validator"} == 0) or vector(0)' 'count(up{role="hub"} == 1) or vector(0)'; do
     # '+' is a SPACE in form-encoded data, so any expression adding two terms arrived at
     # Prometheus mangled and came back empty -- which read as "no such metric" rather than "this
     # probe sent nonsense". Encode it.
@@ -1388,9 +1388,11 @@ if [ "$PROBE" = "mainnet-treasury" ]; then
   echo ""
   echo "=== does every treasury service name resolve to exactly one address? ==="
   echo "    (a name that answers with two addresses is two containers behind one name)"
-  dns_count() {  # dns_count <network> <name>
+  dns_count() {  # dns_count <network> <name>: the address count, or ? when the lookup never ran
+    # busybox prints a Server: line as soon as its DNS server answers (NXDOMAIN too). No Server:
+    # line means the container did not run or the image could not be pulled: that is not a 0.
     docker run --rm --network "$1" busybox:1.36 nslookup "$2" 2>/dev/null \
-      | awk '/^Name:/ {f=1} f && /^Address/ {n++} END {print n+0}'
+      | awk '/^Server:/ {s=1} /^Name:/ {f=1} f && /^Address/ {n++} END {print (s ? n+0 : "?")}'
   }
   for pair in "clutch-stage_clutch-network:treasury-service" "clutch-stage_clutch-network:tron-signer" \
               "clutch-stage_clutch-network:payment-orchestrator" "clutch-stage_clutch-network:$CH_SVC_ORCH" \
@@ -1399,6 +1401,7 @@ if [ "$PROBE" = "mainnet-treasury" ]; then
     echo "    $name on $net: $(dns_count "$net" "$name") address(es)"
   done
   echo "    (expected: 1 each, and 0 for $CH_SVC_ORCH on the stage network: it must not be there)"
+  echo "    (a \"?\" means the lookup did not run: busybox could not be pulled or started)"
 
   echo ""
   echo "=== settings (non-secret) ==="
@@ -1407,29 +1410,48 @@ if [ "$PROBE" = "mainnet-treasury" ]; then
               "$CH_ORCH:APP_MAX_REDEMPTION_CLT APP_MIN_REDEMPTION_CLT APP_REDEMPTIONS_ENABLED APP_ALLOWED_ORIGINS APP_TRANSFER_RAIL APP_GASFREE_NETWORK APP_MIN_DEPOSIT_USDT"; do
     c="${pair%%:*}"
     echo "--- $c"
+    docker exec "$c" true 2>/dev/null || { echo "    $c: not running, nothing read"; continue; }
     for k in ${pair#*:}; do
       v=$(docker exec "$c" printenv "$k" 2>/dev/null || true)
-      if [ -n "$v" ]; then echo "    $k=$v"; else echo "    $k=<empty>"; fi
+      if [ -n "$v" ]; then
+        # A URL can hold a key: a user:password@ part, or a path or query (some providers put the API
+        # key there). Print scheme://host[:port] only; a value with no scheme is not shown at all.
+        case "$k" in *_URL) case "$v" in *://*) h="${v#*://}"; h="${h%%[/?#]*}"; v="${v%%://*}://${h##*@}" ;; *) v="<no scheme: not shown>" ;; esac ;; esac
+        echo "    $k=$v"
+      else echo "    $k=<empty>"; fi
     done
   done
   echo "--- secrets: presence only"
-  for pair in "$CH_TREASURY:APP_AZURE_CLIENT_SECRET APP_APPROVER_TOKEN APP_MINT_AUTHORITY_SECRET" \
-              "$CH_SIGNER:APP_DEPOSIT_MNEMONIC APP_SIGNER_TOKEN APP_GASFREE_API_KEY APP_GASFREE_API_SECRET" \
-              "$CH_ORCH:APP_JWT_SECRET APP_TREASURY_INITIATOR_TOKEN"; do
+  # <set> or <empty>, never a length: the length of a mnemonic leaks bits. APP_TRONGRID_API_KEY is
+  # optional (compose ${TRONGRID_API_KEY:-}); empty means TronGrid throttles the polling.
+  sec_down=0
+  for pair in "$CH_TREASURY:APP_AZURE_CLIENT_SECRET APP_APPROVER_TOKEN APP_MINT_AUTHORITY_SECRET APP_TRONGRID_API_KEY" \
+              "$CH_SIGNER:APP_DEPOSIT_MNEMONIC APP_SIGNER_TOKEN APP_GASFREE_API_KEY APP_GASFREE_API_SECRET APP_TRONGRID_API_KEY" \
+              "$CH_ORCH:APP_JWT_SECRET APP_TREASURY_INITIATOR_TOKEN APP_TRONGRID_API_KEY"; do
     c="${pair%%:*}"
+    docker exec "$c" true 2>/dev/null || { echo "    $c: not running, nothing read"; sec_down=1; continue; }
     for k in ${pair#*:}; do
       v=$(docker exec "$c" printenv "$k" 2>/dev/null || true)
-      if [ -n "$v" ]; then echo "    $c $k=<set, ${#v} chars>"; else echo "    $c $k=<empty>"; fi
+      if [ -n "$v" ]; then echo "    $c $k=<set>"; else echo "    $c $k=<empty>"; fi
     done
   done
-  echo "    (APP_MINT_AUTHORITY_SECRET must be <empty>: the mint authority is the KMS key)"
+  if [ "$sec_down" = 0 ]; then
+    echo "    (APP_MINT_AUTHORITY_SECRET must be <empty>: the mint authority is the KMS key)"
+  else
+    echo "    (not checked: a container above is not running)"
+  fi
 
   echo ""
   echo "=== the treasury's own state ==="
   tq "breaker" "select minting_halted, halt_reason, updated_at from breaker_state;"
   tq "last reconciliation runs" "select status, ledger_liability, custody_reported, run_at from reconciliation_runs order by run_at desc limit 5;"
-  tq "open alerts (addresses masked, cut to 70 characters; the log is public)" \
-     "select severity, source, left(regexp_replace(message, 'T[1-9A-HJ-NP-Za-km-z]{33}', '<address>', 'g'), 70) as message, created_at from alerts order by created_at desc limit 6;"
+  # An alert text can hold an address or an id that leads to a user, and this log is public. Both
+  # masks run BEFORE the cut to 70 characters: a cut first would show the start of a longer value.
+  # First a TRON address (T and 33 base58 characters), then any run of 40 or more hex characters
+  # (an 0x address, a hex TRON address, a transaction id). A UUID has hex runs of 12 at most, so it
+  # stays readable.
+  tq "open alerts (TRON addresses and hex ids masked, cut to 70 characters; the log is public)" \
+     "select severity, source, left(regexp_replace(regexp_replace(message, 'T[1-9A-HJ-NP-Za-km-z]{33}', '<address>', 'g'), '(0x)?[0-9A-Fa-f]{40,}', '<hex>', 'g'), 70) as message, created_at from alerts order by created_at desc limit 6;"
   tq "mint intents by status" "select status, count(*), sum(amount_clt) as clt from mint_intents group by status order by status;"
   tq "last mint intents (amounts and times only)" \
      "select left(id::text, 8) as id, status, amount_clt, expected_amount_usdt, swept_at is not null as swept, created_at from mint_intents order by created_at desc limit 8;"
@@ -1440,7 +1462,7 @@ if [ "$PROBE" = "mainnet-treasury" ]; then
 
   echo ""
   echo "=== the GasFree float ==="
-  GFM_F=$(docker exec "$CH_SIGNER" sh -c 'curl -fsS -H "Authorization: Bearer $APP_SIGNER_TOKEN" http://localhost:8093/internal/xpub' 2>/dev/null \
+  GFM_F=$(docker exec "$CH_SIGNER" sh -c 'curl -fsS -m 10 -H "Authorization: Bearer $APP_SIGNER_TOKEN" http://localhost:8093/internal/xpub' 2>/dev/null \
             | sed -n 's/.*"payout_gasfree_address"[ ]*:[ ]*"\([^"]*\)".*/\1/p')
   if [ -z "$GFM_F" ]; then
     echo "    the signer names no GasFree float: GasFree is off in tron-signer, or it is not running"

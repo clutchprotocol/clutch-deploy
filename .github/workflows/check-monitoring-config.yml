@@ -48,6 +48,33 @@ jobs:
             --entrypoint promtool prom/prometheus:v3.1.0 \
             test rules /etc/prometheus/tests/treasury-chains.test.yml
 
+      - name: The treasury jobs carry their chain label
+        run: |
+          set -euo pipefail
+          # The promtool tests write their labels by hand, so they cannot show that the scrape config
+          # really gives each job its `chain` label. TreasuryWatcherCursorStranded selects
+          # {chain="testnet"}: a job that lost the label would make that rule select nothing, and it
+          # would stay silent for ever while every other check here stayed green. So read the label
+          # from the real file. The jobs are written as `- job_name: "<name>"`, and each has a line
+          # `labels: { chain: <chain> }` under it.
+          echo "=== treasury jobs and their chain label (job chain) ==="
+          got=$(awk '
+            function flush() { if (job ~ /(treasury-service|payment-orchestrator)$/) print job, (chain == "" ? "none" : chain) }
+            /^[ ]*#/ { next }
+            /^  - job_name:/ { flush(); job = $0; sub(/^  - job_name:[ ]*/, "", job); gsub(/"/, "", job); chain = ""; next }
+            job != "" && /labels:/ && /chain:/ { v = $0; sub(/.*chain:[ ]*/, "", v); sub(/[ ,}].*/, "", v); chain = v }
+            END { flush() }
+          ' config/monitoring/prometheus/prometheus.yml | LC_ALL=C sort)
+          echo "$got"
+          want=$(printf '%s\n' "mainnet-payment-orchestrator mainnet" "mainnet-treasury-service mainnet" \
+                               "payment-orchestrator testnet" "treasury-service testnet")
+          if [ "$got" != "$want" ]; then
+            echo "::error::prometheus.yml must give exactly these four treasury jobs their chain label (job chain):"
+            echo "$want"
+            exit 1
+          fi
+          echo "all four treasury jobs carry their chain label"
+
       - name: Every alert expression must actually parse and select something nameable
         run: |
           set -euo pipefail
@@ -56,10 +83,11 @@ jobs:
           # a labelled vector against an unlabelled aggregate, which evaluated to empty for ever
           # while reporting healthy. So: list what each rule selects, for a human to read in the
           # diff. Cheap, and the only thing that has ever caught this class here.
+          # Each rule is printed from its `- alert:` line up to its `for:` or `labels:` line, with the
+          # comment lines left out. The line after `- alert:` is not always the expression: a comment
+          # can follow it, and an expression can run over several lines (TreasuryServiceDown has both).
           echo "=== alert expressions ==="
-          grep -hA1 '^      - alert:' config/monitoring/prometheus/rules/*.yml \
-            | grep -E '^\s+(- alert|expr):' \
-            | sed 's/^ *//' || true
+          awk '/^      - alert:/{p=1} /^        (for|labels):/{p=0} p && !/^ *#/' config/monitoring/prometheus/rules/*.yml || true
 
       - name: Compose files must parse, including both mainnet projects
         run: |
