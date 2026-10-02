@@ -25,9 +25,20 @@ on:
       - "scripts/test-check-mainnet-compose.sh"
       - "scripts/lib/chain.sh"
       - "scripts/test-chain.sh"
+      - "scripts/test-chain-names.sh"
+      - "scripts/halt-minting.sh"
+      - "scripts/resume-minting.sh"
+      - "scripts/set-mint-caps.sh"
+      - "scripts/backup-treasury-db.sh"
       - "docker-compose.treasury.yml"
       - "docker-compose.mainnet.treasury.yml"
       - ".env.example"
+      - ".github/workflows/halt-minting.yml"
+      - ".github/workflows/resume-minting.yml"
+      - ".github/workflows/set-mint-caps.yml"
+      - ".github/workflows/activate-float.yml"
+      - ".github/workflows/sweep-address.yml"
+      - ".github/workflows/backup-treasury-db.yml"
       - ".github/workflows/test-treasury-scripts.yml"
   push:
     branches: [main]
@@ -48,9 +59,20 @@ on:
       - "scripts/test-check-mainnet-compose.sh"
       - "scripts/lib/chain.sh"
       - "scripts/test-chain.sh"
+      - "scripts/test-chain-names.sh"
+      - "scripts/halt-minting.sh"
+      - "scripts/resume-minting.sh"
+      - "scripts/set-mint-caps.sh"
+      - "scripts/backup-treasury-db.sh"
       - "docker-compose.treasury.yml"
       - "docker-compose.mainnet.treasury.yml"
       - ".env.example"
+      - ".github/workflows/halt-minting.yml"
+      - ".github/workflows/resume-minting.yml"
+      - ".github/workflows/set-mint-caps.yml"
+      - ".github/workflows/activate-float.yml"
+      - ".github/workflows/sweep-address.yml"
+      - ".github/workflows/backup-treasury-db.yml"
   workflow_dispatch:
 
 jobs:
@@ -76,6 +98,11 @@ jobs:
           bash -n scripts/test-check-mainnet-compose.sh
           bash -n scripts/lib/chain.sh
           bash -n scripts/test-chain.sh
+          bash -n scripts/test-chain-names.sh
+          bash -n scripts/halt-minting.sh
+          bash -n scripts/resume-minting.sh
+          bash -n scripts/set-mint-caps.sh
+          bash -n scripts/backup-treasury-db.sh
       - name: Cap invariants
         if: ${{ !cancelled() }}
         run: bash scripts/test-cap-invariants.sh
@@ -94,3 +121,6 @@ jobs:
       - name: Chain helper
         if: ${{ !cancelled() }}
         run: bash scripts/test-chain.sh
+      - name: Chain-aware tools
+        if: ${{ !cancelled() }}
+        run: bash scripts/test-chain-names.sh
