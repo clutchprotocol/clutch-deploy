@@ -1273,28 +1273,42 @@ if [ "$PROBE" = "gasfree" ]; then
   # the key and the secret are never printed.
   echo ""
   echo "=== GasFree on mainnet (key and secret read from .env.mainnet) ==="
-  GFM_KEY=$(sed -n 's/^GASFREE_API_KEY=//p' .env.mainnet 2>/dev/null | head -1)
-  GFM_SECRET=$(sed -n 's/^GASFREE_API_SECRET=//p' .env.mainnet 2>/dev/null | head -1)
-  GFM_USDT=$(sed -n 's/^USDT_CONTRACT=//p' .env.mainnet 2>/dev/null | head -1)
+  GFM_KEY=$(sed -n 's/^GASFREE_API_KEY=//p' .env.mainnet 2>/dev/null | head -1 | tr -d '\r')
+  GFM_SECRET=$(sed -n 's/^GASFREE_API_SECRET=//p' .env.mainnet 2>/dev/null | head -1 | tr -d '\r')
+  GFM_USDT=$(sed -n 's/^USDT_CONTRACT=//p' .env.mainnet 2>/dev/null | head -1 | tr -d '\r')
   [ -n "$GFM_USDT" ] || GFM_USDT=TR7NHqjeKQxGTCi8q8ZY4pL8otSzgjLj6t
   if [ -z "$GFM_KEY" ] || [ -z "$GFM_SECRET" ]; then
-    echo "    GASFREE_API_KEY / GASFREE_API_SECRET are not in .env.mainnet, so the mainnet fees cannot be read yet."
-    echo "    Apply for the mainnet key at https://developer.gasfree.io/ (the Nile key in .env does not work"
-    echo "    on mainnet), then add both lines to .env.mainnet, unquoted. Never put them in .env."
+    [ -n "$GFM_KEY" ] || echo "    GASFREE_API_KEY is not in .env.mainnet."
+    [ -n "$GFM_SECRET" ] || echo "    GASFREE_API_SECRET is not in .env.mainnet."
+    echo "    So the mainnet fees cannot be read yet."
+    echo "    Get the mainnet key at https://developer.gasfree.io/. The Nile key in .env does not work on mainnet."
+    echo "    Add both lines to .env.mainnet, unquoted, with no spaces. Never put them in .env."
+    echo "    Until GASFREE_NETWORK and the whole GasFree block are set there too, do not start or recreate"
+    echo "    the mainnet tron-signer: it turns GasFree on from the key alone and refuses to start without the network."
   else
     out=$(gf_get https://open.gasfree.io /tron/api/v1/config/token/all "$GFM_KEY" "$GFM_SECRET")
-    if printf '%s' "${out:-}" | grep -q '"code":200'; then
+    if printf '%s' "${out:-}" | grep -Eq '"code" *: *200'; then
       echo "--- the fees for USDT ($GFM_USDT) ---"
-      printf '%s' "$out" | tr '{' '\n' | grep -F "\"tokenAddress\":\"$GFM_USDT\"" | head -1 \
-        | sed -E 's/.*"activateFee":([0-9]+).*"transferFee":([0-9]+).*/\1 \2/' \
-        | awk -v tok="$GFM_USDT" '$1 ~ /^[0-9]+$/ && $2 ~ /^[0-9]+$/ { printf "    activateFee %s (%.6f USDT), once per GasFree address\n    transferFee %s (%.6f USDT), every transfer\n", $1, $1/1000000, $2, $2/1000000; ok=1 } END { if (!ok) print "    could not read the fees of " tok " from the reply: read the raw table below" }'
+      # The address is unique in the table, so match it alone; the sed allows spaces in the JSON.
+      printf '%s' "$out" | tr '{' '\n' | grep -F "$GFM_USDT" | head -1 \
+        | sed -E 's/.*"activateFee" *: *([0-9]+).*"transferFee" *: *([0-9]+).*/\1 \2/' \
+        | awk -v tok="$GFM_USDT" '$1 ~ /^[0-9]+$/ && $2 ~ /^[0-9]+$/ { printf "    activateFee %s (%.6f USDT), once per GasFree address\n    transferFee %s (%.6f USDT), every transfer\n", $1, $1/1000000, $2, $2/1000000; ok=1 } END { if (!ok) print "    could not find the fees of " tok " in the reply (not listed, or another format): read the raw table below" }'
       echo "--- the fee table, raw ---"
       printf '%s' "$out" | tr '{' '\n' | grep -E 'tokenAddress|activateFee|transferFee|symbol' | sed 's/^/    /' | head -20
       echo "--- providers (raw): GASFREE_SERVICE_PROVIDER must pin one of these addresses ---"
-      gf_get https://open.gasfree.io /tron/api/v1/config/provider/all "$GFM_KEY" "$GFM_SECRET" | head -c 1500 | sed 's/^/    /'; echo
+      # Text from the relay is the one thing printed here that this script does not control, so the
+      # key and the secret are cut out of it first, in case a reply ever names them.
+      reply=$(gf_get https://open.gasfree.io /tron/api/v1/config/provider/all "$GFM_KEY" "$GFM_SECRET")
+      reply="${reply//"$GFM_KEY"/KEY_HIDDEN}"
+      reply="${reply//"$GFM_SECRET"/SECRET_HIDDEN}"
+      printf '%s' "$reply" | head -c 1500 | sed 's/^/    /'; echo
     else
-      echo "    the relay did not accept the key. Its reply:"
-      printf '%s\n' "${out:-(no response)}" | head -c 300 | sed 's/^/      /'; echo
+      echo "    the relay did not return a fee table. Its reply:"
+      reply="${out:-(no response)}"
+      reply="${reply//"$GFM_KEY"/KEY_HIDDEN}"
+      reply="${reply//"$GFM_SECRET"/SECRET_HIDDEN}"
+      printf '%s\n' "$reply" | head -c 300 | sed 's/^/      /'; echo
+      echo "    \"Apikey not found.\" means the key is wrong, or it is not a mainnet key."
     fi
   fi
 
