@@ -100,3 +100,32 @@ tests:
               job: treasury-service
             exp_annotations:
               summary: "treasury-service is not answering scrapes"
+
+  # The testnet rule must compare its cursor with the TESTNET head, not with the tallest head of
+  # any chain. Here the mainnet head (6000) is taller than the stranded testnet cursor (3000), and
+  # the rule must still fire. The mainnet cursor (1500) is below both heads, so nothing else fires.
+  - name: a stranded testnet cursor still fires when the mainnet head is taller
+    interval: 1m
+    input_series:
+      - series: 'clutch_treasury_chain_cursor_height{job="treasury-service", chain="testnet"}'
+        values: '3000+0x15'
+      - series: 'latest_block_index{job="node1", chain="testnet", role="validator"}'
+        values: '2000+0x15'
+      - series: 'clutch_treasury_chain_cursor_height{job="mainnet-treasury-service", chain="mainnet"}'
+        values: '1500+0x15'
+      - series: 'latest_block_index{job="mainnet-node1", chain="mainnet", role="validator"}'
+        values: '6000+0x15'
+    alert_rule_test:
+      - eval_time: 10m
+        alertname: TreasuryWatcherCursorStranded
+        exp_alerts:
+          - exp_labels:
+              severity: critical
+              job: treasury-service
+              chain: testnet
+            exp_annotations:
+              summary: "The deposit watcher's cursor is above the chain head"
+              description: "The watcher is crediting nothing and will stay silent until the chain grows past its cursor, then resume having skipped everything below. A mint submitted in that window never becomes confirmed and reconciliation reads it as under-issuance. Almost always a chain reset: the cursor is in Postgres and the chain it counted is gone."
+      - eval_time: 10m
+        alertname: TreasuryWatcherCursorStrandedMainnet
+        exp_alerts: []

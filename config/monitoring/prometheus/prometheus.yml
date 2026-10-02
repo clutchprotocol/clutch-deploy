@@ -110,8 +110,27 @@ scrape_configs:
     scrape_interval: 30s
     static_configs:
       - targets: ["treasury-service:9101"]
+        labels: { chain: testnet }
 
   - job_name: "payment-orchestrator"
     scrape_interval: 30s
     static_configs:
       - targets: ["payment-orchestrator:9102"]
+        labels: { chain: testnet }
+
+  # The MAINNET treasury (docker-compose.mainnet.treasury.yml). Its services have `mainnet-` names
+  # because a second `treasury-service` on a network Prometheus shares with the stage one would
+  # answer next to it, and this job would then scrape either at random. Same ports, same metric
+  # names: the `chain` label and the job name are what tell the two apart. Until the mainnet
+  # treasury has been started these targets are `up == 0`, which TreasuryServiceDown ignores.
+  - job_name: "mainnet-treasury-service"
+    scrape_interval: 30s
+    static_configs:
+      - targets: ["mainnet-treasury-service:9101"]
+        labels: { chain: mainnet }
+
+  - job_name: "mainnet-payment-orchestrator"
+    scrape_interval: 30s
+    static_configs:
+      - targets: ["mainnet-payment-orchestrator:9102"]
+        labels: { chain: mainnet }

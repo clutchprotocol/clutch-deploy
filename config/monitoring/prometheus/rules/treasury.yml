@@ -68,7 +68,15 @@ groups:
       # `up` from the scrape, not the service's own gauge: a service that cannot answer at all
       # cannot report that it is down.
       - alert: TreasuryServiceDown
-        expr: up{job=~"treasury-service|payment-orchestrator"} == 0
+        # A mainnet job counts only once it has been up: until the mainnet treasury is started its
+        # target is `up == 0` for ever, and that is not an outage. After that, a stop pages. The
+        # seven days are about what Prometheus keeps (200 h), so a service down for longer stops
+        # paging by itself; the stage jobs have no such condition.
+        expr: |
+          up{job=~"treasury-service|payment-orchestrator"} == 0
+          or
+          (up{job=~"mainnet-treasury-service|mainnet-payment-orchestrator"} == 0
+            and on(job) max_over_time(up{job=~"mainnet-treasury-service|mainnet-payment-orchestrator"}[7d]) == 1)
         for: 3m
         labels:
           severity: critical
@@ -144,7 +152,10 @@ groups:
       #
       # Scoped to the testnet: this treasury-service watches chain 2077. Unscoped, `max()` would
       # pick whichever chain is taller, and the day the mainnet overtakes the testnet the rule would
-      # start comparing a testnet cursor against a mainnet head. A mainnet treasury gets its own rule.
+      # start comparing a testnet cursor against a mainnet head. The mainnet treasury has its own
+      # rule below, TreasuryWatcherCursorStrandedMainnet; this one is scoped to the testnet series
+      # so a mainnet cursor, scraped under the same metric name, is never compared with the
+      # testnet's head.
       # `scalar()` is load-bearing, not tidiness. Written as a bare `> max(latest_block_index)`
       # this is a vector-to-vector comparison: the left side carries job and instance labels, the
       # aggregate carries none, nothing matches, and the rule evaluates to empty for ever while
@@ -152,7 +163,7 @@ groups:
       # same expression and answering "(no sample yet)" — which is the argument for querying an
       # alert's own expression in the probe rather than trusting that it loaded.
       - alert: TreasuryWatcherCursorStranded
-        expr: clutch_treasury_chain_cursor_height > scalar(max(latest_block_index{chain="testnet",role="validator"}))
+        expr: clutch_treasury_chain_cursor_height{chain="testnet"} > scalar(max(latest_block_index{chain="testnet",role="validator"}))
         for: 2m
         labels:
           severity: critical
@@ -163,6 +174,17 @@ groups:
             cursor, then resume having skipped everything below. A mint submitted in that window
             never becomes confirmed and reconciliation reads it as under-issuance. Almost always a
             chain reset: the cursor is in Postgres and the chain it counted is gone.
+
+      # The same failure on the mainnet chain (chain 1000): the cursor lives in the mainnet treasury's
+      # Postgres and outlives the chain it counted. Silent for ever without this rule.
+      - alert: TreasuryWatcherCursorStrandedMainnet
+        expr: clutch_treasury_chain_cursor_height{chain="mainnet"} > scalar(max(latest_block_index{chain="mainnet",role="validator"}))
+        for: 2m
+        labels:
+          severity: critical
+        annotations:
+          summary: "The mainnet deposit watcher's cursor is above the mainnet chain head"
+          description: "The mainnet treasury's watcher is crediting nothing and will stay silent until the chain grows past its cursor, then resume having skipped everything below. A mint submitted in that window never becomes confirmed. Almost always a chain reset: the cursor is in Postgres and the chain it counted is gone."
 
   - name: orchestrator-deposits
     interval: 30s
