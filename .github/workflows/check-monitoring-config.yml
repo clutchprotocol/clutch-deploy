@@ -39,6 +39,15 @@ jobs:
             --entrypoint promtool prom/prometheus:v3.1.0 \
             check config /etc/prometheus/prometheus.yml
 
+      - name: promtool test rules (the treasury rules are scoped to their chain)
+        run: |
+          set -euo pipefail
+          docker run --rm \
+            -v "$PWD/config/monitoring/prometheus/rules:/etc/prometheus/rules:ro" \
+            -v "$PWD/config/monitoring/prometheus/tests:/etc/prometheus/tests:ro" \
+            --entrypoint promtool prom/prometheus:v3.1.0 \
+            test rules /etc/prometheus/tests/treasury-chains.test.yml
+
       - name: Every alert expression must actually parse and select something nameable
         run: |
           set -euo pipefail
