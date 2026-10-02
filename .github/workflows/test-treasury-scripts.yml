@@ -23,6 +23,10 @@ on:
       - "scripts/test-set-gasfree-settings.sh"
       - "scripts/check-mainnet-compose.sh"
       - "scripts/test-check-mainnet-compose.sh"
+      - "scripts/lib/chain.sh"
+      - "scripts/test-chain.sh"
+      - "docker-compose.treasury.yml"
+      - "docker-compose.mainnet.treasury.yml"
       - ".env.example"
       - ".github/workflows/test-treasury-scripts.yml"
   push:
@@ -42,6 +46,10 @@ on:
       - "scripts/test-set-gasfree-settings.sh"
       - "scripts/check-mainnet-compose.sh"
       - "scripts/test-check-mainnet-compose.sh"
+      - "scripts/lib/chain.sh"
+      - "scripts/test-chain.sh"
+      - "docker-compose.treasury.yml"
+      - "docker-compose.mainnet.treasury.yml"
       - ".env.example"
   workflow_dispatch:
 
@@ -66,6 +74,8 @@ jobs:
           bash -n scripts/test-set-gasfree-settings.sh
           bash -n scripts/check-mainnet-compose.sh
           bash -n scripts/test-check-mainnet-compose.sh
+          bash -n scripts/lib/chain.sh
+          bash -n scripts/test-chain.sh
       - name: Cap invariants
         if: ${{ !cancelled() }}
         run: bash scripts/test-cap-invariants.sh
@@ -81,3 +91,6 @@ jobs:
       - name: Mainnet compose guard
         if: ${{ !cancelled() }}
         run: bash scripts/test-check-mainnet-compose.sh
+      - name: Chain helper
+        if: ${{ !cancelled() }}
+        run: bash scripts/test-chain.sh
