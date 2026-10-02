@@ -8,13 +8,16 @@
 #
 # It starts nothing until every check has passed, in this order: the preflight (the env files),
 # check-cap-invariants.sh on the mainnet file (the limits and the GasFree settings agree), the mainnet
-# chain is up, and the compose file renders (compose names any missing setting). Then it pulls the
-# pinned images, starts the five services, and waits for each to be healthy.
+# chain is up, and the compose file renders (compose's own message is not printed, because it can
+# quote a line of the env file and the log is public: the script prints the command to run on the
+# host). Then it pulls the pinned images of the three app services, starts the five services, and
+# waits for each to be healthy.
 #
-# Safe to run again: `up -d` recreates only what changed. It never runs `down`, never takes `-v`, and
-# has no reset: the treasury's two databases live in volumes of this project, and the chain beside it
-# in project clutch-main. NOTHING reaches the result from outside: no port is published, no stage
-# network is joined, and /payment/ on the mainnet site still answers 503.
+# Safe to run again: `up -d` recreates only what changed, and a changed image pin or a changed value
+# in .env.mainnet recreates that service. It never runs `down`, never takes `-v`, and has no reset:
+# the treasury's two databases live in volumes of this project, and the chain beside it in project
+# clutch-main. NOTHING reaches the result from outside: no port is published, no stage network is
+# joined, and /payment/ on the mainnet site still answers 503.
 
 set -euo pipefail
 
@@ -41,7 +44,7 @@ fi
 echo ""
 echo "=== the mainnet chain is up ==="
 if ! docker network inspect clutch-mainnet >/dev/null 2>&1; then
-  echo "ABORT: the network clutch-mainnet does not exist. Start the chain first (Mainnet — start the chain)."
+  echo "ABORT: the network clutch-mainnet does not exist. Start the chain first, with the workflow 'Mainnet — start the chain (irreversible)'."
   exit 1
 fi
 names=$(docker ps --format '{{.Names}}')
@@ -53,16 +56,27 @@ echo "  clutch-mainnet exists, mainnet-node3 is running"
 
 echo ""
 echo "=== the compose file renders ==="
-chain_compose config -q
+if ! chain_compose config -q 2>/dev/null; then
+  echo "ABORT: the compose file does not render with $CH_ENV_FILE. Its own message is not printed, because the log is public. Run on the host: docker compose -p $CH_PROJECT --env-file $CH_ENV_FILE -f docker-compose.mainnet.treasury.yml config -q"
+  exit 1
+fi
 echo "  ok"
 
 echo ""
 echo "=== pulling the pinned images ==="
-chain_compose pull
+# Only the three app services, never the Postgres image: postgres:16-alpine is a floating tag, and a
+# pull that moved it would make the next `up -d` recreate both databases.
+if ! chain_compose pull "$CH_SVC_TREASURY" "$CH_SVC_SIGNER" "$CH_SVC_ORCH"; then
+  echo "ABORT: pulling the pinned images failed (above). Nothing was started."
+  exit 1
+fi
 
 echo ""
 echo "=== starting ==="
-chain_compose up -d
+if ! chain_compose up -d; then
+  echo "ABORT: docker compose up failed (above). Containers it already started were left running; run PROBE=mainnet-treasury."
+  exit 1
+fi
 
 echo ""
 echo "=== waiting for health ==="
