@@ -11,12 +11,16 @@
 #
 #   bash scripts/check-cap-invariants.sh
 #
-# Reads the live values from .env where set, falling back to the compose defaults, so it checks the
+# Reads the live values from .env (or the file ENV_FILE names) where set, falling back to the compose defaults, so it checks the
 # configuration that will actually run rather than the one in the file you last edited.
 
 set -euo pipefail
 
 cd "$(dirname "$0")/.."
+
+# The file the live values come from: .env (the stage stack) unless ENV_FILE names another, as the
+# mainnet treasury's is .env.mainnet. Relative to the repository root, where this script runs.
+ENV_FILE="${ENV_FILE:-.env}"
 
 fail=0
 note() { printf '  %s\n' "$1"; }
@@ -39,8 +43,8 @@ val() {
   local name="$1" default="$2" v=""
   # Indirect expansion, empty if unset — so an exported value wins without `set -u` killing us.
   v="${!name-}"
-  if [ -z "$v" ] && [ -f .env ]; then
-    v=$(grep -E "^$name=" .env | head -1 | cut -d= -f2- | sed -e 's/^"//' -e 's/"$//' || true)
+  if [ -z "$v" ] && [ -f "$ENV_FILE" ]; then
+    v=$(grep -E "^$name=" "$ENV_FILE" | head -1 | cut -d= -f2- | sed -e 's/^"//' -e 's/"$//' || true)
   fi
   printf '%s' "${v:-$default}"
 }

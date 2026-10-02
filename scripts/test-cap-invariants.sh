@@ -3,7 +3,8 @@
 # the line it prints. CI runs this (test-treasury-scripts.yml) with no .env, no docker, no network.
 #
 # The checker reads .env from its own repository root, so every case runs a copy of it from a temp
-# directory that has none, and passes the values in the environment, which the checker reads first.
+# directory that has no .env unless a case writes one, and passes the values in the environment,
+# which the checker reads first.
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
