@@ -20,9 +20,9 @@
 # # Nothing secret is ever printed
 #
 # The generated mnemonic is piped straight into .env and never touches stdout. What this prints is
-# variable NAMES, and the account xpub plus the fee address -- both public by construction: an
-# xpub derives receive addresses and cannot spend, and the fee address is where an operator sends
-# TRX. The workflow log is readable by anyone with repo access; assume it is public.
+# variable NAMES, the fee address and the payout float address. It never prints the account xpub: an
+# xpub derives every deposit address (and, with one leaked leaf key, the account key), and the
+# workflow log is public. The workflow log is readable by anyone with repo access; assume it is public.
 
 set -euo pipefail
 

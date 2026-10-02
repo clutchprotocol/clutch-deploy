@@ -45,40 +45,44 @@ PF_DIFFER="DEPOSIT_MNEMONIC DEPOSIT_ACCOUNT_XPUB CUSTODY_TRON_ADDRESS PAYOUT_FLO
 pf_ok()  { printf 'OK    %s\n' "$1"; }
 pf_bad() { printf 'FAIL  %s\n' "$1"; PF_FAIL=1; }
 
-# The MAINNET file, plain text: pf_lint has refused everything that is not plain. First match wins,
-# `=` split on the first one only, surrounding double quotes and a CR stripped. Empty when the name is
-# absent: `|| true`, because a grep that matches nothing must not end a script that runs under `set -e`.
+# The MAINNET file, plain text: pf_lint has refused everything that is not plain (a leading quote, a CR,
+# blanks at the ends), so the value is exactly what follows the first `=`. Nothing is stripped: compose
+# keeps a trailing quote, so a secret that ends in one must stay different from the same secret without
+# it. First match wins. Empty when the name is absent: `|| true`, because a grep that matches nothing
+# must not end a script that runs under `set -e`.
 pf_get() {  # pf_get <file> <name>
-  { grep -E "^$2=" "$1" 2>/dev/null | head -1 | cut -d= -f2- | sed -e 's/^"//' -e 's/"$//' | tr -d '\r'; } || true
+  { grep -E "^$2=" "$1" 2>/dev/null | head -1 | cut -d= -f2-; } || true
 }
 
 # The STAGE file, read the way compose reads it, because a secret copied by hand is the same secret to
 # compose even when its text differs: the LAST of a duplicated name wins, a trailing CR and the spaces
-# and tabs around the value go, a value wrapped in one pair of quotes loses them, and an unquoted value
-# stops at a space followed by #. The stage file is not linted (it holds many other settings); this only
-# reads it. Prints the value, or nothing. Simplification: a quoted value followed by a comment keeps its
-# quotes here, which compose would drop.
+# and tabs around the value go, a value that starts with a quote stops at the next quote of the same kind
+# (so a comment after it goes too), and an unquoted value stops at a space followed by #. The stage file
+# is not linted (it holds many other settings); this only reads it. Prints the value, or nothing.
 pf_get_stage() {  # pf_get_stage <file> <name>
-  local v cr=$'\r'
+  local v q cr=$'\r'
   v=$(grep -E "^$2=" "$1" 2>/dev/null | tail -n 1) || true
   v="${v#*=}"
   v="${v%"$cr"}"
   v="${v#"${v%%[![:blank:]]*}"}"
   v="${v%"${v##*[![:blank:]]}"}"
   case "$v" in
-    '"'*'"'|"'"*"'") v="${v#?}"; v="${v%?}" ;;
+    '"'*|"'"*) q="${v:0:1}"; v="${v#?}"; v="${v%%"$q"*}" ;;
     *' #'*) v="${v%% #*}"; v="${v%"${v##*[![:blank:]]}"}" ;;
   esac
   printf '%s' "$v"
 }
 
 # The MAINNET file, line by line. Every line must be blank (spaces and tabs only), a comment (# in
-# column 1) or NAME=value, and a name may be set once. A value must be plain, because compose and the
-# services read it more loosely than its text says: they drop a carriage return and the spaces around
-# it, take quotes off, cut a " #" comment, expand a dollar sign and take the LAST of a duplicated name.
-# A stray line is refused too: `docker compose config` prints the line it cannot parse, and the log of
-# the workflow is public. Prints line numbers and names only, never a line or a value. Returns 1 when it
-# refused something, and sets PF_FAIL through pf_bad like every other check, so it works on its own.
+# column 1) or NAME=value, and a name may be set once. A name is UPPER case, on purpose: a secret pasted
+# on a line of its own (padded base64, say) has an `=` in it, and its text before the `=` is mixed case.
+# That line must be refused as "not NAME=value", and the text before the `=` must not be printed as if it
+# were a name. A value must be plain, because compose and the services read it more loosely than its
+# text says: they drop a carriage return and the spaces around it, take quotes off, cut a " #" comment,
+# expand a dollar sign and take the LAST of a duplicated name. A stray line is refused too: `docker
+# compose config` prints the line it cannot parse, and the log of the workflow is public. Prints line
+# numbers and names only, never a line or a value. Returns 1 when it refused something, and sets
+# PF_FAIL through pf_bad like every other check, so it works on its own.
 pf_lint() {  # pf_lint <file>
   local f="$1" line="" name value n=0 bad=0 seen=" " dups=" " cr=$'\r'
   while IFS= read -r line || [ -n "$line" ]; do
@@ -88,7 +92,7 @@ pf_lint() {  # pf_lint <file>
     name=""; value=""
     case "$line" in *=*) name="${line%%=*}"; value="${line#*=}" ;; esac
     case "$name" in
-      ''|[!A-Za-z_]*|*[!A-Za-z0-9_]*)
+      ''|[!A-Z_]*|*[!A-Z0-9_]*)
         pf_bad "line $n is not blank, a # comment, or NAME=value"; bad=1; continue ;;
     esac
     case "$value" in *"$cr"*) pf_bad "$name has a carriage return (line $n)"; bad=1 ;; esac
@@ -150,9 +154,9 @@ preflight() {  # preflight <mainnet env file> <stage env file>
   for n in $PF_DIFFER; do
     mv=$(pf_get "$m" "$n")
     sv=$(pf_get_stage "$s" "$n")
-    if [ "$n" = DEPOSIT_MNEMONIC ]; then  # tron-signer reads any run of whitespace as one space
-      mv=$(printf '%s' "$mv" | tr -s '[:space:]' ' ')
-      sv=$(printf '%s' "$sv" | tr -s '[:space:]' ' ')
+    if [ "$n" = DEPOSIT_MNEMONIC ]; then  # tron-signer reads any run of whitespace as one space, and trims the ends
+      mv=$(printf '%s' "$mv" | tr -s '[:space:]' ' '); mv="${mv# }"; mv="${mv% }"
+      sv=$(printf '%s' "$sv" | tr -s '[:space:]' ' '); sv="${sv# }"; sv="${sv% }"
     fi
     if [ -n "$mv" ] && [ "$mv" = "$sv" ]; then
       pf_bad "$n is the same in both files (never share secrets between .env and .env.mainnet)"

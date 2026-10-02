@@ -101,6 +101,21 @@ jobs:
             done
           } > /tmp/s.env
           docker compose --env-file /tmp/s.env -f docker-compose.yml -f docker-compose.treasury.yml config --format json > /tmp/stage.json
+
+          # The guard reads these keys by name, and a check that finds nothing passes. So if the shape of
+          # `config --format json` changes (a network name, `internal`, or the `networks` of a service),
+          # the job must stop here, loudly, and not leave the guard green on nothing. The mainnet file
+          # names its networks. The stage file does not, so its network is named after the project, which
+          # here is this folder: the name ends in _clutch-network.
+          jq -e '.networks["treasury-network"].internal == true
+                 and .networks["clutch-network"].name == "clutch-mainnet"
+                 and ([.services["mainnet-treasury-service"].networks, .services["mainnet-tron-signer"].networks,
+                       .services["mainnet-payment-orchestrator"].networks] | map(length) | min) > 0' /tmp/mainnet.json >/dev/null \
+            || { echo "::error::mainnet.json is not the shape the guard reads: networks.treasury-network.internal must be true, networks.clutch-network.name must be clutch-mainnet, and each of the three mainnet app services must have a networks object"; exit 1; }
+          jq -e '(.networks["clutch-network"].name | endswith("_clutch-network"))
+                 and (([.services["treasury-service"].networks, .services["tron-signer"].networks,
+                        .services["payment-orchestrator"].networks] | map(length) | min) > 0)' /tmp/stage.json >/dev/null \
+            || { echo "::error::stage.json is not the shape the guard reads: networks.clutch-network.name must end in _clutch-network, and each of the three stage app services must have a networks object"; exit 1; }
           bash scripts/check-mainnet-compose.sh /tmp/stage.json /tmp/mainnet.json
 
           echo "all compose files parse"
@@ -142,3 +157,13 @@ jobs:
           receives treasury-service $SHARED MIN_DEPOSIT_USDT
           receives payment-orchestrator $SHARED MIN_DEPOSIT_USDT
           receives tron-signer $SHARED GASFREE_API_URL GASFREE_API_KEY GASFREE_API_SECRET GASFREE_SERVICE_PROVIDER PAYOUT_FLOAT_TARGET_USDT
+
+          # The mainnet file is a copy of those three services, so it has lines of its own that can lose
+          # a setting. Same markers, rendered the way the step above renders it (/tmp/t.env: the example
+          # without comments plus the dummy names). The markers come last, so they win.
+          cp /tmp/t.env /tmp/gm.env
+          grep '=marker-' /tmp/g.env >> /tmp/gm.env
+          merged=$(docker compose --env-file /tmp/gm.env -f docker-compose.mainnet.treasury.yml config --format json)
+          receives mainnet-treasury-service $SHARED MIN_DEPOSIT_USDT
+          receives mainnet-payment-orchestrator $SHARED MIN_DEPOSIT_USDT
+          receives mainnet-tron-signer $SHARED GASFREE_API_URL GASFREE_API_KEY GASFREE_API_SECRET GASFREE_SERVICE_PROVIDER PAYOUT_FLOAT_TARGET_USDT

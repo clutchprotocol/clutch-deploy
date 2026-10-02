@@ -122,14 +122,16 @@ else
 fi
 
 # No value from either file is ever printed, even when the check that fails compares it, and
-# neither is the content of a stray line.
+# neither is the content of a stray line, nor the part of one before its first "=" (a pasted secret
+# with an "=" in it: the last stray line below has a mixed-case "name" and a blank value).
 cp "$T/mainnet.env.base" "$T/mainnet.env"; cp "$T/stage.env.base" "$T/stage.env"
 sed -i -e 's/^DEPOSIT_MNEMONIC=.*/DEPOSIT_MNEMONIC=stage mnemonic words/' -e 's/^SIGNER_TOKEN=.*/SIGNER_TOKEN=stage-signer/' "$T/mainnet.env"
 echo "strayfragment+secret" >> "$T/mainnet.env"
+echo "Abc123def= " >> "$T/mainnet.env"
 chmod 600 "$T/mainnet.env" "$T/stage.env"
 code=0; out=$(preflight "$T/mainnet.env" "$T/stage.env" 2>&1) || code=$?
 leak=""
-for secret in "stage mnemonic words" "stage-signer" "main-i" "main-pg1" "jwt-mainnet-x" "client-secret-value" "mainnet mnemonic" "main-backup-pass" "strayfragment+secret"; do
+for secret in "stage mnemonic words" "stage-signer" "main-i" "main-pg1" "jwt-mainnet-x" "client-secret-value" "mainnet mnemonic" "main-backup-pass" "strayfragment+secret" "Abc123def"; do
   printf '%s' "$out" | grep -qF -- "$secret" && leak="$leak [$secret]"
 done
 if [ "$code" -eq 1 ] && [ -z "$leak" ]; then
@@ -194,6 +196,22 @@ check "a stage value with a comment is still the same secret" 1 "SIGNER_TOKEN is
   's/^SIGNER_TOKEN=.*/SIGNER_TOKEN=stage-signer/' \
   's/^SIGNER_TOKEN=.*/SIGNER_TOKEN=stage-signer # the old one/'
 check "a stage JWT secret with a trailing space still matches" 0 "JWT_SECRET matches MAINNET_JWT_SECRET" '' 's/^MAINNET_JWT_SECRET=.*/MAINNET_JWT_SECRET=jwt-mainnet-x /'
+# Cases 40 to 43 close the last reading gaps. A "name" with lower-case letters is a pasted secret that
+# has an "=" in it: the line is refused as not NAME=value, and the text before the "=" is not printed
+# (the leak case above holds the needle). On the stage side a quoted value ends at its closing quote,
+# so a comment after it goes too; the mnemonic is trimmed after its spaces are collapsed; and a trailing
+# double quote is part of a mainnet value, as compose keeps it. The stage sed of case 42 puts a space
+# inside both quotes, on purpose.
+check "a mixed-case stray line is refused and not printed" 1 "is not blank, a # comment, or NAME=value" '$a Abc123def= '
+check "a quoted stage value followed by a comment is still the same secret" 1 "SIGNER_TOKEN is the same in both files" \
+  's/^SIGNER_TOKEN=.*/SIGNER_TOKEN=stage-signer/' \
+  's/^SIGNER_TOKEN=.*/SIGNER_TOKEN="stage-signer" # old/'
+check "a quoted stage mnemonic with spaces inside the quotes is still the same secret" 1 "DEPOSIT_MNEMONIC is the same in both files" \
+  's/^DEPOSIT_MNEMONIC=.*/DEPOSIT_MNEMONIC=stage mnemonic words/' \
+  's/^DEPOSIT_MNEMONIC=.*/DEPOSIT_MNEMONIC=" stage mnemonic words "/'
+check "a trailing double quote is part of the value" 0 "no secret is shared with the stage file" \
+  's/^SIGNER_TOKEN=.*/SIGNER_TOKEN=abc"/' \
+  's/^SIGNER_TOKEN=.*/SIGNER_TOKEN=abc/'
 
 echo ""
 echo "$passed passed, $failed failed"

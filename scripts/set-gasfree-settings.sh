@@ -7,8 +7,9 @@
 #
 # Only settings that are not secrets. GASFREE_API_KEY and GASFREE_API_SECRET are the relay's
 # credentials: this never writes or prints them, and refuses to run until a human has put both in the
-# file — the key without the network is the one state check-cap-invariants.sh refuses, and the
-# network without the key would leave tron-signer on the TRX rail while the other two are not.
+# file as plain values, neither blank nor quoted. The key without the network is the one state
+# check-cap-invariants.sh refuses, and the network without the key would leave tron-signer on the TRX
+# rail while the other two are not.
 #
 # Nile writes the GasFree block with .env.example's values. Mainnet writes the block with the values
 # the maintainer accepted on 2026-10-02 (the live relay fees were 1.50 USDT to activate and 1.50 per
@@ -76,11 +77,17 @@ if [ ! -f "$ENV_FILE" ]; then
   exit 1
 fi
 
-# Presence only: the values are never read into this script.
+# Presence and form only: the values are never read into this script, only matched by grep. A value that
+# is only blanks, or starts with a quote, counts as not there: compose trims the first to nothing and
+# takes the quotes off the second, and the mainnet start refuses both. Only the name is ever printed.
 for k in GASFREE_API_KEY GASFREE_API_SECRET; do
   if ! grep -qE "^$k=.+" "$ENV_FILE"; then
     echo "ABORT: $k is not in $ENV_FILE. Put the relay's key and secret in by hand first, unquoted;"
     echo "  this script never writes them. Nothing was changed."
+    exit 1
+  fi
+  if grep -qE "^$k=([[:blank:]]+\$|[\"'])" "$ENV_FILE"; then
+    echo "ABORT: $k in $ENV_FILE is blank or quoted: put it in as a plain $k=value line. Nothing was changed."
     exit 1
   fi
 done
@@ -121,6 +128,11 @@ echo "=== after ($ENV_FILE) ==="
 grep -E "$PATTERN" "$ENV_FILE" | sed 's/^/    /'
 
 echo ""
-echo "Nothing was restarted. The next deploy or start applies these, and runs this check first:"
+if [ "$NETWORK" = mainnet ]; then
+  echo "Nothing was restarted. Run \"Mainnet — start the treasury\" so that all three services read these values; it runs this check first."
+else
+  echo "Nothing was restarted. The next stage deploy applies these, and runs this check first."
+fi
+echo "If the check below fails, $ENV_FILE is already written: fix the value it names, or restore $ENV_FILE.bak."
 echo ""
 ENV_FILE="$ENV_FILE" bash scripts/check-cap-invariants.sh
