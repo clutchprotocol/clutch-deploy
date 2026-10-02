@@ -1152,8 +1152,22 @@ if [ "$PROBE" = "gasfree" ]; then
   # runs against the real thing.
   #
   # Read-only. It signs a GET and prints fees, which are public. The API key and secret are read
-  # from this host's .env and never printed; a request that fails prints the server's reply, not
-  # the credentials that produced it.
+  # from this host's .env (Nile) and .env.mainnet (mainnet) and never printed; a request that fails
+  # prints the server's reply, not the credentials that produced it.
+
+  # A signed GET to the relay: gf_get <host> <path> <key> <secret>. The key pair is an argument,
+  # never a global, so a mainnet request cannot be signed with the Nile pair by accident.
+  # Per the spec: sign METHOD + PATH + TIMESTAMP with HMAC-SHA256, base64 the digest, and send
+  # it as "ApiKey {key}:{signature}" with the timestamp in its own header. openssl rather than
+  # python so this needs nothing on the host that is not already there.
+  gf_get() {
+    local host="$1" path="$2" key="$3" secret="$4" ts sig
+    ts=$(date +%s)
+    sig=$(printf '%s' "GET${path}${ts}" | openssl dgst -sha256 -hmac "$secret" -binary | base64)
+    curl -s --max-time 20 "${host}${path}" \
+      -H "Timestamp: ${ts}" -H "Authorization: ApiKey ${key}:${sig}"
+  }
+
   echo "=== GasFree fee table ==="
   GF_KEY=$(sed -n 's/^GASFREE_API_KEY=//p' .env 2>/dev/null | head -1)
   GF_SECRET=$(sed -n 's/^GASFREE_API_SECRET=//p' .env 2>/dev/null | head -1)
@@ -1161,20 +1175,12 @@ if [ "$PROBE" = "gasfree" ]; then
     echo "    GASFREE_API_KEY / GASFREE_API_SECRET are not in .env."
     echo "    Add both, unquoted, only together with the whole GasFree block (docs/ON-CALL.md, 'The GasFree rail'): alone, the next stage deploy stops at check-cap-invariants.sh."
   else
-    # Per the spec: sign METHOD + PATH + TIMESTAMP with HMAC-SHA256, base64 the digest, and send
-    # it as "ApiKey {key}:{signature}" with the timestamp in its own header. openssl rather than
-    # python so this needs nothing on the host that is not already there.
-    gf_get() {
-      local host="$1" path="$2" ts sig
-      ts=$(date +%s)
-      sig=$(printf '%s' "GET${path}${ts}" | openssl dgst -sha256 -hmac "$GF_SECRET" -binary | base64)
-      curl -s --max-time 20 "${host}${path}" \
-        -H "Timestamp: ${ts}" -H "Authorization: ApiKey ${GF_KEY}:${sig}"
-    }
-    for net in "nile https://open-test.gasfree.io /nile" "mainnet https://open.gasfree.io /tron"; do
+    # The Nile pair only. Mainnet has its own key pair, read below from .env.mainnet: the Nile pair
+    # answers "Apikey not found." there.
+    for net in "nile https://open-test.gasfree.io /nile"; do
       set -- $net
       echo "--- $1 ---"
-      out=$(gf_get "$2" "$3/api/v1/config/token/all")
+      out=$(gf_get "$2" "$3/api/v1/config/token/all" "$GF_KEY" "$GF_SECRET")
       # Print each token's fees in whole USDT as well as the raw smallest-unit figure, because
       # "10000000" read at a glance is the mistake this probe exists to prevent.
       printf '%s' "$out" | tr '{' '\n' | grep -E 'tokenAddress|activateFee|transferFee|symbol' \
@@ -1188,9 +1194,9 @@ if [ "$PROBE" = "gasfree" ]; then
       # address GASFREE_SERVICE_PROVIDER must pin. The account is the SDK's own public test wallet,
       # never one of ours; both calls are reads.
       echo "    providers (raw):"
-      gf_get "$2" "$3/api/v1/config/provider/all" | head -c 1500 | sed 's/^/      /'; echo
+      gf_get "$2" "$3/api/v1/config/provider/all" "$GF_KEY" "$GF_SECRET" | head -c 1500 | sed 's/^/      /'; echo
       echo "    account reply for the SDK test wallet TMVQGm1qAQYVdetCeGRRkTWYYrLXuHK2HC (raw):"
-      gf_get "$2" "$3/api/v1/address/TMVQGm1qAQYVdetCeGRRkTWYYrLXuHK2HC" | head -c 1500 | sed 's/^/      /'; echo
+      gf_get "$2" "$3/api/v1/address/TMVQGm1qAQYVdetCeGRRkTWYYrLXuHK2HC" "$GF_KEY" "$GF_SECRET" | head -c 1500 | sed 's/^/      /'; echo
     done
     # What this host is set to, against the live network (the design's §7). The network is the one
     # in .env; with GASFREE_NETWORK unset GasFree is off here and there is nothing to compare.
@@ -1212,7 +1218,7 @@ if [ "$PROBE" = "gasfree" ]; then
       GF_ACT=$(sed -n 's/^GASFREE_ACTIVATE_FEE_MAX_USDT=//p' .env 2>/dev/null | head -1)
       GF_XFER=$(sed -n 's/^GASFREE_TRANSFER_FEE_MAX_USDT=//p' .env 2>/dev/null | head -1)
       echo "--- live fees against the maxima ---"
-      gf_get "$GF_HOST" "$GF_PREFIX/api/v1/config/token/all" \
+      gf_get "$GF_HOST" "$GF_PREFIX/api/v1/config/token/all" "$GF_KEY" "$GF_SECRET" \
         | bash scripts/gasfree-fee-check.sh "$GF_TOKEN" "${GF_ACT:-0}" "${GF_XFER:-0}" | sed 's/^/    /'
       # The tripwire's own reads, from inside the signer, so they use the TronGrid the sweeps use.
       # An expected value that is unset prints as unset: copy the live one in at switch-on.
@@ -1260,6 +1266,82 @@ if [ "$PROBE" = "gasfree" ]; then
     echo ""
     echo "    Fees are in the token's smallest unit. For USDT, 1000000 = 1 USDT."
   fi
+
+  # Mainnet has its own API key pair, kept in .env.mainnet and never shared with .env. This reads the
+  # relay's fee table and provider list with it, and GasFree's code on mainnet from TronGrid, so the
+  # mainnet maxima and the minimum deposit can be decided from what the relay charges. Read-only;
+  # the key and the secret are never printed.
+  echo ""
+  echo "=== GasFree on mainnet (key and secret read from .env.mainnet) ==="
+  GFM_KEY=$(sed -n 's/^GASFREE_API_KEY=//p' .env.mainnet 2>/dev/null | head -1 | tr -d '\r')
+  GFM_SECRET=$(sed -n 's/^GASFREE_API_SECRET=//p' .env.mainnet 2>/dev/null | head -1 | tr -d '\r')
+  GFM_USDT=$(sed -n 's/^USDT_CONTRACT=//p' .env.mainnet 2>/dev/null | head -1 | tr -d '\r')
+  [ -n "$GFM_USDT" ] || GFM_USDT=TR7NHqjeKQxGTCi8q8ZY4pL8otSzgjLj6t
+  if [ -z "$GFM_KEY" ] || [ -z "$GFM_SECRET" ]; then
+    [ -n "$GFM_KEY" ] || echo "    GASFREE_API_KEY is not in .env.mainnet."
+    [ -n "$GFM_SECRET" ] || echo "    GASFREE_API_SECRET is not in .env.mainnet."
+    echo "    So the mainnet fees cannot be read yet."
+    echo "    Get the mainnet key at https://developer.gasfree.io/. The Nile key in .env does not work on mainnet."
+    echo "    Add both lines to .env.mainnet, unquoted, with no spaces. Never put them in .env."
+    echo "    Until GASFREE_NETWORK and the whole GasFree block are set there too, do not start or recreate"
+    echo "    the mainnet tron-signer: it turns GasFree on from the key alone and refuses to start without the network."
+  else
+    out=$(gf_get https://open.gasfree.io /tron/api/v1/config/token/all "$GFM_KEY" "$GFM_SECRET")
+    if printf '%s' "${out:-}" | grep -Eq '"code" *: *200'; then
+      echo "--- the fees for USDT ($GFM_USDT) ---"
+      # The address is unique in the table, so match it alone; the sed allows spaces in the JSON.
+      printf '%s' "$out" | tr '{' '\n' | grep -F "$GFM_USDT" | head -1 \
+        | sed -E 's/.*"activateFee" *: *([0-9]+).*"transferFee" *: *([0-9]+).*/\1 \2/' \
+        | awk -v tok="$GFM_USDT" '$1 ~ /^[0-9]+$/ && $2 ~ /^[0-9]+$/ { printf "    activateFee %s (%.6f USDT), once per GasFree address\n    transferFee %s (%.6f USDT), every transfer\n", $1, $1/1000000, $2, $2/1000000; ok=1 } END { if (!ok) print "    could not find the fees of " tok " in the reply (not listed, or another format): read the raw table below" }'
+      echo "--- the fee table, raw ---"
+      printf '%s' "$out" | tr '{' '\n' | grep -E 'tokenAddress|activateFee|transferFee|symbol' | sed 's/^/    /' | head -20
+      echo "--- providers (raw): GASFREE_SERVICE_PROVIDER must pin one of these addresses ---"
+      # Text from the relay is the one thing printed here that this script does not control, so the
+      # key and the secret are cut out of it first, in case a reply ever names them.
+      reply=$(gf_get https://open.gasfree.io /tron/api/v1/config/provider/all "$GFM_KEY" "$GFM_SECRET")
+      reply="${reply//"$GFM_KEY"/KEY_HIDDEN}"
+      reply="${reply//"$GFM_SECRET"/SECRET_HIDDEN}"
+      printf '%s' "$reply" | head -c 1500 | sed 's/^/    /'; echo
+    else
+      echo "    the relay did not return a fee table. Its reply:"
+      reply="${out:-(no response)}"
+      reply="${reply//"$GFM_KEY"/KEY_HIDDEN}"
+      reply="${reply//"$GFM_SECRET"/SECRET_HIDDEN}"
+      printf '%s\n' "$reply" | head -c 300 | sed 's/^/      /'; echo
+      echo "    \"Apikey not found.\" means the key is wrong, or it is not a mainnet key."
+    fi
+  fi
+
+  # GasFree's code on mainnet, read from the host through TronGrid, against the reviewed values:
+  # .env.mainnet's own if it has them, else the ones in .env.mainnet.example. This needs no key.
+  echo "--- GasFree's mainnet code against the reviewed values ---"
+  GFM_TRONGRID=$(sed -n 's/^TRONGRID_URL=//p' .env.mainnet 2>/dev/null | head -1)
+  [ -n "$GFM_TRONGRID" ] || GFM_TRONGRID=https://api.trongrid.io
+  for pair in "beacon TSP9UW6FQhT76XD2jWA6ipGMx3yGbjDffP GASFREE_EXPECTED_IMPLEMENTATION" \
+              "controller TFFAMQLZybALaLb4uxHA9RBE7pxhUAjF3U GASFREE_EXPECTED_CONTROLLER_IMPLEMENTATION"; do
+    set -- $pair
+    word=$(curl -fsS --max-time 20 -X POST "$GFM_TRONGRID/wallet/triggerconstantcontract" \
+             -H 'Content-Type: application/json' \
+             -d "{\"owner_address\":\"$2\",\"contract_address\":\"$2\",\"function_selector\":\"implementation()\",\"visible\":true}" \
+             2>/dev/null | sed -n 's/.*"constant_result"[ ]*:[ ]*\["\([0-9a-fA-F]*\)".*/\1/p')
+    live="${word:24:40}"
+    live="${live,,}"
+    want=$(sed -n "s/^$3=//p" .env.mainnet 2>/dev/null | head -1)
+    src=.env.mainnet
+    if [ -z "$want" ]; then
+      want=$(sed -n "s/^# $3=//p" .env.mainnet.example 2>/dev/null | head -1)
+      src=.env.mainnet.example
+    fi
+    want="${want#0x}"
+    want="${want,,}"
+    if [ -z "$live" ]; then
+      echo "    $1 $2: implementation() unreadable (TronGrid did not answer; it may be rate-limiting this host)"
+    elif [ "$live" = "$want" ]; then
+      echo "    $1 $2 runs $live -- the reviewed value in $src"
+    else
+      echo "    $1 $2 runs $live -- NOT the reviewed value in $src ('${want:-none}'): do not switch GasFree on until someone has read the new code"
+    fi
+  done
 fi
 
 # Always succeed. This is a read-only probe whose OUTPUT is the deliverable — a trailing non-zero
