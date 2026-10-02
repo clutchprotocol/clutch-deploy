@@ -141,7 +141,9 @@ tests:
   # the tallest of both, and the mainnet cursor (7000) sits between the two heads: above its own
   # head (6000), below the testnet one. The twin must fire. If it lost its chain="mainnet" scope, or
   # used the testnet head, it would compare 7000 with 9000 and stay silent. The testnet cursor
-  # (1000) is below its own head, so the testnet rule says nothing.
+  # (6500) is above the mainnet head and below its own (9000): a twin whose CURSOR lost its
+  # chain="mainnet" scope would match that series too and fire a second alert, and the testnet rule
+  # says nothing, because 6500 is below 9000.
   - name: a mainnet cursor between the heads fires the twin when the testnet head is taller
     interval: 1m
     input_series:
@@ -150,7 +152,7 @@ tests:
       - series: 'latest_block_index{job="mainnet-node1", chain="mainnet", role="validator"}'
         values: '6000+0x15'
       - series: 'clutch_treasury_chain_cursor_height{job="treasury-service", chain="testnet"}'
-        values: '1000+0x15'
+        values: '6500+0x15'
       - series: 'latest_block_index{job="node1", chain="testnet", role="validator"}'
         values: '9000+0x15'
     alert_rule_test:
