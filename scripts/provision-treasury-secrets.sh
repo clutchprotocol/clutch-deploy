@@ -190,6 +190,25 @@ else
   echo "        gh secret set TRONGRID_API_KEY --repo clutchprotocol/clutch-deploy"
 fi
 
+# Where the mainnet dumps go: stage's rclone remote, in a folder of its own (mainnet_backup_remote).
+# Only for a file other than .env, and only when it has none: a remote of your own, put in by hand
+# first, wins. The value is not printed. The log is public, and it says where the backups live.
+if [ "$ENV_FILE" != ".env" ] && [ -f .env ]; then
+  . "$(dirname "$0")/lib/chain.sh"
+  echo ""
+  echo "=== backup remote ==="
+  if has BACKUP_REMOTE; then
+    echo "    BACKUP_REMOTE: already set, left alone"
+  elif remote=$(mainnet_backup_remote "$(sed -n 's/^BACKUP_REMOTE=//p' .env | head -1)"); then
+    echo "BACKUP_REMOTE=$remote" >> "$ENV_FILE"
+    echo "    BACKUP_REMOTE: written (stage's remote with /mainnet added; not printed, this log is public)"
+  else
+    echo "    BACKUP_REMOTE: not written. .env has none, or its value cannot be extended safely."
+    echo "      Put one in by hand as a plain BACKUP_REMOTE=name:path line. Until then the mainnet"
+    echo "      dumps stay on this disk."
+  fi
+fi
+
 echo ""
 echo "=== generated secrets ==="
 for v in $GENERATED; do

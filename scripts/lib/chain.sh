@@ -84,3 +84,17 @@ chain_compose() {
   while IFS= read -r a; do args+=("$a"); done < <(chain_compose_args)
   docker compose "${args[@]}" "$@"
 }
+
+# mainnet_backup_remote <stage's BACKUP_REMOTE>: where the mainnet dumps go when the operator has no
+# remote of their own -- the same rclone remote as stage, in a folder named mainnet. Prints it.
+# Prints nothing and returns 1 when it cannot be derived safely: an empty value, a remote root
+# (`name:`, which has no folder to add to), or a character outside what the env file takes as a plain
+# value (a space, a quote that is not the surrounding pair, `$`, a backtick).
+mainnet_backup_remote() {
+  local s="$1"
+  s="${s#\"}"; s="${s%\"}"; s="${s%/}"
+  case "$s" in
+    ''|*:|*[!A-Za-z0-9_./:@+=-]*) return 1 ;;
+  esac
+  printf '%s/mainnet\n' "$s"
+}

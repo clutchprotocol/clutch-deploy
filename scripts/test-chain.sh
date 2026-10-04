@@ -140,6 +140,19 @@ check "chain_compose without chain_select refuses" "refused" "$(compose_unselect
 check "a refused chain_select clears the earlier names" "[]" "$(name_after_refusal)"
 check "every compose file the arguments name exists" "" "$(missing_files_of stage)$(missing_files_of mainnet)"
 
+# The mainnet dumps' remote, derived from stage's. REFUSED when it cannot be derived safely.
+remote_of() { ( . scripts/lib/chain.sh; mainnet_backup_remote "$1" || echo REFUSED ); }
+check "mainnet backup remote is a folder under stage's remote" "r2:bucket/mainnet" "$(remote_of r2:bucket)"
+check "mainnet backup remote keeps stage's own folder" "r2:bucket/path/mainnet" "$(remote_of r2:bucket/path)"
+check "mainnet backup remote does not double a trailing slash" "r2:bucket/mainnet" "$(remote_of r2:bucket/)"
+check "mainnet backup remote drops the surrounding quotes" "r2:bucket/mainnet" "$(remote_of '"r2:bucket"')"
+check "mainnet backup remote differs from stage's" "differs" "$([ "$(remote_of r2:bucket)" != r2:bucket ] && echo differs)"
+check "mainnet backup remote refuses an empty value" "REFUSED" "$(remote_of '')"
+check "mainnet backup remote refuses a remote root" "REFUSED" "$(remote_of 'r2:')"
+check "mainnet backup remote refuses a space" "REFUSED" "$(remote_of 'r2:my bucket')"
+check "mainnet backup remote refuses a dollar sign" "REFUSED" "$(remote_of 'r2:$bucket')"
+check "mainnet backup remote refuses a lone quote" "REFUSED" "$(remote_of "r2:buck'et")"
+
 echo ""
 echo "$passed passed, $failed failed"
 [ "$failed" -eq 0 ]
