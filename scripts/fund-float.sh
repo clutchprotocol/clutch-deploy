@@ -38,7 +38,7 @@ fi
 echo "=== the two addresses, from the signer itself ==="
 docker exec "$SIGNER" sh -c \
   "curl -fsS -H \"Authorization: Bearer \$APP_SIGNER_TOKEN\" http://localhost:8093/internal/xpub" \
-  2>/dev/null | sed 's/,/,\n    /g' | sed 's/^/    /' || echo "    (could not read /internal/xpub)"
+  2>/dev/null | sed 's/,/,\n    /g' | grep -v '"account_xpub"' | sed 's/^/    /' || echo "    (could not read /internal/xpub)"
 
 echo ""
 echo "=== moving the fee account's USDT to the payout float ==="

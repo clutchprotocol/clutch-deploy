@@ -118,3 +118,39 @@ under a bad restore rather than a substitute for checking.
 - **`.env`.** It holds `DEPOSIT_MNEMONIC` today, so backing it up means copying the mnemonic
   around, which is the problem readiness item D2 is about rather than a thing to solve with more
   copies. It stops being a question once the KMS work in A1 and A2 lands.
+
+## Mainnet
+
+The nightly workflow also backs up the mainnet treasury's two databases. It does this once the
+mainnet treasury has been started for the first time. The script then runs with `CHAIN=mainnet`.
+
+- The dumps are written to `backups/mainnet` on the host. The stage dumps stay in `backups`.
+- They are copied to the remote named in `.env.mainnet`.
+- **`.env.mainnet` has its own `BACKUP_PASSPHRASE`, `BACKUP_REMOTE` and database passwords.**
+  Nothing is shared with `.env`.
+- `Mainnet — start the treasury` refuses a passphrase or a remote that is equal to the stage one.
+  So one leaked secret cannot open the dumps of both stacks.
+- Each run prunes only its own directory: it keeps the newest `BACKUP_RETAIN` files of each
+  database there. The two chains write to two directories, `backups` and `backups/mainnet`. So the
+  two runs cannot delete each other's files.
+
+Set `BACKUP_PASSPHRASE` and `BACKUP_REMOTE` in `.env.mainnet` before the first start. The nightly
+backup aborts without the passphrase, and the start refuses.
+
+Put both in by hand, as plain `NAME=value` lines. Use no quote marks, no `$`, no backtick, no space
+followed by `#`, and no space at the start or the end of the value. The file mode stays 600. Keep a
+copy of the passphrase somewhere that is not the host.
+
+`BACKUP_REMOTE` is optional. Without it, the run prints a WARNING and still succeeds. The dumps then
+stay on the host disk, which does not satisfy readiness item D1.
+
+A mainnet treasury database that exists but is stopped cannot be dumped. The run prints
+`mainnet treasury: clutch-main-treasury-treasury-postgres-1 exists but is not running: NOT backed up`
+and fails. It dumps nothing, so it leaves no partial file. If you stop the whole mainnet treasury on
+purpose, the nightly run therefore fails every night.
+
+The restore rehearsal (`rehearse-restore.yml`) is stage-only so far. Rehearse a mainnet restore
+before the first real deposit.
+
+`.env.mainnet` is not in these backups. It holds the mainnet `DEPOSIT_MNEMONIC`: see "What this
+does not cover" above.

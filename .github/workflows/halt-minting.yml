@@ -24,8 +24,15 @@ on:
         description: 'Why (recorded in halt_reason — letters, digits, spaces and . _ , : ; ( ) / - only)'
         required: true
         type: string
+      chain:
+        description: "Which treasury"
+        type: choice
+        default: stage
+        options:
+          - stage
+          - mainnet
       confirm:
-        description: 'Type "halt" to confirm stopping new mints'
+        description: 'Type "halt" to confirm stopping new mints (type "halt mainnet" for the mainnet treasury)'
         required: true
         type: string
 
@@ -38,10 +45,16 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Check the confirmation
-        if: ${{ inputs.confirm != 'halt' }}
+        env:
+          CONFIRM: ${{ inputs.confirm }}
+          CHAIN: ${{ inputs.chain }}
         run: |
-          echo "::error::confirm must be exactly 'halt' — got '${{ inputs.confirm }}'"
-          exit 1
+          want="halt"
+          [ "$CHAIN" = "mainnet" ] && want="halt mainnet"
+          if [ "$CONFIRM" != "$want" ]; then
+            echo "::error::confirm must be exactly '$want' for $CHAIN — got '$CONFIRM'"
+            exit 1
+          fi
 
       - name: Halt via SSH
         env:
@@ -52,6 +65,7 @@ jobs:
           # cannot become part of the command that runs. The script validates it again on the
           # host, because a workflow input is not a trusted string.
           HALT_REASON: ${{ inputs.reason }}
+          CHAIN: ${{ inputs.chain }}
         run: |
           # Plain ssh, not appleboy/ssh-action. That action downloads a drone-ssh binary from
           # GitHub releases on EVERY run -- unconditionally, there is no skip-if-present -- and on
@@ -71,7 +85,7 @@ jobs:
           # input gave us, kept deliberately: a workflow input must not be able to become part of
           # the command that runs. The file is deleted on the host the moment it has been read.
           : > "$RUNNER_TEMP/clutch-env.sh"
-          for v in HALT_REASON; do printf '%s=%q\n' "$v" "${!v-}" >> "$RUNNER_TEMP/clutch-env.sh"; done
+          for v in HALT_REASON CHAIN; do printf '%s=%q\n' "$v" "${!v-}" >> "$RUNNER_TEMP/clutch-env.sh"; done
           sshpass -e ssh $SSH_OPTS "$CLUTCH_SSH_USER@$CLUTCH_SSH_HOST" "cat > $R.env" < "$RUNNER_TEMP/clutch-env.sh"
           cat > "$RUNNER_TEMP/clutch-remote.sh" <<'CLUTCH_REMOTE_EOF'
           set -euo pipefail

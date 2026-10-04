@@ -38,8 +38,11 @@ if [ "${#REASON}" -gt 200 ]; then
   exit 1
 fi
 
-PG=clutch-stage-treasury-postgres-1
-SVC=clutch-stage-treasury-service-1
+. "$(dirname "$0")/lib/chain.sh"
+chain_select "${CHAIN:-stage}" || exit 1
+PG=$CH_TREASURY_PG
+SVC=$CH_TREASURY
+echo "treasury: $CH_NAME"
 
 echo "=== breaker before ==="
 docker exec "$PG" psql -U treasury -d treasury \
@@ -82,7 +85,7 @@ if [ "$NOW" = "t" ]; then
   echo "minting is halted. Deposits are still credited and the reserve total is still correct;"
   echo "no new CLT is being issued."
   echo ""
-  echo "To clear it: Actions -> Resume minting (stage). That refuses while the latest"
+  echo "To clear it: Actions -> Resume minting, and choose chain $CH_NAME. That refuses while the latest"
   echo "reconciliation is still a mismatch, which is deliberate — see docs/ON-CALL.md."
   exit 0
 fi

@@ -1,0 +1,213 @@
+# promtool test rules: the treasury rules and the two chains. Run by check-monitoring-config.yml.
+#
+#   promtool test rules config/monitoring/prometheus/tests/treasury-chains.test.yml
+#
+# The stage and the mainnet treasury export the same metric names, so a rule that selects by name
+# alone sees both. TreasuryWatcherCursorStranded compares a cursor with the TESTNET head: with the
+# mainnet treasury scraped, a healthy mainnet cursor above the testnet's height would fire it.
+# TreasuryServiceDown must not page for a mainnet treasury that has never been started (its scrape
+# target is `up == 0` for ever), and must page once one that ran stops answering: the treasury
+# service and the orchestrator alike, and also when the stop is two days old (the rule remembers
+# 7 days). The twin, TreasuryWatcherCursorStrandedMainnet, must compare the mainnet cursor with the
+# MAINNET head, also when the testnet head is the taller one.
+#
+# These tests write their labels by hand, so they cannot show that the scrape config really gives
+# each job its `chain` label. The step "The treasury jobs carry their chain label" of
+# check-monitoring-config.yml reads prometheus.yml for that.
+
+rule_files:
+  - ../rules/treasury.yml
+
+evaluation_interval: 1m
+
+tests:
+  - name: a mainnet cursor above the testnet head, below its own, fires neither cursor rule
+    interval: 1m
+    input_series:
+      - series: 'clutch_treasury_chain_cursor_height{job="mainnet-treasury-service", chain="mainnet"}'
+        values: '5000+0x15'
+      - series: 'latest_block_index{job="mainnet-node1", chain="mainnet", role="validator"}'
+        values: '6000+0x15'
+      - series: 'clutch_treasury_chain_cursor_height{job="treasury-service", chain="testnet"}'
+        values: '1000+0x15'
+      - series: 'latest_block_index{job="node1", chain="testnet", role="validator"}'
+        values: '2000+0x15'
+    alert_rule_test:
+      - eval_time: 10m
+        alertname: TreasuryWatcherCursorStranded
+        exp_alerts: []
+      - eval_time: 10m
+        alertname: TreasuryWatcherCursorStrandedMainnet
+        exp_alerts: []
+
+  - name: a mainnet cursor above the mainnet head fires the mainnet rule only
+    interval: 1m
+    input_series:
+      - series: 'clutch_treasury_chain_cursor_height{job="mainnet-treasury-service", chain="mainnet"}'
+        values: '7000+0x15'
+      - series: 'latest_block_index{job="mainnet-node1", chain="mainnet", role="validator"}'
+        values: '6000+0x15'
+      - series: 'clutch_treasury_chain_cursor_height{job="treasury-service", chain="testnet"}'
+        values: '1000+0x15'
+      - series: 'latest_block_index{job="node1", chain="testnet", role="validator"}'
+        values: '2000+0x15'
+    alert_rule_test:
+      - eval_time: 10m
+        alertname: TreasuryWatcherCursorStrandedMainnet
+        exp_alerts:
+          - exp_labels:
+              severity: critical
+              job: mainnet-treasury-service
+              chain: mainnet
+            exp_annotations:
+              summary: "The mainnet deposit watcher's cursor is above the mainnet chain head"
+              description: "The mainnet treasury's watcher is crediting nothing and will stay silent until the chain grows past its cursor, then resume having skipped everything below. A mint submitted in that window never becomes confirmed. Almost always a chain reset: the cursor is in Postgres and the chain it counted is gone."
+      - eval_time: 10m
+        alertname: TreasuryWatcherCursorStranded
+        exp_alerts: []
+
+  - name: a mainnet treasury that has never been started does not page
+    interval: 1m
+    input_series:
+      - series: 'up{job="mainnet-treasury-service"}'
+        values: '0+0x30'
+      - series: 'up{job="mainnet-payment-orchestrator"}'
+        values: '0+0x30'
+    alert_rule_test:
+      - eval_time: 20m
+        alertname: TreasuryServiceDown
+        exp_alerts: []
+
+  - name: a mainnet treasury that ran and then stopped answering pages
+    interval: 1m
+    input_series:
+      - series: 'up{job="mainnet-treasury-service"}'
+        values: '1+0x9 0+0x20'
+    alert_rule_test:
+      - eval_time: 25m
+        alertname: TreasuryServiceDown
+        exp_alerts:
+          - exp_labels:
+              severity: critical
+              job: mainnet-treasury-service
+            exp_annotations:
+              summary: "mainnet-treasury-service is not answering scrapes"
+
+  - name: a stage treasury that stops answering still pages
+    interval: 1m
+    input_series:
+      - series: 'up{job="treasury-service"}'
+        values: '0+0x30'
+    alert_rule_test:
+      - eval_time: 20m
+        alertname: TreasuryServiceDown
+        exp_alerts:
+          - exp_labels:
+              severity: critical
+              job: treasury-service
+            exp_annotations:
+              summary: "treasury-service is not answering scrapes"
+
+  # The testnet rule must compare its cursor with the TESTNET head, not with the tallest head of
+  # any chain. Here the mainnet head (6000) is taller than the stranded testnet cursor (3000), and
+  # the rule must still fire. The mainnet cursor (1500) is below both heads, so nothing else fires.
+  - name: a stranded testnet cursor still fires when the mainnet head is taller
+    interval: 1m
+    input_series:
+      - series: 'clutch_treasury_chain_cursor_height{job="treasury-service", chain="testnet"}'
+        values: '3000+0x15'
+      - series: 'latest_block_index{job="node1", chain="testnet", role="validator"}'
+        values: '2000+0x15'
+      - series: 'clutch_treasury_chain_cursor_height{job="mainnet-treasury-service", chain="mainnet"}'
+        values: '1500+0x15'
+      - series: 'latest_block_index{job="mainnet-node1", chain="mainnet", role="validator"}'
+        values: '6000+0x15'
+    alert_rule_test:
+      - eval_time: 10m
+        alertname: TreasuryWatcherCursorStranded
+        exp_alerts:
+          - exp_labels:
+              severity: critical
+              job: treasury-service
+              chain: testnet
+            exp_annotations:
+              summary: "The deposit watcher's cursor is above the chain head"
+              description: "The watcher is crediting nothing and will stay silent until the chain grows past its cursor, then resume having skipped everything below. A mint submitted in that window never becomes confirmed and reconciliation reads it as under-issuance. Almost always a chain reset: the cursor is in Postgres and the chain it counted is gone."
+      - eval_time: 10m
+        alertname: TreasuryWatcherCursorStrandedMainnet
+        exp_alerts: []
+
+  # The twin must compare the mainnet cursor with the MAINNET head. Here the testnet head (9000) is
+  # the tallest of both, and the mainnet cursor (7000) sits between the two heads: above its own
+  # head (6000), below the testnet one. The twin must fire. If it lost its chain="mainnet" scope, or
+  # used the testnet head, it would compare 7000 with 9000 and stay silent. The testnet cursor
+  # (6500) is above the mainnet head and below its own (9000): a twin whose CURSOR lost its
+  # chain="mainnet" scope would match that series too and fire a second alert, and the testnet rule
+  # says nothing, because 6500 is below 9000.
+  - name: a mainnet cursor between the heads fires the twin when the testnet head is taller
+    interval: 1m
+    input_series:
+      - series: 'clutch_treasury_chain_cursor_height{job="mainnet-treasury-service", chain="mainnet"}'
+        values: '7000+0x15'
+      - series: 'latest_block_index{job="mainnet-node1", chain="mainnet", role="validator"}'
+        values: '6000+0x15'
+      - series: 'clutch_treasury_chain_cursor_height{job="treasury-service", chain="testnet"}'
+        values: '6500+0x15'
+      - series: 'latest_block_index{job="node1", chain="testnet", role="validator"}'
+        values: '9000+0x15'
+    alert_rule_test:
+      - eval_time: 10m
+        alertname: TreasuryWatcherCursorStrandedMainnet
+        exp_alerts:
+          - exp_labels:
+              severity: critical
+              job: mainnet-treasury-service
+              chain: mainnet
+            exp_annotations:
+              summary: "The mainnet deposit watcher's cursor is above the mainnet chain head"
+              description: "The mainnet treasury's watcher is crediting nothing and will stay silent until the chain grows past its cursor, then resume having skipped everything below. A mint submitted in that window never becomes confirmed. Almost always a chain reset: the cursor is in Postgres and the chain it counted is gone."
+      - eval_time: 10m
+        alertname: TreasuryWatcherCursorStranded
+        exp_alerts: []
+
+  # The orchestrator is the second job in the mainnet half of TreasuryServiceDown. A misspelled job
+  # name there would leave a stopped orchestrator without a page, and the test of a target that never
+  # ran could not tell, because it expects no alert. This one answered for 10 minutes, then stopped.
+  - name: a mainnet orchestrator that ran and then stopped pages
+    interval: 1m
+    input_series:
+      - series: 'up{job="mainnet-payment-orchestrator"}'
+        values: '1+0x9 0+0x20'
+    alert_rule_test:
+      - eval_time: 25m
+        alertname: TreasuryServiceDown
+        exp_alerts:
+          - exp_labels:
+              severity: critical
+              job: mainnet-payment-orchestrator
+            exp_annotations:
+              summary: "mainnet-payment-orchestrator is not answering scrapes"
+
+  # What this proves: the rule remembers that a mainnet job once answered for as long as the 7d in
+  # its max_over_time(...[7d]), not only for a few minutes. The target answered twice (two samples
+  # of 1, at minutes 0 and 5), then was down from minute 10 on (576 samples of 0, 5 minutes apart:
+  # the series ends 5 minutes after day 2). At 2 days the last 1 is just under 2 days old, and the
+  # alert must still fire. A window of a day or less would have forgotten it, and this test would
+  # fail.
+  # The limit is the 7 days themselves: a service that stays down for longer than that leaves the
+  # window, the alert resolves by itself, and Telegram then says RESOLVED while the service is still
+  # down. This test does not check that limit.
+  - name: a mainnet treasury that went down two days ago still pages
+    interval: 5m
+    input_series:
+      - series: 'up{job="mainnet-treasury-service"}'
+        values: '1+0x1 0+0x575'
+    alert_rule_test:
+      - eval_time: 2d
+        alertname: TreasuryServiceDown
+        exp_alerts:
+          - exp_labels:
+              severity: critical
+              job: mainnet-treasury-service
+            exp_annotations:
+              summary: "mainnet-treasury-service is not answering scrapes"

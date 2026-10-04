@@ -1,36 +1,93 @@
-# The MAINNET treasury, as an overlay on docker-compose.treasury.yml.
+# The MAINNET treasury: a complete compose file of its own, not an overlay on docker-compose.treasury.yml.
 #
 #   docker compose -p clutch-main-treasury --env-file .env.mainnet \
-#     -f docker-compose.treasury.yml -f docker-compose.mainnet.treasury.yml \
-#     up -d treasury-postgres orchestrator-postgres treasury-service tron-signer payment-orchestrator
+#     -f docker-compose.mainnet.treasury.yml up -d
 #
-# An overlay rather than a second copy of that file, deliberately. Those 380 lines are the money
-# path; duplicating them means a fix lands in one and not the other, and the two drift silently
-# until the difference is discovered by a deposit going somewhere it should not. This file holds
-# ONLY what mainnet does differently, which is also exactly what a reviewer needs to read.
+# The workflow "Mainnet — start the treasury" runs exactly that, after the checks of
+# scripts/mainnet-treasury-up.sh.
 #
-# Separation comes from three things and none of them is optional:
-#   - a different PROJECT name, so containers, volumes and the internal network are its own
-#   - a different ENV FILE, so every secret below is a different value
-#   - `clutch-network` re-pointed at the mainnet chain's network, so the services read chain 1000
+# WHY IT IS A COPY, AND WHY THREE SERVICES HAVE `mainnet-` NAMES. Compose gives every container its
+# service name as a DNS alias on every network it joins, and an `aliases:` entry only adds to that.
+# The first version of this stack was an overlay that kept the stage stack's service names.
+# Prometheus sits on `clutch-network` (stage) and on `clutch-mainnet`, and nginx on the stage
+# network, so a second `treasury-service` or `payment-orchestrator` on either would have been two
+# containers answering to one name: scrapes and proxied requests would reach either stack at random,
+# and the mainnet orchestrator could have called the TESTNET treasury. Different service names are the
+# only fix; the validators (`mainnet-node1`) and the hub (`mainnet-hub-api`) already work that way.
+# The price is a second copy of the money path. The answer to drift is a CI guard,
+# scripts/check-mainnet-compose.sh: it fails when a setting of the stage services is missing here,
+# when a service name is shared with the stage stack, when a service publishes a port or joins a
+# stage network, and when a URL here names a stage host.
 #
 # THE DEPOSIT MNEMONIC MUST NOT BE THE TESTNET'S. TRON addresses are network-agnostic: one mnemonic
-# derives the SAME addresses on Nile and on mainnet. Two orchestrators with separate databases
-# would hand the same address to different users, so a depositor shown an address by the testnet
-# app could send real USDT to it and have this service credit somebody else. provision-treasury-
-# secrets.sh generates one per .env and never overwrites, so pointing it at .env.mainnet is what
-# keeps them distinct.
+# derives the SAME addresses on Nile and on mainnet. Two orchestrators with separate databases would
+# hand the same address to different users, so a depositor shown an address by the testnet app could
+# send real USDT to it and have this service credit somebody else. provision-treasury-secrets.sh
+# generates one per env file and never overwrites; scripts/mainnet-treasury-up.sh refuses to start
+# when any secret here equals the stage one.
+#
+# NETWORK POSTURE (as the stage stack, with the names changed):
+#   mainnet-treasury-service      PRIVATE. Signs mints with the Azure KMS key. No published ports.
+#   mainnet-tron-signer           PRIVATE, and the most sensitive: it holds the deposit mnemonic.
+#   mainnet-payment-orchestrator  The public API once a route exists. Holds no key; only the xpub.
+#                                 NO port is published and it joins NO stage network: nothing
+#                                 reaches it from outside, and /payment/ on the mainnet site answers
+#                                 503. A later plan attaches it to the stage network, under a name no
+#                                 stage service has, when mainnet opens to users.
+#   treasury-network              internal: true, private to this project. Both Postgres instances
+#                                 live here and nowhere else.
+#
+# Every secret comes from .env.mainnet. The images are pinned HERE, as the stage file pins its own:
+# moving stage onto new treasury code must never move mainnet. Move these with `set-image.sh mainnet`,
+# as a decision of its own.
+
+name: clutch-main-treasury
 
 services:
-  # The three treasury images are pinned HERE, not inherited from the base file. The base file's
-  # image lines are stage's pins, and moving stage onto new treasury code must never move mainnet
-  # with it. Move these with `set-image.sh mainnet`, as a decision of its own.
-  #
-  # Reads the MAINNET chain. The base file names node1/node3 on 8081/8083 -- the testnet's
-  # containers and ports -- which resolve to nothing on this network.
-  treasury-service:
-    image: ghcr.io/clutchprotocol/clutch-treasury:sha-92d357e
+  treasury-postgres:
+    image: postgres:16-alpine
     environment:
+      POSTGRES_DB: treasury
+      POSTGRES_USER: treasury
+      POSTGRES_PASSWORD: ${TREASURY_POSTGRES_PASSWORD:?set TREASURY_POSTGRES_PASSWORD in .env.mainnet}
+    volumes:
+      - treasury-postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U treasury"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+    restart: unless-stopped
+    networks:
+      - treasury-network
+
+  orchestrator-postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: orchestrator
+      POSTGRES_USER: orchestrator
+      POSTGRES_PASSWORD: ${ORCHESTRATOR_POSTGRES_PASSWORD:?set ORCHESTRATOR_POSTGRES_PASSWORD in .env.mainnet}
+    volumes:
+      - orchestrator-postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U orchestrator"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+    restart: unless-stopped
+    networks:
+      - treasury-network
+
+  # PRIVATE ZONE. Deliberately has no `ports:` — adding one exposes the mint authority.
+  mainnet-treasury-service:
+    image: ghcr.io/clutchprotocol/clutch-treasury:sha-df5243a
+    depends_on:
+      treasury-postgres:
+        condition: service_healthy
+    environment:
+      - RUST_LOG=${TREASURY_LOG_LEVEL:-info}
+      - APP_DATABASE_URL=postgres://treasury:${TREASURY_POSTGRES_PASSWORD}@treasury-postgres:5432/treasury
+      # The MAINNET chain: chain 1000, read through node3 and checked against node1 and node2.
       - APP_NODE_WS_URL=ws://mainnet-node3:8183/ws
       - APP_NODE_PEER_WS_URLS=ws://mainnet-node1:8181/ws,ws://mainnet-node2:8182/ws
       - APP_CHAIN_ID=1000
@@ -46,68 +103,155 @@ services:
       # Pinned, never "latest": Key Vault lets a key grow new versions, and floating would let the
       # mint authority's address change under this service without anyone deciding that.
       - "APP_AZURE_KEY_VERSION=${AZURE_KEY_VERSION:?set AZURE_KEY_VERSION in .env.mainnet}"
-
       # EMPTY ON PURPOSE. configuration.rs panics when signer_kind=azure_kms and this is non-empty,
       # so a plaintext mint key cannot sit beside the KMS one and be picked up by accident.
-      #
-      # It cannot simply be omitted: the base file writes `${MINT_AUTHORITY_SECRET:?...}`, and
-      # compose interpolates each file before merging, so the variable must still EXIST in
-      # .env.mainnet. Give it any placeholder there. If this overlay is ever left off the command,
-      # the placeholder is not valid hex and EnvKeySigner refuses to build -- it fails closed.
       - APP_MINT_AUTHORITY_SECRET=
 
-      # TRON MAINNET. The base defaults to nile.trongrid.io and the Nile USDT contract, which is
-      # test money. Both are required here rather than defaulted: a default that is wrong in this
-      # pair means watching the wrong token on the wrong network, and crediting nothing.
+      - APP_INITIATOR_TOKEN=${TREASURY_INITIATOR_TOKEN:?set TREASURY_INITIATOR_TOKEN in .env.mainnet}
+      - APP_APPROVER_TOKEN=${TREASURY_APPROVER_TOKEN:?set TREASURY_APPROVER_TOKEN in .env.mainnet}
+      - APP_READONLY_TOKEN=${TREASURY_READONLY_TOKEN:?set TREASURY_READONLY_TOKEN in .env.mainnet}
+      # TRON MAINNET. Required, never defaulted: a default that is wrong in this pair means watching
+      # the wrong token on the wrong network, and crediting nothing.
       - "APP_TRONGRID_URL=${TRONGRID_URL:?set TRONGRID_URL to https://api.trongrid.io in .env.mainnet}"
+      - APP_TRONGRID_API_KEY=${TRONGRID_API_KEY:-}
+      - APP_CUSTODY_TRON_ADDRESS=${CUSTODY_TRON_ADDRESS:?set CUSTODY_TRON_ADDRESS in .env.mainnet}
       - "APP_USDT_CONTRACT=${USDT_CONTRACT:?set USDT_CONTRACT in .env.mainnet — verify it on tronscan.org first}"
+      # Sweeps: this service decides WHEN, mainnet-tron-signer knows HOW and owns the keys.
+      - APP_SIGNER_URL=http://mainnet-tron-signer:8093
+      - APP_SIGNER_TOKEN=${SIGNER_TOKEN:?set SIGNER_TOKEN in .env.mainnet}
+      # The limits are REQUIRED here (the stage file defaults them): a default that is silently
+      # stage's is a cap nobody chose. Readiness B4 has the values and what each one bounds;
+      # set-gasfree-settings.sh writes the decided set.
+      - APP_PER_TX_MINT_CAP_CLT=${PER_TX_MINT_CAP_CLT:?set PER_TX_MINT_CAP_CLT in .env.mainnet}
+      - APP_DAILY_MINT_CAP_CLT=${DAILY_MINT_CAP_CLT:?set DAILY_MINT_CAP_CLT in .env.mainnet}
+      - APP_SWEEP_THRESHOLD_USDT=${SWEEP_THRESHOLD_USDT:-100000000}
+      - APP_SWEEP_MAX_AGE_HOURS=${SWEEP_MAX_AGE_HOURS:-168}
+      - APP_SWEEP_MIN_USDT=${SWEEP_MIN_USDT:-5000000}
       # The plain payout float at 2/0 of THIS deployment's wallet, which provision-treasury-secrets.sh
-      # writes from the signer's own /internal/xpub. Required here: the base file's default is the
-      # TESTNET float, and a mainnet reserve counting it would miss the real float entirely. The
-      # GasFree float is derived from this one (treasury-service's AppConfig::gasfree_float).
+      # writes from the signer's own /internal/xpub. The GasFree float is derived from this one
+      # (treasury-service's AppConfig::gasfree_float).
       - "APP_PAYOUT_FLOAT_ADDRESS=${PAYOUT_FLOAT_ADDRESS:?set PAYOUT_FLOAT_ADDRESS in .env.mainnet — provision-treasury-secrets.sh writes it}"
+      # Rolling 24h payout ceiling in CLT BASE UNITS; not the unit of the signer's per-transaction cap.
+      - APP_DAILY_PAYOUT_CAP_CLT=${DAILY_PAYOUT_CAP_CLT:?set DAILY_PAYOUT_CAP_CLT in .env.mainnet}
+      # Taken off the USDT leg of every redemption, in micro-USDT. On the GasFree rail it must cover
+      # the relay's transfer fee at its maximum (check-cap-invariants.sh).
+      - APP_REDEMPTION_FEE_USDT=${REDEMPTION_FEE_USDT:?set REDEMPTION_FEE_USDT in .env.mainnet}
+      # Every hour, not the service's default 24 h: TreasuryReconciliationStale expects a run within 2 h.
+      - APP_RECONCILIATION_INTERVAL_SECS=${RECONCILIATION_INTERVAL_SECS:-3600}
+      # The GasFree rail: the SAME .env names as the stage file, so the three services cannot read
+      # different values. OFF while GASFREE_NETWORK is blank.
+      - APP_TRANSFER_RAIL=${TRANSFER_RAIL:-trx}
+      - APP_GASFREE_NETWORK=${GASFREE_NETWORK:-}
+      - APP_GASFREE_ACTIVATE_FEE_MAX_USDT=${GASFREE_ACTIVATE_FEE_MAX_USDT:-}
+      - APP_GASFREE_TRANSFER_FEE_MAX_USDT=${GASFREE_TRANSFER_FEE_MAX_USDT:-}
+      - APP_MIN_DEPOSIT_USDT=${MIN_DEPOSIT_USDT:-}
+      - APP_GASFREE_EXPECTED_IMPLEMENTATION=${GASFREE_EXPECTED_IMPLEMENTATION:-}
+      - APP_GASFREE_EXPECTED_CONTROLLER_IMPLEMENTATION=${GASFREE_EXPECTED_CONTROLLER_IMPLEMENTATION:-}
+    restart: unless-stopped
     networks:
-      - treasury-network
-      - clutch-network
+      - treasury-network   # its own Postgres
+      - clutch-network     # the mainnet chain's WebSocket RPC, and TronGrid
 
-  tron-signer:
-    image: ghcr.io/clutchprotocol/clutch-tron-signer:sha-92d357e
+  # PRIVATE ZONE, and the most sensitive thing in the stack: this holds the deposit-wallet MNEMONIC,
+  # which can spend every derived deposit address. No `ports:`, ever. Reachable only from
+  # mainnet-treasury-service over treasury-network. It sits on clutch-network too only because
+  # building and broadcasting a sweep needs TronGrid, and `internal: true` has no outbound route.
+  # What keeps that acceptable is the API shape: /internal/sweep takes an INDEX and nothing else.
+  mainnet-tron-signer:
+    image: ghcr.io/clutchprotocol/clutch-tron-signer:sha-df5243a
     environment:
+      - RUST_LOG=${SIGNER_LOG_LEVEL:-info}
+      - APP_DEPOSIT_MNEMONIC=${DEPOSIT_MNEMONIC:?set DEPOSIT_MNEMONIC in .env.mainnet}
+      - APP_DEPOSIT_PASSPHRASE=${DEPOSIT_PASSPHRASE:-}
+      - APP_SIGNER_TOKEN=${SIGNER_TOKEN:?set SIGNER_TOKEN in .env.mainnet}
+      # Where every sweep goes. NOT a request parameter.
+      - APP_TREASURY_ADDRESS=${CUSTODY_TRON_ADDRESS:?set CUSTODY_TRON_ADDRESS in .env.mainnet}
       - "APP_TRONGRID_URL=${TRONGRID_URL:?set TRONGRID_URL in .env.mainnet}"
+      - APP_TRONGRID_API_KEY=${TRONGRID_API_KEY:-}
       - "APP_USDT_CONTRACT=${USDT_CONTRACT:?set USDT_CONTRACT in .env.mainnet}"
+      # The most one redemption payout may move, in MICRO-USDT: required, and equal to the
+      # orchestrator's MAX_REDEMPTION_CLT (check-cap-invariants.sh).
+      - APP_PER_TX_PAYOUT_CAP_USDT=${PER_TX_PAYOUT_CAP_USDT:?set PER_TX_PAYOUT_CAP_USDT in .env.mainnet}
+      # The GasFree rail. This service turns it on by GASFREE_API_KEY, the other two by GASFREE_NETWORK:
+      # key without network, and it refuses to start. The key and secret are relay credentials.
+      - APP_TRANSFER_RAIL=${TRANSFER_RAIL:-trx}
+      - APP_GASFREE_NETWORK=${GASFREE_NETWORK:-}
+      - APP_GASFREE_API_URL=${GASFREE_API_URL:-}
+      - APP_GASFREE_API_KEY=${GASFREE_API_KEY:-}
+      - APP_GASFREE_API_SECRET=${GASFREE_API_SECRET:-}
+      - APP_GASFREE_SERVICE_PROVIDER=${GASFREE_SERVICE_PROVIDER:-}
+      - APP_GASFREE_ACTIVATE_FEE_MAX_USDT=${GASFREE_ACTIVATE_FEE_MAX_USDT:-}
+      - APP_GASFREE_TRANSFER_FEE_MAX_USDT=${GASFREE_TRANSFER_FEE_MAX_USDT:-}
+      - APP_GASFREE_EXPECTED_IMPLEMENTATION=${GASFREE_EXPECTED_IMPLEMENTATION:-}
+      - APP_GASFREE_EXPECTED_CONTROLLER_IMPLEMENTATION=${GASFREE_EXPECTED_CONTROLLER_IMPLEMENTATION:-}
+      # Sweeps pay into the GasFree float until it holds this much, then into custody.
+      - APP_PAYOUT_FLOAT_TARGET_USDT=${PAYOUT_FLOAT_TARGET_USDT:-}
+      - APP_HTTP_ADDR=0.0.0.0:8093
+    restart: unless-stopped
+    networks:
+      - treasury-network   # mainnet-treasury-service reaches it here
+      - clutch-network     # TronGrid egress only
 
-  payment-orchestrator:
-    image: ghcr.io/clutchprotocol/clutch-orchestrator:sha-92d357e
+  # The public API once a route exists, and not before: it publishes no port and joins no stage network.
+  mainnet-payment-orchestrator:
+    image: ghcr.io/clutchprotocol/clutch-orchestrator:sha-df5243a
+    depends_on:
+      orchestrator-postgres:
+        condition: service_healthy
     environment:
-      - "APP_TRONGRID_URL=${TRONGRID_URL:?set TRONGRID_URL in .env.mainnet}"
-      - "APP_USDT_CONTRACT=${USDT_CONTRACT:?set USDT_CONTRACT in .env.mainnet}"
+      - RUST_LOG=${ORCHESTRATOR_LOG_LEVEL:-info}
+      - APP_DATABASE_URL=postgres://orchestrator:${ORCHESTRATOR_POSTGRES_PASSWORD}@orchestrator-postgres:5432/orchestrator
+      # The secret the MAINNET hub API signs user JWTs with (.env's MAINNET_JWT_SECRET), copied into
+      # this file's JWT_SECRET. mainnet-treasury-up.sh refuses a start when the two differ.
+      - "APP_JWT_SECRET=${JWT_SECRET:?set JWT_SECRET in .env.mainnet — it must equal MAINNET_JWT_SECRET from .env. Run provision-treasury-secrets.yml}"
       - APP_ALLOWED_ORIGINS=${MAINNET_ALLOWED_ORIGINS:-https://app.clutchprotocol.io}
+      - APP_TREASURY_URL=http://mainnet-treasury-service:8090
+      - APP_TREASURY_INITIATOR_TOKEN=${TREASURY_INITIATOR_TOKEN:?set TREASURY_INITIATOR_TOKEN in .env.mainnet}
+      - APP_TREASURY_READONLY_TOKEN=${TREASURY_READONLY_TOKEN:?set TREASURY_READONLY_TOKEN in .env.mainnet}
+      - APP_CUSTODY_TRON_ADDRESS=${CUSTODY_TRON_ADDRESS:?set CUSTODY_TRON_ADDRESS in .env.mainnet}
+      # PUBLIC material by design: an account-level xpub derives receive addresses and nothing else.
+      - APP_DEPOSIT_ACCOUNT_XPUB=${DEPOSIT_ACCOUNT_XPUB:?set DEPOSIT_ACCOUNT_XPUB in .env.mainnet}
+      - "APP_TRONGRID_URL=${TRONGRID_URL:?set TRONGRID_URL in .env.mainnet}"
+      - APP_TRONGRID_API_KEY=${TRONGRID_API_KEY:-}
+      - "APP_USDT_CONTRACT=${USDT_CONTRACT:?set USDT_CONTRACT in .env.mainnet}"
+      # What a user may ask to redeem. The stage file has these ON; here they are OFF until the
+      # maintainer turns mainnet on for users, which is a reviewed commit that changes this line.
+      - APP_MAX_REDEMPTION_CLT=${MAX_REDEMPTION_CLT:?set MAX_REDEMPTION_CLT in .env.mainnet}
+      - APP_MIN_REDEMPTION_CLT=${MIN_REDEMPTION_CLT:?set MIN_REDEMPTION_CLT in .env.mainnet}
+      - APP_REDEMPTIONS_ENABLED=false
+      - APP_DEPOSIT_HOT_WINDOW_HOURS=${DEPOSIT_HOT_WINDOW_HOURS:-24}
+      - APP_PERMANENT_DEPOSIT_ADDRESSES_ENABLED=${PERMANENT_DEPOSIT_ADDRESSES_ENABLED:-true}
+      - APP_TRANSFER_RAIL=${TRANSFER_RAIL:-trx}
+      - APP_GASFREE_NETWORK=${GASFREE_NETWORK:-}
+      - APP_GASFREE_ACTIVATE_FEE_MAX_USDT=${GASFREE_ACTIVATE_FEE_MAX_USDT:-}
+      - APP_GASFREE_TRANSFER_FEE_MAX_USDT=${GASFREE_TRANSFER_FEE_MAX_USDT:-}
+      - APP_MIN_DEPOSIT_USDT=${MIN_DEPOSIT_USDT:-}
+      - APP_GASFREE_EXPECTED_IMPLEMENTATION=${GASFREE_EXPECTED_IMPLEMENTATION:-}
+      - APP_GASFREE_EXPECTED_CONTROLLER_IMPLEMENTATION=${GASFREE_EXPECTED_CONTROLLER_IMPLEMENTATION:-}
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://127.0.0.1:8091/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 20s
     networks:
-      treasury-network:
-      clutch-network:
-      # nginx resolves upstreams by container name and lives on the testnet stack's network, so
-      # this service joins it too. The ALIAS is what keeps the two orchestrators apart: both are
-      # the compose service `payment-orchestrator`, and two containers answering to that name on
-      # one network is a collision that would route mainnet deposits at random.
-      clutch-stage:
-        aliases:
-          - mainnet-payment-orchestrator
-
-  # Defined so the file parses, never started. The base treasury file adds one environment variable
-  # to a service the BASE compose defines, and that base is not part of this project -- so without
-  # an image here the service is incomplete and `compose config` refuses the whole set. The profile
-  # keeps it out of every `up`, including one that names no services.
-  clutch-explorer-backend:
-    image: ghcr.io/clutchprotocol/clutch-explorer-backend:sha-a0f4f0f
-    profiles: ["never-started-here"]
+      - treasury-network   # reach the treasury's internal API
+      - clutch-network     # TronGrid
 
 networks:
-  # Re-pointed, NOT redefined. Every service above joins `clutch-network` by that name in the base
-  # file; here that name resolves to the mainnet chain's network, so they reach mainnet-node1..3
-  # and never see a testnet node.
+  treasury-network:
+    driver: bridge
+    # No route off this network. Both Postgres instances live here and nowhere else.
+    internal: true
+  # The mainnet chain's network, created by docker-compose.mainnet.yml. External: this project never
+  # creates it, and never joins a stage network.
   clutch-network:
     name: clutch-mainnet
     external: true
-  clutch-stage:
-    name: clutch-stage_clutch-network
-    external: true
+
+volumes:
+  treasury-postgres-data:
+    driver: local
+  orchestrator-postgres-data:
+    driver: local

@@ -25,9 +25,12 @@
 set -euo pipefail
 
 cd "$(dirname "$0")/.."
+. scripts/lib/chain.sh
+chain_select "${CHAIN:-stage}" || exit 1
+ENV_FILE="$CH_ENV_FILE"
 
-if [ ! -f .env ]; then
-  echo "ABORT: no .env here ($(pwd))."
+if [ ! -f "$ENV_FILE" ]; then
+  echo "ABORT: no $ENV_FILE here ($(pwd))."
   exit 1
 fi
 
@@ -37,13 +40,16 @@ env_get() {
   # a grep that matches nothing fails the pipeline and kills the script inside a command
   # substitution -- which is exactly how the first rehearsal died, on an unset optional setting,
   # before printing a single line. The first real backup would have died the same way.
-  grep -E "^$1=" .env 2>/dev/null | head -1 | cut -d= -f2- | sed -e 's/^"//' -e 's/"$//' || true
+  grep -E "^$1=" "$ENV_FILE" 2>/dev/null | head -1 | cut -d= -f2- | sed -e 's/^"//' -e 's/"$//' || true
 }
 
 # The environment wins over .env, so a rehearsal can inject an ephemeral passphrase
 # without writing a secret to the host. Real backups still take theirs from .env.
 BACKUP_PASSPHRASE="${BACKUP_PASSPHRASE:-$(env_get BACKUP_PASSPHRASE)}"
-BACKUP_REMOTE="${BACKUP_REMOTE:-$(env_get BACKUP_REMOTE)}"
+# `-` and not `:-`, on purpose. The restore rehearsal (rehearse-restore.yml) passes BACKUP_REMOTE=""
+# to mean "no upload". `:-` reads an empty value as unset and takes the real remote from the env
+# file, so the rehearsal would upload its dumps there.
+BACKUP_REMOTE="${BACKUP_REMOTE-$(env_get BACKUP_REMOTE)}"
 RETAIN="${BACKUP_RETAIN:-$(env_get BACKUP_RETAIN)}"
 RETAIN="${RETAIN:-14}"
 TREASURY_PASSWORD="$(env_get TREASURY_POSTGRES_PASSWORD)"
@@ -52,27 +58,27 @@ ORCHESTRATOR_PASSWORD="$(env_get ORCHESTRATOR_POSTGRES_PASSWORD)"
 # A ledger dump in the clear is worse than no dump: it is every user's pk, deposit address and
 # amount, in a file somebody will eventually copy somewhere convenient.
 if [ -z "$BACKUP_PASSPHRASE" ]; then
-  echo "ABORT: BACKUP_PASSPHRASE is not set in .env."
+  echo "ABORT: BACKUP_PASSPHRASE is not set in $ENV_FILE."
   echo "  Generate one:  openssl rand -base64 48"
   echo "  Then store it somewhere that is NOT this host. A dump you cannot decrypt is not a"
   echo "  backup, and a passphrase living next to the dump protects nothing."
   exit 1
 fi
 if [ -z "$TREASURY_PASSWORD" ] || [ -z "$ORCHESTRATOR_PASSWORD" ]; then
-  echo "ABORT: TREASURY_POSTGRES_PASSWORD or ORCHESTRATOR_POSTGRES_PASSWORD missing from .env."
+  echo "ABORT: TREASURY_POSTGRES_PASSWORD or ORCHESTRATOR_POSTGRES_PASSWORD missing from $ENV_FILE."
   exit 1
 fi
 export BACKUP_PASSPHRASE
 
-BACKUP_DIR="${BACKUP_DIR:-backups}"
+BACKUP_DIR="${BACKUP_DIR:-$CH_BACKUP_DIR}"
 STAMP="$(date -u +%Y%m%dT%H%M%SZ)"
 mkdir -p "$BACKUP_DIR"
 chmod 700 "$BACKUP_DIR"
 
 # Overridable because the dev compose project uses a different prefix, and a container name is a
 # worse thing to hardcode than to parameterise.
-TREASURY_CONTAINER="${TREASURY_CONTAINER:-clutch-stage-treasury-postgres-1}"
-ORCHESTRATOR_CONTAINER="${ORCHESTRATOR_CONTAINER:-clutch-stage-orchestrator-postgres-1}"
+TREASURY_CONTAINER="${TREASURY_CONTAINER:-$CH_TREASURY_PG}"
+ORCHESTRATOR_CONTAINER="${ORCHESTRATOR_CONTAINER:-$CH_ORCH_PG}"
 
 dump_one() {
   local container="$1" db="$2" user="$3" password="$4" out="$5"
@@ -90,10 +96,14 @@ dump_one() {
   #
   # pipefail is set, so a pg_dump failure fails the script rather than leaving a valid encryption
   # of a truncated dump — which would look exactly like a good backup.
+  #
+  # The redirect creates $out before pg_dump runs, so a failed dump leaves a small file behind. The
+  # retention below counts files and would, after enough failed nights, prune the good dumps in
+  # favour of those. So a failure removes the partial file before it stops.
   echo "  dumping $db from $container"
   docker exec -e "PGPASSWORD=$password" -i "$container" pg_dump -U "$user" -d "$db" -Fc \
     | openssl enc -aes-256-cbc -pbkdf2 -iter 600000 -salt -pass env:BACKUP_PASSPHRASE \
-    > "$out"
+    > "$out" || { rm -f "$out"; echo "ABORT: dumping $db from $container failed; the partial file was removed."; exit 1; }
   chmod 600 "$out"
 
   # An empty or trivially small output means the dump failed in a way the exit code missed.
@@ -107,7 +117,7 @@ dump_one() {
   echo "  wrote $out (${size} bytes, encrypted)"
 }
 
-echo "=== treasury backup $STAMP ==="
+echo "=== treasury backup $STAMP ($CH_NAME) ==="
 dump_one "$TREASURY_CONTAINER" treasury treasury "$TREASURY_PASSWORD" \
   "$BACKUP_DIR/treasury-$STAMP.dump.enc"
 dump_one "$ORCHESTRATOR_CONTAINER" orchestrator orchestrator "$ORCHESTRATOR_PASSWORD" \

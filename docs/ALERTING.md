@@ -10,7 +10,11 @@ Both treasury services expose Prometheus metrics on their own ports, scraped eve
 reconciliation mismatch calls `ledger::alert`, which logs at error level and inserts a row into the
 `alerts` table, and `metrics.rs` gauges that table by severity.
 
-`config/monitoring/prometheus/rules/treasury.yml` turns those into alerting rules. Eleven of them,
+The mainnet treasury has its own two scrape jobs, `mainnet-treasury-service` and
+`mainnet-payment-orchestrator`. Every treasury job has a `chain` label, `testnet` or `mainnet`. The
+Telegram text of an alert ends with that label, for example `chain: mainnet`.
+
+`config/monitoring/prometheus/rules/treasury.yml` turns those into alerting rules. Fourteen of them,
 in three groups:
 
 | Alert | Fires when | Severity |
@@ -20,16 +24,19 @@ in three groups:
 | `TreasuryP1Alert` | the service raised a p1 in the last 10m | critical |
 | `OrchestratorPollingStalled` | deposit addresses unpolled for over an hour | critical |
 | `OrchestratorP1Alert` | the orchestrator raised a p1 | critical |
-| `TreasuryServiceDown` | either service stops answering scrapes for 3m | critical |
+| `TreasuryServiceDown` | a stage service, or a mainnet service that has been up in the last 7 days, stops answering scrapes for 3m | critical |
 | `TreasuryMintingHalted` | the breaker has been latched 5m | warning |
 | `TreasurySweepingStalled` | more than 5 unswept addresses for 2h | warning |
+| `TreasuryGasFreeSweepStalled` | a GasFree deposit has not been swept for over an hour | warning |
+| `TreasuryRedemptionUnpaid` | a burned redemption has not been paid for over two hours | critical |
 | `TreasuryChainOutboxStuck` | a failed outbox row persists 15m | warning |
-| `TreasuryWatcherCursorStranded` | the deposit watcher's cursor sits above the chain head | critical |
+| `TreasuryWatcherCursorStranded` | the testnet deposit watcher's cursor sits above the testnet chain head | critical |
+| `TreasuryWatcherCursorStrandedMainnet` | the mainnet treasury's watcher cursor sits above the mainnet chain head | critical |
 | `OrchestratorAddressesNeverPolled` | an address handed out has never been checked | warning |
 
-`rules/chain.yml` covers the chain those eleven read from — readiness item **D4**, added after the
+`rules/chain.yml` covers the chain those fourteen read from — readiness item **D4**, added after the
 stage halt of 2026-09-14, which ran for most of a day and was reported by a human as "the explorer
-has no data". Four rules:
+has no data". Six rules, in two groups:
 
 | Alert | Fires when | Severity |
 |---|---|---|
@@ -37,6 +44,10 @@ has no data". Four rules:
 | `ChainNodeDown` | a node stops answering scrapes for 3m | critical |
 | `ChainNodeBehind` | validators disagree on height by more than 50 blocks for 10m | warning |
 | `ChainLatestBlockHashMissing` | no node publishes `latest_block{block_hash}` for 10m | warning |
+| `HubApiDown` | a Hub API stops answering scrapes for 3m | critical |
+
+`ChainLatestBlockHashMissing` exists once for each chain, the testnet and the mainnet. So the six
+rules have five names.
 
 Height is a usable liveness signal only because Aura authors an **empty** block every slot when
 there is nothing to include, so a quiet chain still climbs. A consensus that produced on demand
@@ -150,6 +161,9 @@ The forcing function is two commands on the host, and needs no workflow:
 docker stop clutch-stage-treasury-service-1   # wait 4 minutes
 docker start clutch-stage-treasury-service-1
 ```
+
+For the mainnet treasury the container is `clutch-main-treasury-mainnet-treasury-service-1`. Its
+alert fires only if that service has been up in the last 7 days.
 
 `TreasuryServiceDown` has `for: 3m`, so four minutes clears it with margin. A `FIRING` message
 followed by a `RESOLVED` one closes the delivery half of D3 and D4 completely.

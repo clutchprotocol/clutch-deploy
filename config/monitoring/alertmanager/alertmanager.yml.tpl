@@ -90,7 +90,8 @@ receivers:
           {{ range .Alerts }}
           {{ .Annotations.summary }}{{ if .Annotations.description }}
           {{ .Annotations.description }}{{ end }}{{ if .Labels.instance }}
-          instance: {{ .Labels.instance }}{{ end }}
+          instance: {{ .Labels.instance }}{{ end }}{{ if .Labels.chain }}
+          chain: {{ .Labels.chain }}{{ end }}
           {{ end }}
     # __TELEGRAM_END__
 

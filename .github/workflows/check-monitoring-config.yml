@@ -19,6 +19,8 @@ on:
       - 'docker-compose.stage.cloudflare-flex.yml'
       - 'docker-compose.treasury.yml'
       - 'docker-compose.mainnet.treasury.yml'
+      - 'scripts/check-mainnet-compose.sh'
+      - '.env.mainnet.example'
       - '.github/workflows/check-monitoring-config.yml'
   workflow_dispatch:
 
@@ -37,6 +39,42 @@ jobs:
             --entrypoint promtool prom/prometheus:v3.1.0 \
             check config /etc/prometheus/prometheus.yml
 
+      - name: promtool test rules (the treasury rules are scoped to their chain)
+        run: |
+          set -euo pipefail
+          docker run --rm \
+            -v "$PWD/config/monitoring/prometheus/rules:/etc/prometheus/rules:ro" \
+            -v "$PWD/config/monitoring/prometheus/tests:/etc/prometheus/tests:ro" \
+            --entrypoint promtool prom/prometheus:v3.1.0 \
+            test rules /etc/prometheus/tests/treasury-chains.test.yml
+
+      - name: The treasury jobs carry their chain label
+        run: |
+          set -euo pipefail
+          # The promtool tests write their labels by hand, so they cannot show that the scrape config
+          # really gives each job its `chain` label. TreasuryWatcherCursorStranded selects
+          # {chain="testnet"}: a job that lost the label would make that rule select nothing, and it
+          # would stay silent for ever while every other check here stayed green. So read the label
+          # from the real file. The jobs are written as `- job_name: "<name>"`, and each has a line
+          # `labels: { chain: <chain> }` under it.
+          echo "=== treasury jobs and their chain label (job chain) ==="
+          got=$(awk '
+            function flush() { if (job ~ /(treasury-service|payment-orchestrator)$/) print job, (chain == "" ? "none" : chain) }
+            /^[ ]*#/ { next }
+            /^  - job_name:/ { flush(); job = $0; sub(/^  - job_name:[ ]*/, "", job); gsub(/"/, "", job); chain = ""; next }
+            job != "" && /labels:/ && /chain:/ { v = $0; sub(/.*chain:[ ]*/, "", v); sub(/[ ,}].*/, "", v); chain = v }
+            END { flush() }
+          ' config/monitoring/prometheus/prometheus.yml | LC_ALL=C sort)
+          echo "$got"
+          want=$(printf '%s\n' "mainnet-payment-orchestrator mainnet" "mainnet-treasury-service mainnet" \
+                               "payment-orchestrator testnet" "treasury-service testnet")
+          if [ "$got" != "$want" ]; then
+            echo "::error::prometheus.yml must give exactly these four treasury jobs their chain label (job chain):"
+            echo "$want"
+            exit 1
+          fi
+          echo "all four treasury jobs carry their chain label"
+
       - name: Every alert expression must actually parse and select something nameable
         run: |
           set -euo pipefail
@@ -45,10 +83,11 @@ jobs:
           # a labelled vector against an unlabelled aggregate, which evaluated to empty for ever
           # while reporting healthy. So: list what each rule selects, for a human to read in the
           # diff. Cheap, and the only thing that has ever caught this class here.
+          # Each rule is printed from its `- alert:` line up to its `for:` or `labels:` line, with the
+          # comment lines left out. The line after `- alert:` is not always the expression: a comment
+          # can follow it, and an expression can run over several lines (TreasuryServiceDown has both).
           echo "=== alert expressions ==="
-          grep -hA1 '^      - alert:' config/monitoring/prometheus/rules/*.yml \
-            | grep -E '^\s+(- alert|expr):' \
-            | sed 's/^ *//' || true
+          awk '/^      - alert:/{p=1} /^        (for|labels):/{p=0} p && !/^ *#/' config/monitoring/prometheus/rules/*.yml || true
 
       - name: Compose files must parse, including both mainnet projects
         run: |
@@ -65,11 +104,11 @@ jobs:
           echo "--- base + stage overlay ---"
           docker compose -f docker-compose.yml -f docker-compose.stage.cloudflare-flex.yml config -q
 
-          # The mainnet treasury overlay, merged the way the host merges it: --env-file, which is
-          # what keeps its secrets separate from the testnet's. Proves the MERGE -- the networks
-          # being re-pointed, the environment overrides, the profile on the explorer stub -- and
-          # not the host wiring, which only a deploy can prove.
-          echo "--- treasury + mainnet treasury overlay ---"
+          # The mainnet treasury, rendered the way the host renders it: its own file and --env-file,
+          # which is what keeps its secrets separate from the testnet's. `config -q` proves it parses,
+          # and the guard below proves what a parse cannot: the KMS signer, the chain, no shared name,
+          # no published port, no stage network, no setting lost from the stage services.
+          echo "--- mainnet treasury ---"
           sed -e 's/#.*//' -e '/^[[:space:]]*$/d' .env.mainnet.example > /tmp/t.env
           for v in CUSTODY_TRON_ADDRESS TRONGRID_API_KEY AZURE_TENANT_ID AZURE_CLIENT_ID \
                    AZURE_CLIENT_SECRET AZURE_KEY_VERSION DEPOSIT_MNEMONIC DEPOSIT_ACCOUNT_XPUB \
@@ -78,22 +117,34 @@ jobs:
                    ORCHESTRATOR_POSTGRES_PASSWORD JWT_SECRET PAYOUT_FLOAT_ADDRESS; do
             echo "$v=ci" >> /tmp/t.env
           done
-          docker compose --env-file /tmp/t.env \
-            -f docker-compose.treasury.yml -f docker-compose.mainnet.treasury.yml config -q
+          docker compose --env-file /tmp/t.env -f docker-compose.mainnet.treasury.yml config -q
+          docker compose --env-file /tmp/t.env -f docker-compose.mainnet.treasury.yml config --format json > /tmp/mainnet.json
 
-          # The overlay's whole job in one assertion: treasury-service must end up with the KMS
-          # signer and an EMPTY plaintext mint secret. Merged wrongly, it silently keeps the base's
-          # env signer and this chain could never mint -- a `config -q` that only checks syntax
-          # would pass on that.
-          merged=$(docker compose --env-file /tmp/t.env \
-            -f docker-compose.treasury.yml -f docker-compose.mainnet.treasury.yml config)
-          echo "$merged" | grep -q 'APP_SIGNER_KIND: azure_kms' \
-            || { echo "::error::the merge lost APP_SIGNER_KIND=azure_kms"; exit 1; }
-          echo "$merged" | grep -qE 'APP_MINT_AUTHORITY_SECRET: (""|\x27\x27)?$' \
-            || { echo "::error::APP_MINT_AUTHORITY_SECRET is not empty after the merge — treasury-service will panic"; exit 1; }
-          echo "$merged" | grep -q 'APP_NODE_WS_URL: ws://mainnet-node3:8183/ws' \
-            || { echo "::error::the merge did not repoint the node URL at the mainnet chain"; exit 1; }
-          echo "merge asserted: KMS signer, empty plaintext secret, mainnet node URL"
+          # The stage side of the comparison: the base and its treasury file, as the GasFree step renders them.
+          {
+            for v in JWT_SECRET GRAFANA_ADMIN_PASSWORD TREASURY_POSTGRES_PASSWORD ORCHESTRATOR_POSTGRES_PASSWORD \
+                     MINT_AUTHORITY_SECRET TREASURY_INITIATOR_TOKEN TREASURY_APPROVER_TOKEN TREASURY_READONLY_TOKEN \
+                     SIGNER_TOKEN DEPOSIT_MNEMONIC CUSTODY_TRON_ADDRESS DEPOSIT_ACCOUNT_XPUB; do
+              echo "$v=ci"
+            done
+          } > /tmp/s.env
+          docker compose --env-file /tmp/s.env -f docker-compose.yml -f docker-compose.treasury.yml config --format json > /tmp/stage.json
+
+          # The guard reads these keys by name, and a check that finds nothing passes. So if the shape of
+          # `config --format json` changes (a network name, `internal`, or the `networks` of a service),
+          # the job must stop here, loudly, and not leave the guard green on nothing. The mainnet file
+          # names its networks. The stage file does not, so its network is named after the project, which
+          # here is this folder: the name ends in _clutch-network.
+          jq -e '.networks["treasury-network"].internal == true
+                 and .networks["clutch-network"].name == "clutch-mainnet"
+                 and ([.services["mainnet-treasury-service"].networks, .services["mainnet-tron-signer"].networks,
+                       .services["mainnet-payment-orchestrator"].networks] | map(length) | min) > 0' /tmp/mainnet.json >/dev/null \
+            || { echo "::error::mainnet.json is not the shape the guard reads: networks.treasury-network.internal must be true, networks.clutch-network.name must be clutch-mainnet, and each of the three mainnet app services must have a networks object"; exit 1; }
+          jq -e '(.networks["clutch-network"].name | endswith("_clutch-network"))
+                 and (([.services["treasury-service"].networks, .services["tron-signer"].networks,
+                        .services["payment-orchestrator"].networks] | map(length) | min) > 0)' /tmp/stage.json >/dev/null \
+            || { echo "::error::stage.json is not the shape the guard reads: networks.clutch-network.name must end in _clutch-network, and each of the three stage app services must have a networks object"; exit 1; }
+          bash scripts/check-mainnet-compose.sh /tmp/stage.json /tmp/mainnet.json
 
           echo "all compose files parse"
 
@@ -134,3 +185,13 @@ jobs:
           receives treasury-service $SHARED MIN_DEPOSIT_USDT
           receives payment-orchestrator $SHARED MIN_DEPOSIT_USDT
           receives tron-signer $SHARED GASFREE_API_URL GASFREE_API_KEY GASFREE_API_SECRET GASFREE_SERVICE_PROVIDER PAYOUT_FLOAT_TARGET_USDT
+
+          # The mainnet file is a copy of those three services, so it has lines of its own that can lose
+          # a setting. Same markers, rendered the way the step above renders it (/tmp/t.env: the example
+          # without comments plus the dummy names). The markers come last, so they win.
+          cp /tmp/t.env /tmp/gm.env
+          grep '=marker-' /tmp/g.env >> /tmp/gm.env
+          merged=$(docker compose --env-file /tmp/gm.env -f docker-compose.mainnet.treasury.yml config --format json)
+          receives mainnet-treasury-service $SHARED MIN_DEPOSIT_USDT
+          receives mainnet-payment-orchestrator $SHARED MIN_DEPOSIT_USDT
+          receives mainnet-tron-signer $SHARED GASFREE_API_URL GASFREE_API_KEY GASFREE_API_SECRET GASFREE_SERVICE_PROVIDER PAYOUT_FLOAT_TARGET_USDT

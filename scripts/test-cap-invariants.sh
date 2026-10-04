@@ -3,7 +3,8 @@
 # the line it prints. CI runs this (test-treasury-scripts.yml) with no .env, no docker, no network.
 #
 # The checker reads .env from its own repository root, so every case runs a copy of it from a temp
-# directory that has none, and passes the values in the environment, which the checker reads first.
+# directory that has no .env unless a case writes one, and passes the values in the environment,
+# which the checker reads first.
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
@@ -61,6 +62,20 @@ check "the float target below the largest payout" 1 "PAYOUT_FLOAT_TARGET_USDT is
 check "TRANSFER_RAIL=gasfree without GasFree settings" 1 "TRANSFER_RAIL=gasfree needs GASFREE_NETWORK" TRANSFER_RAIL=gasfree
 check "the signer's API key without GASFREE_NETWORK" 1 "GASFREE_API_KEY is set while GASFREE_NETWORK is not" GASFREE_API_KEY=key-marker-7f3a
 check "an unknown TRANSFER_RAIL" 1 "TRANSFER_RAIL must be trx or gasfree" TRANSFER_RAIL=gasfee
+
+# The checker reads the file ENV_FILE names, not only .env. The mainnet limits (readiness B4, with
+# the $2.00 redemption fee the maintainer accepted on 2026-10-02) live in .env.mainnet.
+printf '%s\n' PER_TX_MINT_CAP_CLT=1000000000 DAILY_MINT_CAP_CLT=2000000000 MAX_REDEMPTION_CLT=200000000 \
+  MIN_REDEMPTION_CLT=25000000 PER_TX_PAYOUT_CAP_USDT=200000000 REDEMPTION_FEE_USDT=2000000 > "$T/mainnet.env"
+check "ENV_FILE names another file: its limits are read" 0 "fee is 8% of the smallest allowed redemption" ENV_FILE=mainnet.env
+printf '%s\n' REDEMPTION_FEE_USDT=1000000 MIN_REDEMPTION_CLT=5000000 > "$T/.env"
+check "ENV_FILE wins over .env" 0 "fee is 8% of the smallest allowed redemption" ENV_FILE=mainnet.env
+check "without ENV_FILE the checker still reads .env" 0 "fee is 20% of the smallest allowed redemption"
+rm -f "$T/.env"
+printf '%s\n' GASFREE_API_KEY=key-marker-7f3a > "$T/keyonly.env"
+check "a key without the network in ENV_FILE is refused" 1 "GASFREE_API_KEY is set while GASFREE_NETWORK is not" ENV_FILE=keyonly.env
+check "ENV_FILE names a file that does not exist: refused" 1 "there is no such file" ENV_FILE=missing.env
+check "the environment wins over ENV_FILE" 0 "fee is 4% of the smallest allowed redemption" ENV_FILE=mainnet.env REDEMPTION_FEE_USDT=1000000
 
 # The key and the secret are never printed, whatever else happens.
 out=$(env -i PATH="$PATH" "${NILE[@]}" bash "$T/scripts/check-cap-invariants.sh" 2>&1 || true)
