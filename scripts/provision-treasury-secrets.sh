@@ -351,10 +351,23 @@ echo ""
 # Named from the configured network, not hardcoded. It used to say "Nile TRX" always, which on a
 # mainnet env file is an instruction to fund a real address with worthless test TRX -- and the
 # symptom would be every sweep answering fee_account_dry while deposits kept crediting normally.
-case "$TRONGRID" in
-  *nile*|*shasta*) echo "    Send TEST TRX ($TRONGRID) to fee_address -- 31+ TRX, or no deposit can be swept." ;;
-  *)               echo "    Send REAL TRX to fee_address -- 31+ TRX, or no deposit can be swept." ;;
-esac
+#
+# And only on the TRX rail. On TRANSFER_RAIL=gasfree a deposit is swept by a relay permit whose fee is
+# held back from the USDT, and redemptions are paid from the GasFree float, so the fee account is not
+# used and needs no TRX. TRANSFER_RAIL is written by "Set GasFree settings", which usually runs after
+# this, so a file without it gets both answers. This line once told the maintainer to buy TRX that the
+# chosen rail never spends.
+if [ "$(val TRANSFER_RAIL)" = gasfree ]; then
+  echo "    No TRX needed: TRANSFER_RAIL=gasfree sweeps and pays out in USDT through the GasFree relay."
+else
+  case "$TRONGRID" in
+    *nile*|*shasta*) kind="TEST TRX ($TRONGRID)" ;;
+    *)               kind="REAL TRX" ;;
+  esac
+  echo "    fee_address needs TRX only on the TRX rail (TRANSFER_RAIL not gasfree): then send $kind,"
+  echo "    31+ TRX, or no deposit can be swept. On the GasFree rail it needs nothing: run"
+  echo "    \"Set GasFree settings\" instead and skip this."
+fi
 echo ""
 
 # The orchestrator and the hub must share one JWT secret or nothing a user signs in with is
