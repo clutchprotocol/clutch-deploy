@@ -13,7 +13,8 @@
 #
 # Nile writes the GasFree block with .env.example's values. Mainnet writes the block with the values
 # the maintainer accepted on 2026-10-02 (the live relay fees were 1.50 USDT to activate and 1.50 per
-# transfer) AND the limits of readiness item B4 with the $2.00 redemption fee. They are written
+# transfer) AND the limits of readiness item B4 with the $2.00 redemption fee, except that the payout
+# side is the pilot's until the KMS payout key (A2) ships: a $100 float and $50 payouts. They are written
 # together because check-cap-invariants.sh relates them: the fee must cover the relay's transfer
 # maximum, and the float target must cover the largest payout plus that fee. test-set-gasfree-
 # settings.sh checks every value against .env.example and .env.mainnet.example.
@@ -56,12 +57,17 @@ case "$NETWORK" in
       MIN_DEPOSIT_USDT=5000000
       GASFREE_EXPECTED_IMPLEMENTATION=a3b0edffa1b94e93d297dcc9b6860175e9b537ec
       GASFREE_EXPECTED_CONTROLLER_IMPLEMENTATION=c8b13e3104f8a2d6e915ac132bdeda7faaf84d7d
-      PAYOUT_FLOAT_TARGET_USDT=1000000000
+      # The PILOT's payout side (accepted 2026-10-04, readiness B4 "Pilot limits"): a $100 float and
+      # $50 payouts, where B4's decided set has $1,000 and $200. The key that pays is still derived
+      # from DEPOSIT_MNEMONIC on this host (readiness A2), so the float is the ceiling on theft.
+      # Raise all three together, and only after A2 ships. check-cap-invariants.sh relates them:
+      # the float target must cover the largest payout plus the relay's fee.
+      PAYOUT_FLOAT_TARGET_USDT=100000000
       PER_TX_MINT_CAP_CLT=1000000000
       DAILY_MINT_CAP_CLT=2000000000
-      MAX_REDEMPTION_CLT=200000000
+      MAX_REDEMPTION_CLT=50000000
       MIN_REDEMPTION_CLT=25000000
-      PER_TX_PAYOUT_CAP_USDT=200000000
+      PER_TX_PAYOUT_CAP_USDT=50000000
       REDEMPTION_FEE_USDT=2000000
       DAILY_PAYOUT_CAP_CLT=1000000000
     )
