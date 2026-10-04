@@ -239,9 +239,18 @@ Gone with it: `docker-compose.bitcart.yml`, `provision-bitcart-stage.yml`,
 `scripts/provision-bitcart.sh`, the `webhook_events` table, the unauthenticated `/webhooks/bitcart`
 route, and `BITCART_TOKEN`/`BITCART_STORE_ID` (now inert if still present in `.env`).
 
-### The TRX float needs a manual top-up
+### The TRX float needs a manual top-up (the TRX rail only)
 
-After a deposit is credited, `treasury-service`'s sweeper moves the USDT from the derived address to
+**With `TRANSFER_RAIL=gasfree` none of this applies.** That is the rail mainnet runs, and stage since
+2026-09-26. A GasFree account is swept by a relay permit whose fee is held back from the USDT, and
+redemptions are paid from the GasFree float, so the fee account is not used and needs no TRX. The
+stage test of 2026-10-02 spent zero TRX. The fee account is touched only to sweep a plain address
+that holds USDT. Do not ask the maintainer to fund `fee_address` on that rail: there is no TRX budget,
+and the GasFree rail exists so that none is needed. What the float needs there is USDT, once, in
+custody: its one-time activation costs about 3.00 USDT (`activate-float.yml` wants a surplus of at
+least 4.00).
+
+After a deposit is credited on the TRX rail, `treasury-service`'s sweeper moves the USDT from the derived address to
 the main treasury. A TRC-20 transfer costs energy, and **a freshly derived address holds no TRX** —
 receiving tokens does not create a balance — so it cannot pay for its own sweep.
 
