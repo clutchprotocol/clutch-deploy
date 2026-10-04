@@ -25,6 +25,8 @@ on:
       - "scripts/deploy-stage.sh"
       - "scripts/set-gasfree-settings.sh"
       - "scripts/test-set-gasfree-settings.sh"
+      - "scripts/set-pilot-allowlist.sh"
+      - "scripts/test-set-pilot-allowlist.sh"
       - "scripts/check-mainnet-compose.sh"
       - "scripts/test-check-mainnet-compose.sh"
       - "scripts/lib/chain.sh"
@@ -68,6 +70,8 @@ on:
       - "scripts/deploy-stage.sh"
       - "scripts/set-gasfree-settings.sh"
       - "scripts/test-set-gasfree-settings.sh"
+      - "scripts/set-pilot-allowlist.sh"
+      - "scripts/test-set-pilot-allowlist.sh"
       - "scripts/check-mainnet-compose.sh"
       - "scripts/test-check-mainnet-compose.sh"
       - "scripts/lib/chain.sh"
@@ -116,6 +120,8 @@ jobs:
           bash -n scripts/deploy-stage.sh
           bash -n scripts/set-gasfree-settings.sh
           bash -n scripts/test-set-gasfree-settings.sh
+          bash -n scripts/set-pilot-allowlist.sh
+          bash -n scripts/test-set-pilot-allowlist.sh
           bash -n scripts/check-mainnet-compose.sh
           bash -n scripts/test-check-mainnet-compose.sh
           bash -n scripts/lib/chain.sh
@@ -140,6 +146,9 @@ jobs:
       - name: GasFree settings writer
         if: ${{ !cancelled() }}
         run: bash scripts/test-set-gasfree-settings.sh
+      - name: Pilot allowlist writer
+        if: ${{ !cancelled() }}
+        run: bash scripts/test-set-pilot-allowlist.sh
       - name: Mainnet compose guard
         if: ${{ !cancelled() }}
         run: bash scripts/test-check-mainnet-compose.sh

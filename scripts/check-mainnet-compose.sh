@@ -56,11 +56,27 @@ fi
 published=$(jq -r '.services | to_entries[] | select((.value.ports // []) | length > 0) | .key' "$MAIN" | tr '\n' ' ')
 if [ -z "$published" ]; then ok "no mainnet service publishes a port"; else bad "services that publish a port: ${published% }"; fi
 
-# 3. No mainnet service joins a stage network.
+# 3. Only the orchestrator joins a stage network, because nginx lives there and resolves upstreams by
+#    container name. It may do so only under its own name (check 1) and only with its pilot allowlist set
+#    (APP_PILOT_ALLOWED_ADDRESSES, which compose requires, so a render without it never gets here). The
+#    treasury service and the signer never join: the signer holds the mnemonic.
+ORCH=mainnet-payment-orchestrator
 onstage=$(jq -r '. as $r | .services | to_entries[] | .key as $s
                  | (.value.networks // {} | keys[]) as $n
-                 | select(($r.networks[$n].name // $n) | startswith("clutch-stage")) | $s' "$MAIN" | sort -u | tr '\n' ' ')
-if [ -z "$onstage" ]; then ok "no mainnet service joins a stage network"; else bad "services on a stage network: ${onstage% }"; fi
+                 | select(($r.networks[$n].name // $n) | startswith("clutch-stage")) | $s' "$MAIN" | sort -u)
+others=$(printf '%s\n' "$onstage" | grep -v -x -e '' -e "$ORCH" | tr '\n' ' ') || true
+if [ -z "$others" ]; then
+  ok "no mainnet service but the orchestrator joins a stage network"
+else
+  bad "services on a stage network: ${others% }"
+fi
+if printf '%s\n' "$onstage" | grep -qx "$ORCH"; then
+  if [ -n "$(jq -r --arg m "$ORCH" '.services[$m].environment.APP_PILOT_ALLOWED_ADDRESSES // ""' "$MAIN")" ]; then
+    ok "$ORCH is on a stage network with its pilot allowlist set"
+  else
+    bad "$ORCH is on a stage network without APP_PILOT_ALLOWED_ADDRESSES"
+  fi
+fi
 
 # 4. Every setting a stage service has, its mainnet twin has too (it may have more). A stage service
 #    with no settings (renamed, or missing from the render) would make this pass by default.

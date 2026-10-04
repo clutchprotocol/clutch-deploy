@@ -114,7 +114,7 @@ jobs:
                    AZURE_CLIENT_SECRET AZURE_KEY_VERSION DEPOSIT_MNEMONIC DEPOSIT_ACCOUNT_XPUB \
                    SIGNER_TOKEN TREASURY_INITIATOR_TOKEN TREASURY_APPROVER_TOKEN \
                    TREASURY_READONLY_TOKEN TREASURY_POSTGRES_PASSWORD \
-                   ORCHESTRATOR_POSTGRES_PASSWORD JWT_SECRET PAYOUT_FLOAT_ADDRESS; do
+                   ORCHESTRATOR_POSTGRES_PASSWORD JWT_SECRET PAYOUT_FLOAT_ADDRESS PILOT_ALLOWED_ADDRESSES; do
             echo "$v=ci" >> /tmp/t.env
           done
           docker compose --env-file /tmp/t.env -f docker-compose.mainnet.treasury.yml config -q

@@ -1,0 +1,90 @@
+# Write the mainnet pilot allowlist into .env.mainnet on the stage host: PILOT_ALLOWED_ADDRESSES, the
+# accounts that may use mainnet while it is a pilot (readiness A2 and B4). The orchestrator serves only
+# those addresses, and "Mainnet — start the treasury" refuses to start without the setting.
+#
+# The list comes from the repository secret PILOT_ALLOWED_ADDRESSES, and not from an input: the inputs
+# of a run are shown in plain text and the run log is public, and an address in either says which
+# accounts are in the pilot. To change the list, change the secret and run this again:
+#
+#   gh secret set PILOT_ALLOWED_ADDRESSES --repo clutchprotocol/clutch-deploy
+#
+# The secret is a comma-separated list of 0x addresses (40 hex characters each, no spaces), or a star
+# for everyone. A star opens mainnet to every account, so it needs a typed word of its own.
+#
+# It restarts nothing. Run "Mainnet — start the treasury" afterwards: it recreates the orchestrator with
+# the new list and checks that the orchestrator logged the allowlist as on. Like set-gasfree-settings,
+# it is manual and attributed, and it only writes one line of the file.
+
+name: Set the mainnet pilot allowlist (stage, writes .env.mainnet)
+
+on:
+  workflow_dispatch:
+    inputs:
+      reason:
+        description: "Why the list is being written now. Recorded in this log and nowhere else."
+        required: true
+      confirm:
+        description: 'Type "pilot mainnet" to write the list in the secret (type "pilot mainnet EVERYONE" if the secret is a star)'
+        required: true
+        default: ""
+
+# One shared group for the workflows that write or read .env / .env.mainnet, so they queue and never
+# run together. GitHub keeps one waiting run per group: start the next one after the one before it has
+# finished.
+concurrency:
+  group: env-file-writers
+  cancel-in-progress: false
+
+jobs:
+  set:
+    runs-on: ubuntu-latest
+    steps:
+      # Through env, never interpolated into the script body. The secret is only tested here, never printed.
+      - name: Check the confirmation and the secret
+        env:
+          CONFIRM: ${{ inputs.confirm }}
+          LIST: ${{ secrets.PILOT_ALLOWED_ADDRESSES }}
+        run: |
+          if [ -z "$LIST" ]; then
+            echo "Refusing: the repository secret PILOT_ALLOWED_ADDRESSES is empty or missing."
+            echo "  gh secret set PILOT_ALLOWED_ADDRESSES --repo clutchprotocol/clutch-deploy"
+            exit 1
+          fi
+          want="pilot mainnet"
+          [ "$LIST" = "*" ] && want="pilot mainnet EVERYONE"
+          if [ "$CONFIRM" != "$want" ]; then
+            echo "Refusing: confirm was '$CONFIRM', expected '$want'."
+            exit 1
+          fi
+
+      - name: Record who and why
+        env:
+          ACTOR: ${{ github.actor }}
+          REASON: ${{ inputs.reason }}
+        run: |
+          echo "dispatched by $ACTOR"
+          echo "reason: $REASON"
+
+      - name: Apply via SSH
+        env:
+          SSHPASS: ${{ secrets.STAGE_SSH_PASSWORD }}
+          CLUTCH_SSH_HOST: ${{ secrets.STAGE_HOST }}
+          CLUTCH_SSH_USER: ${{ secrets.STAGE_USER }}
+          PILOT_ALLOWED_ADDRESSES: ${{ secrets.PILOT_ALLOWED_ADDRESSES }}
+        run: |
+          # The same transport as set-gasfree-settings.yml: plain ssh, the script travels as a file, and
+          # the list reaches the host as a file of one shell-quoted assignment, never as part of a command.
+          set -euo pipefail
+          command -v sshpass >/dev/null || { sudo apt-get update -qq && sudo apt-get install -y -qq sshpass; }
+          R="/tmp/clutch-ci-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
+          SSH_OPTS="-o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o ConnectTimeout=30 -o ServerAliveInterval=30"
+          printf 'PILOT_ALLOWED_ADDRESSES=%q\n' "$PILOT_ALLOWED_ADDRESSES" > "$RUNNER_TEMP/clutch-env.sh"
+          sshpass -e ssh $SSH_OPTS "$CLUTCH_SSH_USER@$CLUTCH_SSH_HOST" "cat > $R.env" < "$RUNNER_TEMP/clutch-env.sh"
+          cat > "$RUNNER_TEMP/clutch-remote.sh" <<'CLUTCH_REMOTE_EOF'
+          set -euo pipefail
+          cd "${{ secrets.STAGE_DEPLOY_PATH }}"
+          git pull --ff-only origin main
+          bash scripts/set-pilot-allowlist.sh
+          CLUTCH_REMOTE_EOF
+          sshpass -e ssh $SSH_OPTS "$CLUTCH_SSH_USER@$CLUTCH_SSH_HOST" "cat > $R.sh" < "$RUNNER_TEMP/clutch-remote.sh"
+          timeout 10m sshpass -e ssh $SSH_OPTS "$CLUTCH_SSH_USER@$CLUTCH_SSH_HOST" "find /tmp -maxdepth 1 -name 'clutch-ci-*' -mtime +1 -delete 2>/dev/null; bash -c 'set -a; . $R.env; set +a; rm -f $R.env; exec bash $R.sh'"

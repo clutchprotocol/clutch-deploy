@@ -16,8 +16,10 @@
 # Safe to run again: `up -d` recreates only what changed, and a changed image pin or a changed value
 # in .env.mainnet recreates that service. It never runs `down`, never takes `-v`, and has no reset:
 # the treasury's two databases live in volumes of this project, and the chain beside it in project
-# clutch-main. NOTHING reaches the result from outside: no port is published, no stage network is
-# joined, and /payment/ on the mainnet site still answers 503.
+# clutch-main. Nothing reaches the result from outside: no port is published, and /payment/ on the
+# mainnet site answers 503 until nginx is pointed at the orchestrator. The orchestrator alone joins the
+# stage network, so that nginx can reach it then; it serves only the accounts of the pilot allowlist
+# (PILOT_ALLOWED_ADDRESSES), and this script ends by checking that it logged the allowlist as on.
 
 set -euo pipefail
 
@@ -108,5 +110,29 @@ if [ "$unhealthy" -ne 0 ]; then
 fi
 
 echo ""
-echo "started. Nothing reaches it from outside: no port is published, no stage network is joined,"
-echo "and /payment/ on the mainnet site still answers 503."
+echo "=== the orchestrator's pilot allowlist ==="
+# The orchestrator logs one fixed line at start (payment-orchestrator, main.rs). An image from before
+# the allowlist ignores APP_PILOT_ALLOWED_ADDRESSES without a word and serves every account, so a
+# missing or different line is a failed start, however healthy the container looks. Only that fixed
+# line is printed: it names a count and never an address, because the log of this workflow is public.
+want=$(pf_get "$CH_ENV_FILE" PILOT_ALLOWED_ADDRESSES)
+if [ "$want" = "*" ]; then
+  expect="pilot allowlist: off, every account may use this service"
+else
+  expect="pilot allowlist: on, $(( $(printf '%s' "$want" | tr -cd ',' | wc -c) + 1 )) address(es)"
+fi
+got=$(docker logs "$CH_ORCH" 2>&1 | sed -E 's/\x1b\[[0-9;]*m//g' | grep -a "pilot allowlist:" | tail -n 1 \
+        | sed -E 's/^.*(pilot allowlist: .*)$/\1/') || true
+if [ "$got" = "$expect" ]; then
+  echo "  $got"
+else
+  echo "  ABORT: the orchestrator should have logged \"$expect\" and logged \"${got:-nothing}\"."
+  echo "  An orchestrator image from before the allowlist ignores the setting and would serve every"
+  echo "  account. Do not point /payment/ at it. (A log level above info hides the line too.)"
+  exit 1
+fi
+
+echo ""
+echo "started. No port is published. The orchestrator is on the stage network, so that nginx can reach"
+echo "it, but nginx has no route to it until /payment/ is pointed at it: /payment/ on the mainnet site"
+echo "still answers 503."

@@ -55,6 +55,7 @@ MIN_REDEMPTION_CLT=25000000
 PER_TX_PAYOUT_CAP_USDT=200000000
 REDEMPTION_FEE_USDT=2000000
 DAILY_PAYOUT_CAP_CLT=1000000000
+PILOT_ALLOWED_ADDRESSES=0x00000000000000000000000000000000000000a1
 EOF
 
 . scripts/lib/mainnet-preflight.sh
@@ -83,6 +84,22 @@ check "a missing required setting fails" 1 "AZURE_KEY_VERSION is empty or missin
 check "an empty required setting fails" 1 "SIGNER_TOKEN is empty or missing" 's/^SIGNER_TOKEN=.*/SIGNER_TOKEN=/'
 check "a missing limit fails" 1 "REDEMPTION_FEE_USDT is empty or missing" '/^REDEMPTION_FEE_USDT=/d'
 check "a missing backup passphrase fails" 1 "BACKUP_PASSPHRASE is empty or missing" '/^BACKUP_PASSPHRASE=/d'
+# The pilot allowlist: required, and either * or well-formed addresses. A blank or missing one is
+# refused here, and the orchestrator reads a blank one as nobody, so neither opens the service.
+check "a missing pilot allowlist fails" 1 "PILOT_ALLOWED_ADDRESSES is empty or missing" '/^PILOT_ALLOWED_ADDRESSES=/d'
+check "an empty pilot allowlist fails" 1 "PILOT_ALLOWED_ADDRESSES is empty or missing" 's/^PILOT_ALLOWED_ADDRESSES=.*/PILOT_ALLOWED_ADDRESSES=/'
+check "one pilot address passes, and the count is said" 0 "the pilot allowlist names 1 address(es)" ''
+check "two pilot addresses pass, and the count is said" 0 "the pilot allowlist names 2 address(es)" \
+  's/^PILOT_ALLOWED_ADDRESSES=.*/PILOT_ALLOWED_ADDRESSES=0x00000000000000000000000000000000000000a1,0x00000000000000000000000000000000000000B2/'
+check "a star passes, and says that every account may use mainnet" 0 "EVERY account may use mainnet" 's/^PILOT_ALLOWED_ADDRESSES=.*/PILOT_ALLOWED_ADDRESSES=*/'
+check "an address that is too short fails" 1 "PILOT_ALLOWED_ADDRESSES is neither * nor a comma-separated list" \
+  's/^PILOT_ALLOWED_ADDRESSES=.*/PILOT_ALLOWED_ADDRESSES=0x00a1/'
+check "a space after the comma fails" 1 "PILOT_ALLOWED_ADDRESSES is neither * nor a comma-separated list" \
+  's/^PILOT_ALLOWED_ADDRESSES=.*/PILOT_ALLOWED_ADDRESSES=0x00000000000000000000000000000000000000a1, 0x00000000000000000000000000000000000000B2/'
+check "an address without its 0x fails" 1 "PILOT_ALLOWED_ADDRESSES is neither * nor a comma-separated list" \
+  's/^PILOT_ALLOWED_ADDRESSES=.*/PILOT_ALLOWED_ADDRESSES=0000000000000000000000000000000000000000a1/'
+check "a trailing comma fails" 1 "PILOT_ALLOWED_ADDRESSES is neither * nor a comma-separated list" \
+  's/^PILOT_ALLOWED_ADDRESSES=.*/PILOT_ALLOWED_ADDRESSES=0x00000000000000000000000000000000000000a1,/'
 check "the Nile TronGrid fails" 1 "TRONGRID_URL is not https://api.trongrid.io" 's#^TRONGRID_URL=.*#TRONGRID_URL=https://nile.trongrid.io#'
 check "the Nile USDT contract fails" 1 "USDT_CONTRACT is not the mainnet USDT contract" 's/^USDT_CONTRACT=.*/USDT_CONTRACT=TXYZopYRdj2D9XRtbG411XZZ3kM5VkAeBf/'
 check "the stage mnemonic fails" 1 "DEPOSIT_MNEMONIC is the same in both files" 's/^DEPOSIT_MNEMONIC=.*/DEPOSIT_MNEMONIC=stage mnemonic words/'
@@ -131,7 +148,7 @@ echo "Abc123def= " >> "$T/mainnet.env"
 chmod 600 "$T/mainnet.env" "$T/stage.env"
 code=0; out=$(preflight "$T/mainnet.env" "$T/stage.env" 2>&1) || code=$?
 leak=""
-for secret in "stage mnemonic words" "stage-signer" "main-i" "main-pg1" "jwt-mainnet-x" "client-secret-value" "mainnet mnemonic" "main-backup-pass" "strayfragment+secret" "Abc123def"; do
+for secret in "stage mnemonic words" "stage-signer" "main-i" "main-pg1" "jwt-mainnet-x" "client-secret-value" "mainnet mnemonic" "main-backup-pass" "strayfragment+secret" "Abc123def" "00000000000000000000000000000000000000a1"; do
   printf '%s' "$out" | grep -qF -- "$secret" && leak="$leak [$secret]"
 done
 if [ "$code" -eq 1 ] && [ -z "$leak" ]; then

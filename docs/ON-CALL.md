@@ -92,8 +92,27 @@ The app services never use the stage names. Two containers with one name, on a n
 Prometheus or nginx share, would answer to the same address. A scrape or a request could then reach
 either stack.
 
-**It is not open to users.** It publishes no port, it joins no stage network, and `/payment/` on the
-mainnet site answers 503. Redemptions are off (`APP_REDEMPTIONS_ENABLED=false`).
+**It is not open to users yet.** It publishes no port, and `/payment/` on the mainnet site answers 503
+until nginx is pointed at the orchestrator. The orchestrator alone joins the stage network, so that
+nginx can reach it then, and it serves only the accounts in `PILOT_ALLOWED_ADDRESSES` (see "Who may use
+mainnet" below). Redemptions are off (`APP_REDEMPTIONS_ENABLED=false`).
+
+**Who may use mainnet (the pilot allowlist).** Mainnet opens to the maintainer first, with the payout key
+still on the host (readiness A2, "open by choice for a capped pilot"). `PILOT_ALLOWED_ADDRESSES` in
+`.env.mainnet` lists the accounts the orchestrator serves: 0x addresses, comma-separated, or `*` for
+everyone. The start refuses without it, and the orchestrator reads a blank list as nobody.
+
+- An account that is not on the list gets 403 on every route that needs a caller. It is handed no
+  deposit address and no redemption intent. A caller with no valid token still gets 401.
+- To change the list: `gh secret set PILOT_ALLOWED_ADDRESSES --repo clutchprotocol/clutch-deploy`, then
+  run `Set the mainnet pilot allowlist`, type `pilot mainnet`, then run `Mainnet — start the treasury`.
+  The list is a secret and not an input because the inputs of a run, and its log, are public.
+- `*` opens mainnet to every account. The workflow then wants the typed word `pilot mainnet EVERYONE`.
+- To check it: probe `mainnet-treasury`, section "the pilot allowlist". It prints how many addresses the
+  setting names, and the line the orchestrator logged when it started. An orchestrator image from before
+  the allowlist logs no line and ignores the setting, which means it serves every account. The start
+  checks that line and refuses to finish without it. Never point `/payment/` at an orchestrator that did
+  not log it.
 
 **Never run `down -v` against `clutch-main-treasury`.** Its two databases are in its volumes.
 
@@ -112,6 +131,7 @@ example `halt`) is refused.
 | Resume | `Resume minting (stage, clears the breaker)`, chain `mainnet`, type `resume mainnet` | It refuses while the latest reconciliation run is a mismatch. It also refuses when there is no run yet. |
 | Change the mint caps | `Set mint caps (stage)`, chain `mainnet`, type `set mainnet` | It refuses unless `clutch-main-treasury-mainnet-treasury-service-1` is running. It first checks that `.env.mainnet` has only blank lines, `#` comments and plain `NAME=value` lines. The form's default values are the stage pilot values, so type the mainnet values. It restarts only `mainnet-treasury-service`. If you changed other settings in `.env.mainnet`, run `Mainnet — start the treasury` so that the other services read them. It prints no output of `docker compose`, because the run log is public. Afterwards it runs `check-cap-invariants.sh` on `.env.mainnet`. |
 | Write the GasFree settings and the decided limits | `Set GasFree settings (stage)`, network `mainnet`, type `gasfree mainnet` | **Order: run this workflow, then `Mainnet — start the treasury`, then `Set mint caps (stage)`.** The start makes all three services read the new values. Run `Set mint caps (stage)` only after the start. This workflow writes 17 values into `.env.mainnet`: the GasFree settings and the limits. The payout side is the pilot's until the KMS payout key (readiness A2) ships: a $100 float target, $50 for the largest redemption and for the signer's per-transaction cap, and a $200 rolling 24-hour payout ceiling. When the day's payouts reach the ceiling, the next redemptions wait with their CLT already burned until older payouts leave the 24-hour window. `TreasuryRedemptionUnpaid` fires after two hours. Before you run it, put `GASFREE_API_KEY` and `GASFREE_API_SECRET` into `.env.mainnet` by hand, as plain `NAME=value` lines. It refuses if one is missing, blank or in quote marks. Until it has run, the start refuses a key without the network. That is on purpose. It restarts nothing. **Running it again writes the decided limits again.** The lower mint caps of a pilot go back to the values of readiness item B4, so run `Set mint caps (stage)` again after it. |
+| Set who may use mainnet | `Set the mainnet pilot allowlist (stage, writes .env.mainnet)`, type `pilot mainnet` | It reads the list from the repository secret `PILOT_ALLOWED_ADDRESSES` and writes one line of `.env.mainnet`. It prints a count and never an address. It restarts nothing: run `Mainnet — start the treasury` after it, so that the orchestrator reads the list. |
 | Activate the GasFree float | `Activate the GasFree payout float (stage)`, chain `mainnet`, type `activate mainnet` | It moves money. It needs two things. **1.** The GasFree float must hold at least 4.00 USDT (the two fee maxima together) plus the smallest transfer. If it holds less, the signer answers `float_dry` and nothing is signed. USDT sent to the custody address does not fill the float. The float fills from the sweep of a real deposit, or from USDT sent to the float's GasFree address. **2.** The reserve must be at least 4.00 USDT more than the liabilities (CLT in circulation, and what unpaid redemptions are owed). The script checks this and refuses if it is not true. It runs a fresh reconciliation first. |
 | Sweep one deposit address | `Sweep one deposit address (stage)` | **Stage only for now.** The workflow has no chain choice. It prints the address you type into the public run log before any check could refuse it. `scripts/sweep-address.sh` also refuses `CHAIN=mainnet`. Nothing needs it before the first real deposit. |
 | Start it, or bring it up to date | `Mainnet — start the treasury`, type `START MAINNET TREASURY` | It checks the env files, the limits, the mainnet chain and the compose file first. It starts nothing until all checks pass. The first check, `preflight`, prints `OK` or `FAIL` for each point. A `FAIL` line names a setting or a line number, never a value. Fix what it names on the host, then run the workflow again. It never runs `down`. It pulls only the three app images. If a service is not healthy, it prints the command `docker logs --tail 50 <container>`, with the real container name filled in. Run that command on the host: the script prints no service log, because the run log is public. A later run can restart both databases, if a stage deploy has pulled a newer `postgres:16-alpine` in the meantime. |
