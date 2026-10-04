@@ -144,6 +144,12 @@ copy of the passphrase somewhere that is not the host.
 `BACKUP_REMOTE` is optional. Without it, the run prints a WARNING and still succeeds. The dumps then
 stay on the host disk, which does not satisfy readiness item D1.
 
+If `.env.mainnet` has no `BACKUP_REMOTE`, the workflow "Provision treasury secrets" (file
+`.env.mainnet`) writes one: the remote in `.env`, plus `/mainnet`. For `r2:bucket` that is
+`r2:bucket/mainnet`. It is a different destination, so the start accepts it. It is the same rclone
+account, though, so a leaked rclone credential reaches both stacks' dumps. The dumps stay encrypted
+with different passphrases. It never overwrites a value you set by hand, and it does not print it.
+
 A mainnet treasury database that exists but is stopped cannot be dumped. The run prints
 `mainnet treasury: clutch-main-treasury-treasury-postgres-1 exists but is not running: NOT backed up`
 and fails. It dumps nothing, so it leaves no partial file. If you stop the whole mainnet treasury on
