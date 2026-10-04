@@ -83,7 +83,7 @@ services:
   # one is an outage rather than a loss of the chain.
 
   mainnet-hub-api:
-    image: ghcr.io/clutchprotocol/clutch-hub-api:sha-21a26a3
+    image: ghcr.io/clutchprotocol/clutch-hub-api:sha-91ed760
     environment:
       - RUST_LOG=info
       # node3 deliberately, matching the testnet: being the p2p bootstrap is a different job
@@ -119,7 +119,7 @@ services:
     # The SAME image the testnet serves. It picks its chain and its API from the hostname it
     # is served on (apps/demo/src/chain-for-host.js), so app.clutchprotocol.io gets chain 1000
     # and api.clutchprotocol.io with nothing baked in at build time.
-    image: ghcr.io/clutchprotocol/clutch-hub-demo-app:sha-9b27014
+    image: ghcr.io/clutchprotocol/clutch-hub-demo-app:sha-c266f07
     networks:
       - clutch-stage
     restart: unless-stopped
