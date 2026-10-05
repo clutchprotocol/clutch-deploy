@@ -17,7 +17,8 @@
 # The price is a second copy of the money path. The answer to drift is a CI guard,
 # scripts/check-mainnet-compose.sh: it fails when a setting of the stage services is missing here,
 # when a service name is shared with the stage stack, when a service publishes a port or joins a
-# stage network, and when a URL here names a stage host.
+# stage network (the orchestrator alone may, and only with its pilot allowlist set), and when a URL
+# here names a stage host.
 #
 # THE DEPOSIT MNEMONIC MUST NOT BE THE TESTNET'S. TRON addresses are network-agnostic: one mnemonic
 # derives the SAME addresses on Nile and on mainnet. Two orchestrators with separate databases would
@@ -30,10 +31,13 @@
 #   mainnet-treasury-service      PRIVATE. Signs mints with the Azure KMS key. No published ports.
 #   mainnet-tron-signer           PRIVATE, and the most sensitive: it holds the deposit mnemonic.
 #   mainnet-payment-orchestrator  The public API once a route exists. Holds no key; only the xpub.
-#                                 NO port is published and it joins NO stage network: nothing
-#                                 reaches it from outside, and /payment/ on the mainnet site answers
-#                                 503. A later plan attaches it to the stage network, under a name no
-#                                 stage service has, when mainnet opens to users.
+#                                 NO port is published. It is the ONLY service here that joins the
+#                                 stage network, because nginx lives there and resolves upstreams by
+#                                 container name (as mainnet-hub-api does). Its name is unique, so the
+#                                 stage orchestrator is not answering to it. Nothing reaches it from
+#                                 outside until nginx has a route: /payment/ on the mainnet site
+#                                 answers 503 until then. Once it has, PILOT_ALLOWED_ADDRESSES (below)
+#                                 says which accounts may use it.
 #   treasury-network              internal: true, private to this project. Both Postgres instances
 #                                 live here and nowhere else.
 #
@@ -192,9 +196,11 @@ services:
       - treasury-network   # mainnet-treasury-service reaches it here
       - clutch-network     # TronGrid egress only
 
-  # The public API once a route exists, and not before: it publishes no port and joins no stage network.
+  # The public API once a route exists, and not before: it publishes no port. It joins the stage network
+  # (and only it, of this file's services) so that nginx can reach it, and serves only the accounts in
+  # PILOT_ALLOWED_ADDRESSES.
   mainnet-payment-orchestrator:
-    image: ghcr.io/clutchprotocol/clutch-orchestrator:sha-df5243a
+    image: ghcr.io/clutchprotocol/clutch-orchestrator:sha-b702959
     depends_on:
       orchestrator-postgres:
         condition: service_healthy
@@ -205,6 +211,12 @@ services:
       # this file's JWT_SECRET. mainnet-treasury-up.sh refuses a start when the two differ.
       - "APP_JWT_SECRET=${JWT_SECRET:?set JWT_SECRET in .env.mainnet — it must equal MAINNET_JWT_SECRET from .env. Run provision-treasury-secrets.yml}"
       - APP_ALLOWED_ORIGINS=${MAINNET_ALLOWED_ORIGINS:-https://app.clutchprotocol.io}
+      # Who may use mainnet while it is a pilot: the addresses, comma-separated, or * for everyone.
+      # Required, so that a start with no list stops here and cannot open mainnet to everyone. An
+      # orchestrator image from before the allowlist ignores this line without a word, so
+      # mainnet-treasury-up.sh also reads the orchestrator's own log line and refuses a start
+      # without it. See set-pilot-allowlist.yml, and readiness A2 and B4.
+      - "APP_PILOT_ALLOWED_ADDRESSES=${PILOT_ALLOWED_ADDRESSES:?set PILOT_ALLOWED_ADDRESSES in .env.mainnet: the addresses that may use mainnet, comma-separated, or * for everyone. Run set-pilot-allowlist.yml}"
       - APP_TREASURY_URL=http://mainnet-treasury-service:8090
       - APP_TREASURY_INITIATOR_TOKEN=${TREASURY_INITIATOR_TOKEN:?set TREASURY_INITIATOR_TOKEN in .env.mainnet}
       - APP_TREASURY_READONLY_TOKEN=${TREASURY_READONLY_TOKEN:?set TREASURY_READONLY_TOKEN in .env.mainnet}
@@ -238,6 +250,7 @@ services:
     networks:
       - treasury-network   # reach the treasury's internal API
       - clutch-network     # TronGrid
+      - clutch-stage       # nginx, which resolves the upstream `mainnet-payment-orchestrator` by name
 
 networks:
   treasury-network:
@@ -245,9 +258,16 @@ networks:
     # No route off this network. Both Postgres instances live here and nowhere else.
     internal: true
   # The mainnet chain's network, created by docker-compose.mainnet.yml. External: this project never
-  # creates it, and never joins a stage network.
+  # creates it. The one stage network it joins is `clutch-stage`, below.
   clutch-network:
     name: clutch-mainnet
+    external: true
+  # nginx lives in the v2ray project, joined to the testnet stack's network, and resolves upstreams
+  # by container name: the reason mainnet-hub-api joins it too (docker-compose.mainnet.yml). Only the
+  # orchestrator joins it from this file, and scripts/check-mainnet-compose.sh refuses any other
+  # service, and refuses the orchestrator without its pilot allowlist.
+  clutch-stage:
+    name: clutch-stage_clutch-network
     external: true
 
 volumes:

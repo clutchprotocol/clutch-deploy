@@ -49,6 +49,7 @@ cat > "$T/mainnet.json" <<'JSON'
   "name": "clutch-main-treasury",
   "networks": {
     "clutch-network": {"name": "clutch-mainnet", "external": true},
+    "clutch-stage": {"name": "clutch-stage_clutch-network", "external": true},
     "treasury-network": {"name": "clutch-main-treasury_treasury-network", "internal": true}
   },
   "services": {
@@ -75,8 +76,9 @@ cat > "$T/mainnet.json" <<'JSON'
     },
     "mainnet-payment-orchestrator": {
       "image": "ghcr.io/clutchprotocol/clutch-orchestrator:sha-df5243a",
-      "networks": {"treasury-network": null, "clutch-network": null},
+      "networks": {"treasury-network": null, "clutch-network": null, "clutch-stage": null},
       "environment": {
+        "APP_PILOT_ALLOWED_ADDRESSES": "0x00000000000000000000000000000000000000a1",
         "APP_TREASURY_URL": "http://mainnet-treasury-service:8090", "APP_MAX_REDEMPTION_CLT": "200000000",
         "APP_USDT_CONTRACT": "TR7NHqjeKQxGTCi8q8ZY4pL8otSzgjLj6t", "APP_TRONGRID_URL": "https://api.trongrid.io"
       }
@@ -119,8 +121,22 @@ check "a database on a shared network under a stage name fails" 1 "service names
   '.services["treasury-postgres"].networks = {"clutch-network": null}'
 check "a published port fails" 1 "services that publish a port: mainnet-payment-orchestrator" \
   '.services["mainnet-payment-orchestrator"].ports = [{"published": "8091", "target": 8091}]'
-check "a stage network fails" 1 "services on a stage network: mainnet-payment-orchestrator" \
-  '.networks["clutch-stage"] = {"name": "clutch-stage_clutch-network", "external": true} | .services["mainnet-payment-orchestrator"].networks["clutch-stage"] = null'
+check "the orchestrator on the stage network, with its pilot allowlist, passes" 0 "mainnet-payment-orchestrator is on a stage network with its pilot allowlist set" '.'
+check "nothing else on the stage network is the clean state" 0 "no mainnet service but the orchestrator joins a stage network" '.'
+# The text below is the whole list after the colon: the orchestrator is on the stage network in the
+# fixture too, and it is not named, so a guard that listed it as well would not match.
+check "the signer on a stage network fails, and only the signer is named" 1 "services on a stage network: mainnet-tron-signer" \
+  '.services["mainnet-tron-signer"].networks["clutch-stage"] = null'
+check "the treasury service on a stage network fails" 1 "services on a stage network: mainnet-treasury-service" \
+  '.services["mainnet-treasury-service"].networks["clutch-stage"] = null'
+check "the orchestrator on a stage network without its pilot allowlist fails" 1 \
+  "mainnet-payment-orchestrator is on a stage network without APP_PILOT_ALLOWED_ADDRESSES" \
+  'del(.services["mainnet-payment-orchestrator"].environment.APP_PILOT_ALLOWED_ADDRESSES)'
+check "an empty pilot allowlist on a stage network fails" 1 \
+  "mainnet-payment-orchestrator is on a stage network without APP_PILOT_ALLOWED_ADDRESSES" \
+  '.services["mainnet-payment-orchestrator"].environment.APP_PILOT_ALLOWED_ADDRESSES = ""'
+check "an orchestrator off the stage network needs no allowlist here" 0 "no mainnet service but the orchestrator joins a stage network" \
+  'del(.services["mainnet-payment-orchestrator"].networks["clutch-stage"]) | del(.services["mainnet-payment-orchestrator"].environment.APP_PILOT_ALLOWED_ADDRESSES)'
 check "a stage setting missing from the mainnet service fails" 1 "mainnet-tron-signer lacks the stage settings: APP_PER_TX_PAYOUT_CAP_USDT" \
   'del(.services["mainnet-tron-signer"].environment.APP_PER_TX_PAYOUT_CAP_USDT)'
 check "a stage host in a mainnet URL fails" 1 "mainnet settings that name a stage host: mainnet-payment-orchestrator.APP_TREASURY_URL" \

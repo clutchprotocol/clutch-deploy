@@ -37,7 +37,7 @@ MAINNET_USDT=TR7NHqjeKQxGTCi8q8ZY4pL8otSzgjLj6t
 # Every setting the mainnet compose file requires with `:?` or that the money path cannot run without,
 # and BACKUP_PASSPHRASE: backup-treasury-db.sh aborts without it, so a treasury that started would have
 # no backup the first night.
-PF_REQUIRED="CUSTODY_TRON_ADDRESS TRONGRID_URL USDT_CONTRACT AZURE_TENANT_ID AZURE_CLIENT_ID AZURE_CLIENT_SECRET AZURE_VAULT_URL AZURE_KEY_NAME AZURE_KEY_VERSION DEPOSIT_MNEMONIC DEPOSIT_ACCOUNT_XPUB PAYOUT_FLOAT_ADDRESS SIGNER_TOKEN TREASURY_INITIATOR_TOKEN TREASURY_APPROVER_TOKEN TREASURY_READONLY_TOKEN TREASURY_POSTGRES_PASSWORD ORCHESTRATOR_POSTGRES_PASSWORD JWT_SECRET PER_TX_MINT_CAP_CLT DAILY_MINT_CAP_CLT MAX_REDEMPTION_CLT MIN_REDEMPTION_CLT PER_TX_PAYOUT_CAP_USDT REDEMPTION_FEE_USDT DAILY_PAYOUT_CAP_CLT BACKUP_PASSPHRASE"
+PF_REQUIRED="CUSTODY_TRON_ADDRESS TRONGRID_URL USDT_CONTRACT AZURE_TENANT_ID AZURE_CLIENT_ID AZURE_CLIENT_SECRET AZURE_VAULT_URL AZURE_KEY_NAME AZURE_KEY_VERSION DEPOSIT_MNEMONIC DEPOSIT_ACCOUNT_XPUB PAYOUT_FLOAT_ADDRESS SIGNER_TOKEN TREASURY_INITIATOR_TOKEN TREASURY_APPROVER_TOKEN TREASURY_READONLY_TOKEN TREASURY_POSTGRES_PASSWORD ORCHESTRATOR_POSTGRES_PASSWORD JWT_SECRET PER_TX_MINT_CAP_CLT DAILY_MINT_CAP_CLT MAX_REDEMPTION_CLT MIN_REDEMPTION_CLT PER_TX_PAYOUT_CAP_USDT REDEMPTION_FEE_USDT DAILY_PAYOUT_CAP_CLT BACKUP_PASSPHRASE PILOT_ALLOWED_ADDRESSES"
 
 # Settings that must differ between the two files.
 PF_DIFFER="DEPOSIT_MNEMONIC DEPOSIT_ACCOUNT_XPUB CUSTODY_TRON_ADDRESS PAYOUT_FLOAT_ADDRESS SIGNER_TOKEN TREASURY_INITIATOR_TOKEN TREASURY_APPROVER_TOKEN TREASURY_READONLY_TOKEN TREASURY_POSTGRES_PASSWORD ORCHESTRATOR_POSTGRES_PASSWORD JWT_SECRET BACKUP_PASSPHRASE BACKUP_REMOTE"
@@ -172,6 +172,22 @@ preflight() {  # preflight <mainnet env file> <stage env file>
     pf_ok "JWT_SECRET matches MAINNET_JWT_SECRET, the mainnet hub's"
   else
     pf_bad "JWT_SECRET does not match MAINNET_JWT_SECRET in $s (the mainnet hub signs user tokens with that one)"
+  fi
+
+  # Who may use mainnet while it is a pilot: `*` (everyone, and only because someone typed it) or a
+  # comma-separated list of addresses, each 0x and 40 hex characters, with no spaces. The orchestrator
+  # treats a blank list as nobody, so a typo cannot open the service. It can lock the maintainer out, or
+  # leave out an address that was meant to be in, so a malformed list is refused here and not guessed at.
+  # Only a count is printed: the log of the workflow that runs this is public.
+  mv=$(pf_get "$m" PILOT_ALLOWED_ADDRESSES)
+  if [ -z "$mv" ]; then
+    :  # already reported as missing above
+  elif [ "$mv" = "*" ]; then
+    pf_ok "PILOT_ALLOWED_ADDRESSES is *: EVERY account may use mainnet once a route exists"
+  elif printf '%s' "$mv" | grep -Eq '^0x[0-9a-fA-F]{40}(,0x[0-9a-fA-F]{40})*$'; then
+    pf_ok "the pilot allowlist names $(( $(printf '%s' "$mv" | tr -cd ',' | wc -c) + 1 )) address(es)"
+  else
+    pf_bad "PILOT_ALLOWED_ADDRESSES is neither * nor a comma-separated list of 0x addresses (40 hex characters each, no spaces)"
   fi
 
   mv=$(pf_get "$m" MINT_AUTHORITY_SECRET)

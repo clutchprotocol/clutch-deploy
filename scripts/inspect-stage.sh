@@ -1378,7 +1378,7 @@ if [ "$PROBE" = "mainnet-treasury" ]; then
   done
 
   echo ""
-  echo "=== published ports (there must be none) and networks (never a stage network) ==="
+  echo "=== published ports (there must be none) and networks (a stage network only for the orchestrator) ==="
   for c in "$CH_TREASURY" "$CH_SIGNER" "$CH_ORCH" "$CH_TREASURY_PG" "$CH_ORCH_PG"; do
     ports=$(docker port "$c" 2>/dev/null | tr '\n' ' ')
     nets=$(docker inspect -f '{{range $k, $v := .NetworkSettings.Networks}}{{$k}} {{end}}' "$c" 2>/dev/null)
@@ -1400,8 +1400,24 @@ if [ "$PROBE" = "mainnet-treasury" ]; then
     net="${pair%%:*}" name="${pair##*:}"
     echo "    $name on $net: $(dns_count "$net" "$name") address(es)"
   done
-  echo "    (expected: 1 each, and 0 for $CH_SVC_ORCH on the stage network: it must not be there)"
+  echo "    (expected: 1 each, including $CH_SVC_ORCH on the stage network, where nginx finds it)"
   echo "    (a \"?\" means the lookup did not run: busybox could not be pulled or started)"
+
+  echo ""
+  echo "=== the pilot allowlist (a count, never an address: this log is public) ==="
+  if docker exec "$CH_ORCH" true 2>/dev/null; then
+    pl=$(docker exec "$CH_ORCH" printenv APP_PILOT_ALLOWED_ADDRESSES 2>/dev/null || true)
+    if [ -z "$pl" ]; then echo "    the setting is EMPTY or absent: the orchestrator reads that as nobody, or, on an old image, ignores it"
+    elif [ "$pl" = "*" ]; then echo "    the setting is *: EVERY account may use mainnet"
+    else echo "    the setting names $(( $(printf '%s' "$pl" | tr -cd ',' | wc -c) + 1 )) address(es)"; fi
+    # What the running process says it read, which is the thing that counts: an image from before the
+    # allowlist logs no such line and serves every account.
+    docker logs "$CH_ORCH" 2>&1 | sed -E 's/\x1b\[[0-9;]*m//g' | grep -a "pilot allowlist:" | tail -n 1 \
+      | sed -E 's/^.*(pilot allowlist: .*)$/    the orchestrator logged: \1/' | grep . \
+      || echo "    the orchestrator logged NO allowlist line: it predates the allowlist, and serves every account"
+  else
+    echo "    $CH_ORCH is not running, nothing read"
+  fi
 
   echo ""
   echo "=== settings (non-secret) ==="
