@@ -34,10 +34,10 @@
 #                                 NO port is published. It is the ONLY service here that joins the
 #                                 stage network, because nginx lives there and resolves upstreams by
 #                                 container name (as mainnet-hub-api does). Its name is unique, so the
-#                                 stage orchestrator is not answering to it. Nothing reaches it from
-#                                 outside until nginx has a route: /payment/ on the mainnet site
-#                                 answers 503 until then. Once it has, PILOT_ALLOWED_ADDRESSES (below)
-#                                 says which accounts may use it.
+#                                 stage orchestrator is not answering to it. nginx proxies /payment/
+#                                 on the mainnet site to it (config/nginx/clutch.d/
+#                                 app.clutchprotocol.io/payment.conf), and PILOT_ALLOWED_ADDRESSES
+#                                 (below) says which accounts may use it.
 #   treasury-network              internal: true, private to this project. Both Postgres instances
 #                                 live here and nowhere else.
 #
@@ -196,9 +196,9 @@ services:
       - treasury-network   # mainnet-treasury-service reaches it here
       - clutch-network     # TronGrid egress only
 
-  # The public API once a route exists, and not before: it publishes no port. It joins the stage network
-  # (and only it, of this file's services) so that nginx can reach it, and serves only the accounts in
-  # PILOT_ALLOWED_ADDRESSES.
+  # The public API: /payment/ on the mainnet site proxies to it. It publishes no port. It joins the stage
+  # network (and only it, of this file's services) so that nginx can reach it, and serves only the
+  # accounts in PILOT_ALLOWED_ADDRESSES.
   mainnet-payment-orchestrator:
     image: ghcr.io/clutchprotocol/clutch-orchestrator:sha-b702959
     depends_on:

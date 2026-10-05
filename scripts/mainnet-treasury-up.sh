@@ -16,10 +16,11 @@
 # Safe to run again: `up -d` recreates only what changed, and a changed image pin or a changed value
 # in .env.mainnet recreates that service. It never runs `down`, never takes `-v`, and has no reset:
 # the treasury's two databases live in volumes of this project, and the chain beside it in project
-# clutch-main. Nothing reaches the result from outside: no port is published, and /payment/ on the
-# mainnet site answers 503 until nginx is pointed at the orchestrator. The orchestrator alone joins the
-# stage network, so that nginx can reach it then; it serves only the accounts of the pilot allowlist
-# (PILOT_ALLOWED_ADDRESSES), and this script ends by checking that it logged the allowlist as on.
+# clutch-main. No port is published. nginx proxies /payment/ on the mainnet site to the orchestrator,
+# which alone joins the stage network so that nginx can reach it. The orchestrator serves only the
+# accounts of the pilot allowlist (PILOT_ALLOWED_ADDRESSES). This script ends by checking that it
+# logged the allowlist as on, and then reloads nginx, which keeps the address it resolved for the
+# orchestrator when it loaded its config and would answer 502 for a recreated one.
 
 set -euo pipefail
 
@@ -133,6 +134,24 @@ else
 fi
 
 echo ""
+echo "=== nginx reads the orchestrator's address again ==="
+# nginx resolves the upstream name `mainnet-payment-orchestrator` when it loads its config and keeps
+# that address. A recreated orchestrator can get another one, and /payment/ then answers 502 until
+# something reloads nginx: the trap mainnet-app-up.yml closes for the hub API (about 5 minutes of 502
+# on mainnet on 2026-09-25, with every other check green). It comes after the allowlist check on
+# purpose: a start that finds the gate off ends above, before nginx is touched.
+NGINX_C=$(docker ps --format '{{.Names}}' | grep -x 'nginx-stage' || true)
+if [ -z "$NGINX_C" ]; then
+  echo "ABORT: no running container named nginx-stage, so nothing could reload it. The treasury is up."
+  exit 1
+fi
+if ! docker exec "$NGINX_C" nginx -t >/dev/null 2>&1; then
+  echo "ABORT: nginx -t fails, so nginx was not reloaded. The treasury is up. Run on the host: docker exec $NGINX_C nginx -t"
+  exit 1
+fi
+docker exec "$NGINX_C" nginx -s reload
+echo "  nginx: reloaded"
+
+echo ""
 echo "started. No port is published. The orchestrator is on the stage network, so that nginx can reach"
-echo "it, but nginx has no route to it until /payment/ is pointed at it: /payment/ on the mainnet site"
-echo "still answers 503."
+echo "it, and /payment/ on the mainnet site goes to it. It serves only the accounts of the pilot allowlist."

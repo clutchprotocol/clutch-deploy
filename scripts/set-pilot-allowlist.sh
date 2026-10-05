@@ -73,7 +73,7 @@ chmod 600 "$ENV_FILE"
 
 echo "PILOT_ALLOWED_ADDRESSES in $ENV_FILE: was $before, now $count (the addresses are not printed: this log is public)"
 if [ "$count" = everyone ]; then
-  echo "WARNING: * means EVERY account may use mainnet once /payment/ has a route."
+  echo "WARNING: * means EVERY account may use mainnet through /payment/."
 fi
 echo "Nothing was restarted. Run \"Mainnet — start the treasury\" so that the orchestrator reads it; the start"
 echo "checks that the orchestrator logged the allowlist as on. The file as it was is in $ENV_FILE.bak."
