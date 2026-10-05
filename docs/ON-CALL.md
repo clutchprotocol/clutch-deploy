@@ -92,10 +92,13 @@ The app services never use the stage names. Two containers with one name, on a n
 Prometheus or nginx share, would answer to the same address. A scrape or a request could then reach
 either stack.
 
-**It is not open to users yet.** It publishes no port, and `/payment/` on the mainnet site answers 503
-until nginx is pointed at the orchestrator. The orchestrator alone joins the stage network, so that
-nginx can reach it then, and it serves only the accounts in `PILOT_ALLOWED_ADDRESSES` (see "Who may use
-mainnet" below). Redemptions are off (`APP_REDEMPTIONS_ENABLED=false`).
+**Only the pilot's accounts can use it.** It publishes no port. `/payment/` on the mainnet site proxies to
+the orchestrator, which joins the stage network so that nginx can reach it, and the orchestrator serves
+only the accounts in `PILOT_ALLOWED_ADDRESSES` (see "Who may use mainnet" below). Redemptions are off
+(`APP_REDEMPTIONS_ENABLED=false`). To close the route again, put back the `return 503` block in
+`config/nginx/clutch.d/app.clutchprotocol.io/payment.conf` and the 503 gate in `scripts/deploy-stage.sh`,
+or change the secret `PILOT_ALLOWED_ADDRESSES` to an address nobody holds, run `Set the mainnet pilot
+allowlist`, and then `Mainnet — start the treasury`.
 
 **Who may use mainnet (the pilot allowlist).** Mainnet opens to the maintainer first, with the payout key
 still on the host (readiness A2, "open by choice for a capped pilot"). `PILOT_ALLOWED_ADDRESSES` in

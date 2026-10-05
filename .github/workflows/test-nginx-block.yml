@@ -43,3 +43,21 @@ jobs:
           bash -n scripts/test-nginx-clutch-block.sh
       - name: Self-check
         run: bash scripts/test-nginx-clutch-block.sh
+      # The two /payment/ routes differ in ONE word, and swapping it is the dangerous mistake: a mainnet
+      # deposit panel pointed at the testnet orchestrator shows a real depositor an address watched by a
+      # service that can only see fake money, and credits them nothing. The mainnet file may close the
+      # route (return 503) or proxy to its own orchestrator, and never names the stage one.
+      - name: Each payment route names its own orchestrator
+        run: |
+          set -euo pipefail
+          main=config/nginx/clutch.d/app.clutchprotocol.io/payment.conf
+          stage=config/nginx/clutch.d/app-stage.clutchprotocol.io/payment.conf
+          if grep -qE 'proxy_pass[[:space:]]+http://payment-orchestrator' "$main"; then
+            echo "::error::$main proxies to the STAGE orchestrator (payment-orchestrator). Mainnet must use mainnet-payment-orchestrator."
+            exit 1
+          fi
+          grep -qE 'proxy_pass[[:space:]]+http://mainnet-payment-orchestrator:8091;|return 503' "$main" \
+            || { echo "::error::$main must either proxy to mainnet-payment-orchestrator:8091 or answer 503"; exit 1; }
+          grep -qE 'proxy_pass[[:space:]]+http://payment-orchestrator:8091;' "$stage" \
+            || { echo "::error::$stage must proxy to payment-orchestrator:8091"; exit 1; }
+          echo "ok: mainnet names mainnet-payment-orchestrator (or 503), stage names payment-orchestrator"

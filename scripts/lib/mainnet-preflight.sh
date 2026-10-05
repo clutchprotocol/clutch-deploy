@@ -183,7 +183,7 @@ preflight() {  # preflight <mainnet env file> <stage env file>
   if [ -z "$mv" ]; then
     :  # already reported as missing above
   elif [ "$mv" = "*" ]; then
-    pf_ok "PILOT_ALLOWED_ADDRESSES is *: EVERY account may use mainnet once a route exists"
+    pf_ok "PILOT_ALLOWED_ADDRESSES is *: EVERY account may use mainnet through /payment/"
   elif printf '%s' "$mv" | grep -Eq '^0x[0-9a-fA-F]{40}(,0x[0-9a-fA-F]{40})*$'; then
     pf_ok "the pilot allowlist names $(( $(printf '%s' "$mv" | tr -cd ',' | wc -c) + 1 )) address(es)"
   else
