@@ -28,7 +28,7 @@
 # when any secret here equals the stage one.
 #
 # NETWORK POSTURE (as the stage stack, with the names changed):
-#   mainnet-treasury-service      PRIVATE. Signs mints with the Azure KMS key. No published ports.
+#   mainnet-treasury-service      PRIVATE. Signs mints with the mint key held on this host. No published ports.
 #   mainnet-tron-signer           PRIVATE, and the most sensitive: it holds the deposit mnemonic.
 #   mainnet-payment-orchestrator  The public API once a route exists. Holds no key; only the xpub.
 #                                 NO port is published. It is the ONLY service here that joins the
@@ -96,20 +96,12 @@ services:
       - APP_NODE_PEER_WS_URLS=ws://mainnet-node1:8181/ws,ws://mainnet-node2:8182/ws
       - APP_CHAIN_ID=1000
 
-      # The KMS signer, which is the entire point of the key ceremony. Its address is the chain's
-      # genesis-committed mint_authority, so nothing else can mint here.
-      - APP_SIGNER_KIND=azure_kms
-      - "APP_AZURE_TENANT_ID=${AZURE_TENANT_ID:?set AZURE_TENANT_ID in .env.mainnet}"
-      - "APP_AZURE_CLIENT_ID=${AZURE_CLIENT_ID:?set AZURE_CLIENT_ID in .env.mainnet}"
-      - "APP_AZURE_CLIENT_SECRET=${AZURE_CLIENT_SECRET:?set AZURE_CLIENT_SECRET in .env.mainnet}"
-      - "APP_AZURE_VAULT_URL=${AZURE_VAULT_URL:?set AZURE_VAULT_URL in .env.mainnet}"
-      - "APP_AZURE_KEY_NAME=${AZURE_KEY_NAME:?set AZURE_KEY_NAME in .env.mainnet}"
-      # Pinned, never "latest": Key Vault lets a key grow new versions, and floating would let the
-      # mint authority's address change under this service without anyone deciding that.
-      - "APP_AZURE_KEY_VERSION=${AZURE_KEY_VERSION:?set AZURE_KEY_VERSION in .env.mainnet}"
-      # EMPTY ON PURPOSE. configuration.rs panics when signer_kind=azure_kms and this is non-empty,
-      # so a plaintext mint key cannot sit beside the KMS one and be picked up by accident.
-      - APP_MINT_AUTHORITY_SECRET=
+      # The mint key is a plain secret on this host (accepted 2026-10-05, readiness A1, "Mint key on the
+      # host"), made once by scripts/mainnet-mint-key.sh. Its address is the chain's genesis-committed
+      # mint_authority, so nothing else can mint here. At start this service compares its own address with
+      # the chain's mint_authority, and halts minting with a p1 alert if they differ.
+      - APP_SIGNER_KIND=env
+      - "APP_MINT_AUTHORITY_SECRET=${MINT_AUTHORITY_SECRET:?set MINT_AUTHORITY_SECRET in .env.mainnet -- mainnet-mint-key.sh writes it}"
 
       - APP_INITIATOR_TOKEN=${TREASURY_INITIATOR_TOKEN:?set TREASURY_INITIATOR_TOKEN in .env.mainnet}
       - APP_APPROVER_TOKEN=${TREASURY_APPROVER_TOKEN:?set TREASURY_APPROVER_TOKEN in .env.mainnet}

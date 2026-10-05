@@ -12,7 +12,8 @@
 # in ten minutes.
 #
 # NEVER run `down -v` against this project. On the testnet that is a reset. Here it is the loss of
-# the chain, and there is no second copy.
+# the chain, and there is no second copy. The one exception is scripts/reset-mainnet-chain.sh, which
+# proves first that no CLT was ever minted on the chain and keeps a copy of its data.
 set -euo pipefail
 cd "$(dirname "$0")/.."
 

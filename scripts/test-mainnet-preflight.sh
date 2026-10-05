@@ -24,6 +24,7 @@ TREASURY_APPROVER_TOKEN=stage-a
 TREASURY_READONLY_TOKEN=stage-r
 TREASURY_POSTGRES_PASSWORD=stage-pg1
 ORCHESTRATOR_POSTGRES_PASSWORD=stage-pg2
+MINT_AUTHORITY_SECRET=fedcba9876543210fedcba9876543210fedcba9876543210fedcba9876543210
 EOF
 
 # A complete mainnet file that differs from the stage one everywhere it must.
@@ -31,12 +32,8 @@ cat > "$T/mainnet.env.base" <<'EOF'
 CUSTODY_TRON_ADDRESS=TMainCustody
 TRONGRID_URL=https://api.trongrid.io
 USDT_CONTRACT=TR7NHqjeKQxGTCi8q8ZY4pL8otSzgjLj6t
-AZURE_TENANT_ID=tenant
-AZURE_CLIENT_ID=client
-AZURE_CLIENT_SECRET=client-secret-value
-AZURE_VAULT_URL=https://v.vault.azure.net
-AZURE_KEY_NAME=key
-AZURE_KEY_VERSION=v1
+MINT_AUTHORITY_SECRET=0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef
+MINT_AUTHORITY_ADDRESS=0x00000000000000000000000000000000000000c3
 DEPOSIT_MNEMONIC=mainnet mnemonic words
 DEPOSIT_ACCOUNT_XPUB=xpub6Dmain
 PAYOUT_FLOAT_ADDRESS=TMainFloat
@@ -60,6 +57,17 @@ EOF
 
 . scripts/lib/mainnet-preflight.sh
 
+# The preflight reads the node config at a path relative to where it runs (config/node-mainnet/node1.toml,
+# the host's repo root). So the test runs in $T, where that path is a fixture whose mint_authority is the
+# mainnet fixture's MINT_AUTHORITY_ADDRESS, and not in this repo, where it is the real chain's.
+ROOT=$(pwd)
+mkdir -p "$T/config/node-mainnet"
+cat > "$T/config/node-mainnet/node1.toml" <<'EOF'
+# Comments that mention mint_authority are not the setting.
+mint_authority = "0x00000000000000000000000000000000000000c3"
+EOF
+cd "$T"
+
 # check <name> <expected exit code> <text the output must contain> <sed script for the mainnet file, or ''> [<sed script for the stage file>]
 check() {
   local name="$1" want="$2" text="$3" msed="$4" ssed="${5:-}" out code=0
@@ -80,7 +88,7 @@ check() {
 }
 
 check "a complete, separate mainnet file passes" 0 "every required setting is set" ''
-check "a missing required setting fails" 1 "AZURE_KEY_VERSION is empty or missing" '/^AZURE_KEY_VERSION=/d'
+check "a missing required setting fails" 1 "MINT_AUTHORITY_ADDRESS is empty or missing" '/^MINT_AUTHORITY_ADDRESS=/d'
 check "an empty required setting fails" 1 "SIGNER_TOKEN is empty or missing" 's/^SIGNER_TOKEN=.*/SIGNER_TOKEN=/'
 check "a missing limit fails" 1 "REDEMPTION_FEE_USDT is empty or missing" '/^REDEMPTION_FEE_USDT=/d'
 check "a missing backup passphrase fails" 1 "BACKUP_PASSPHRASE is empty or missing" '/^BACKUP_PASSPHRASE=/d'
@@ -109,9 +117,34 @@ check "a stage token fails" 1 "SIGNER_TOKEN is the same in both files" 's/^SIGNE
 check "a stage database password fails" 1 "TREASURY_POSTGRES_PASSWORD is the same in both files" 's/^TREASURY_POSTGRES_PASSWORD=.*/TREASURY_POSTGRES_PASSWORD=stage-pg1/'
 check "a JWT secret that is not the mainnet hub's fails" 1 "JWT_SECRET does not match MAINNET_JWT_SECRET" 's/^JWT_SECRET=.*/JWT_SECRET=something-else/'
 check "the stage hub's JWT secret fails" 1 "JWT_SECRET is the same in both files" 's/^JWT_SECRET=.*/JWT_SECRET=jwt-stage-y/' 's/^MAINNET_JWT_SECRET=.*/MAINNET_JWT_SECRET=jwt-stage-y/'
-check "a plaintext mint key fails" 1 "a plaintext mint key (MINT_AUTHORITY_SECRET) is in the mainnet file" \
-  '$a MINT_AUTHORITY_SECRET=0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef'
-check "the non-hex placeholder is fine" 0 "no plaintext mint key" '$a MINT_AUTHORITY_SECRET=unused-this-chain-signs-with-kms'
+# The mint key lives on this host, and the address written beside it must be the chain's mint_authority.
+check "a 64-hex mint key passes, and only the verdict is said" 0 "the mint key is 64 hex characters" ''
+check "a missing mint key fails" 1 "MINT_AUTHORITY_SECRET is empty or missing" '/^MINT_AUTHORITY_SECRET=/d'
+check "the old KMS placeholder is not a key" 1 "MINT_AUTHORITY_SECRET is not 64 lower-case hex characters" \
+  's/^MINT_AUTHORITY_SECRET=.*/MINT_AUTHORITY_SECRET=unused-this-chain-signs-with-kms/'
+check "a key with a 0x prefix fails" 1 "MINT_AUTHORITY_SECRET is not 64 lower-case hex characters" \
+  's/^MINT_AUTHORITY_SECRET=.*/MINT_AUTHORITY_SECRET=0x0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef/'
+check "a key in capitals fails" 1 "MINT_AUTHORITY_SECRET is not 64 lower-case hex characters" \
+  's/^MINT_AUTHORITY_SECRET=.*/MINT_AUTHORITY_SECRET=0123456789ABCDEF0123456789ABCDEF0123456789ABCDEF0123456789ABCDEF/'
+check "a key that is too short fails" 1 "MINT_AUTHORITY_SECRET is not 64 lower-case hex characters" \
+  's/^MINT_AUTHORITY_SECRET=.*/MINT_AUTHORITY_SECRET=0123456789abcdef/'
+check "the stage mint key fails" 1 "MINT_AUTHORITY_SECRET is the same in both files" \
+  's/^MINT_AUTHORITY_SECRET=.*/MINT_AUTHORITY_SECRET=fedcba9876543210fedcba9876543210fedcba9876543210fedcba9876543210/'
+check "an address that is the node config's passes, and is said" 0 "MINT_AUTHORITY_ADDRESS is the mint_authority of the node configs" ''
+check "an address in capitals is still the node config's" 0 "MINT_AUTHORITY_ADDRESS is the mint_authority of the node configs" \
+  's/^MINT_AUTHORITY_ADDRESS=.*/MINT_AUTHORITY_ADDRESS=0x00000000000000000000000000000000000000C3/'
+check "an address that is not the node config's fails" 1 "MINT_AUTHORITY_ADDRESS is not the mint_authority" \
+  's/^MINT_AUTHORITY_ADDRESS=.*/MINT_AUTHORITY_ADDRESS=0x00000000000000000000000000000000000000c4/'
+check "an address that is too short fails" 1 "MINT_AUTHORITY_ADDRESS is not a 0x address" \
+  's/^MINT_AUTHORITY_ADDRESS=.*/MINT_AUTHORITY_ADDRESS=0xc3/'
+check "a missing address fails" 1 "MINT_AUTHORITY_ADDRESS is empty or missing" '/^MINT_AUTHORITY_ADDRESS=/d'
+# A node config with no mint_authority line (or no file) has nothing to agree with.
+sed -i 's/^mint_authority = /# mint_authority = /' "$T/config/node-mainnet/node1.toml"
+check "a node config with no mint_authority line fails" 1 "MINT_AUTHORITY_ADDRESS is not the mint_authority" ''
+rm -f "$T/config/node-mainnet/node1.toml"
+check "a missing node config fails" 1 "the node config is missing" ''
+printf '%s\n' '# Comments that mention mint_authority are not the setting.' \
+  'mint_authority = "0x00000000000000000000000000000000000000c3"' > "$T/config/node-mainnet/node1.toml"
 
 # A mainnet file other users can read.
 cp "$T/mainnet.env.base" "$T/mainnet.env"; cp "$T/stage.env.base" "$T/stage.env"
@@ -148,7 +181,7 @@ echo "Abc123def= " >> "$T/mainnet.env"
 chmod 600 "$T/mainnet.env" "$T/stage.env"
 code=0; out=$(preflight "$T/mainnet.env" "$T/stage.env" 2>&1) || code=$?
 leak=""
-for secret in "stage mnemonic words" "stage-signer" "main-i" "main-pg1" "jwt-mainnet-x" "client-secret-value" "mainnet mnemonic" "main-backup-pass" "strayfragment+secret" "Abc123def" "00000000000000000000000000000000000000a1"; do
+for secret in "stage mnemonic words" "stage-signer" "main-i" "main-pg1" "jwt-mainnet-x" "0123456789abcdef0123456789abcdef" "fedcba9876543210fedcba9876543210" "mainnet mnemonic" "main-backup-pass" "strayfragment+secret" "Abc123def" "00000000000000000000000000000000000000a1"; do
   printf '%s' "$out" | grep -qF -- "$secret" && leak="$leak [$secret]"
 done
 if [ "$code" -eq 1 ] && [ -z "$leak" ]; then
@@ -188,7 +221,7 @@ check "a GasFree network that is not mainnet fails" 1 "GASFREE_NETWORK is set an
 check "the stage backup remote fails" 1 "BACKUP_REMOTE is the same in both files" '$a BACKUP_REMOTE=r2:bucket' '$a BACKUP_REMOTE=r2:bucket'
 
 # The template the operator copies passes the same line rule.
-code=0; out=$(pf_lint .env.mainnet.example 2>&1) || code=$?
+code=0; out=$(pf_lint "$ROOT/.env.mainnet.example" 2>&1) || code=$?
 if [ "$code" -eq 0 ] && printf '%s' "$out" | grep -qF "each name once"; then
   passed=$((passed + 1)); echo "ok    the example file is well-formed"
 else

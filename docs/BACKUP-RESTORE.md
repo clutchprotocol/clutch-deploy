@@ -115,9 +115,11 @@ under a bad restore rather than a substitute for checking.
 
 - **The chain itself.** Node data is in per-node Docker volumes; three validators each hold a
   copy, which is a different durability story from a single-writer ledger. Not addressed here.
-- **`.env`.** It holds `DEPOSIT_MNEMONIC` today, so backing it up means copying the mnemonic
-  around, which is the problem readiness item D2 is about rather than a thing to solve with more
-  copies. It stops being a question once the KMS work in A1 and A2 lands.
+- **`.env` and `.env.mainnet`.** They hold `DEPOSIT_MNEMONIC` and, on mainnet, `MINT_AUTHORITY_SECRET`,
+  so a backup of them is a copy of the keys. The nightly job does not take one, on purpose. On
+  mainnet the maintainer keeps both secrets somewhere that is not the host (readiness A1, A2). A lost
+  mint key means no CLT can be minted on that chain again. A lost mnemonic strands every deposit
+  address. Losing the stage file only costs the testnet.
 
 ## Mainnet
 

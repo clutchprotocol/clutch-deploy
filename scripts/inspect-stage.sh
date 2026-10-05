@@ -1441,7 +1441,7 @@ if [ "$PROBE" = "mainnet-treasury" ]; then
   # <set> or <empty>, never a length: the length of a mnemonic leaks bits. APP_TRONGRID_API_KEY is
   # optional (compose ${TRONGRID_API_KEY:-}); empty means TronGrid throttles the polling.
   sec_down=0
-  for pair in "$CH_TREASURY:APP_AZURE_CLIENT_SECRET APP_APPROVER_TOKEN APP_MINT_AUTHORITY_SECRET APP_TRONGRID_API_KEY" \
+  for pair in "$CH_TREASURY:APP_APPROVER_TOKEN APP_MINT_AUTHORITY_SECRET APP_TRONGRID_API_KEY" \
               "$CH_SIGNER:APP_DEPOSIT_MNEMONIC APP_SIGNER_TOKEN APP_GASFREE_API_KEY APP_GASFREE_API_SECRET APP_TRONGRID_API_KEY" \
               "$CH_ORCH:APP_JWT_SECRET APP_TREASURY_INITIATOR_TOKEN APP_TRONGRID_API_KEY"; do
     c="${pair%%:*}"
@@ -1452,9 +1452,22 @@ if [ "$PROBE" = "mainnet-treasury" ]; then
     done
   done
   if [ "$sec_down" = 0 ]; then
-    echo "    (APP_MINT_AUTHORITY_SECRET must be <empty>: the mint authority is the KMS key)"
+    echo "    (APP_MINT_AUTHORITY_SECRET must be <set>: the mint key is on this host, readiness A1)"
   else
     echo "    (not checked: a container above is not running)"
+  fi
+
+  echo ""
+  echo "=== does the treasury's mint key match the chain? ==="
+  # treasury-service compares its own address with the chain's mint_authority once, at start, and logs one
+  # line either way (a mismatch also halts minting and raises a p1 alert). Both lines hold only addresses,
+  # which are public. No line yet means the check has not run: the node was not ready, or the service is old.
+  if docker exec "$CH_TREASURY" true 2>/dev/null; then
+    docker logs "$CH_TREASURY" 2>&1 | sed -E 's/\x1b\[[0-9;]*m//g' \
+      | grep -aE "mint authority confirmed by the chain|MINT AUTHORITY MISMATCH" | tail -n 2 | cut -c1-260 | sed 's/^/    /' | grep . \
+      || echo "    no mint authority line in the log yet"
+  else
+    echo "    $CH_TREASURY is not running, nothing read"
   fi
 
   echo ""

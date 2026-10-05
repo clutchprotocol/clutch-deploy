@@ -136,7 +136,8 @@ networks:
 
 volumes:
   # One per node: each has its own blockchain_name and database and they must not share state.
-  # `down -v` wipes these. On a mainnet chain that is not a reset, it is the loss of the chain.
+  # `down -v` wipes these. On a mainnet chain that is not a reset, it is the loss of the chain. The one
+  # exception is scripts/reset-mainnet-chain.sh, which first proves that no CLT was ever minted on it.
   mainnet-node1-data:
     driver: local
   mainnet-node2-data:

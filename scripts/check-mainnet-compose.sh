@@ -123,10 +123,10 @@ if [ -z "$unpinned" ]; then ok "the three images are pinned to a sha tag"; else 
 env_of() { jq -r --arg m "$1" --arg k "$2" '.services[$m].environment[$k] // ""' "$MAIN"; }
 T=mainnet-treasury-service
 [ "$(env_of $T APP_CHAIN_ID)" = "1000" ] && ok "$T runs chain 1000" || bad "$T must run chain 1000"
-[ "$(env_of $T APP_SIGNER_KIND)" = "azure_kms" ] && ok "$T signs with azure_kms" || bad "$T must sign with azure_kms"
-# configuration.rs panics when signer_kind is azure_kms and this is set: a plaintext mint key may
-# not sit beside the KMS one.
-[ -z "$(env_of $T APP_MINT_AUTHORITY_SECRET)" ] && ok "$T has an empty APP_MINT_AUTHORITY_SECRET" || bad "$T must have an empty APP_MINT_AUTHORITY_SECRET"
+[ "$(env_of $T APP_SIGNER_KIND)" = "env" ] && ok "$T signs with the mint key on this host (env)" || bad "$T must sign with the env signer"
+# The env signer panics at start when this is empty; compose requires it, so a render without it never
+# gets here, and an empty one would mean a mint key that is not there.
+[ -n "$(env_of $T APP_MINT_AUTHORITY_SECRET)" ] && ok "$T has an APP_MINT_AUTHORITY_SECRET" || bad "$T must have an APP_MINT_AUTHORITY_SECRET"
 case "$(env_of $T APP_NODE_WS_URL)" in
   ws://mainnet-node*) ok "$T reads a mainnet node" ;;
   *) bad "$T must read a mainnet node" ;;

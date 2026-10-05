@@ -106,12 +106,12 @@ jobs:
 
           # The mainnet treasury, rendered the way the host renders it: its own file and --env-file,
           # which is what keeps its secrets separate from the testnet's. `config -q` proves it parses,
-          # and the guard below proves what a parse cannot: the KMS signer, the chain, no shared name,
+          # and the guard below proves what a parse cannot: the env signer, the chain, no shared name,
           # no published port, no stage network, no setting lost from the stage services.
           echo "--- mainnet treasury ---"
           sed -e 's/#.*//' -e '/^[[:space:]]*$/d' .env.mainnet.example > /tmp/t.env
-          for v in CUSTODY_TRON_ADDRESS TRONGRID_API_KEY AZURE_TENANT_ID AZURE_CLIENT_ID \
-                   AZURE_CLIENT_SECRET AZURE_KEY_VERSION DEPOSIT_MNEMONIC DEPOSIT_ACCOUNT_XPUB \
+          for v in CUSTODY_TRON_ADDRESS TRONGRID_API_KEY MINT_AUTHORITY_SECRET \
+                   DEPOSIT_MNEMONIC DEPOSIT_ACCOUNT_XPUB \
                    SIGNER_TOKEN TREASURY_INITIATOR_TOKEN TREASURY_APPROVER_TOKEN \
                    TREASURY_READONLY_TOKEN TREASURY_POSTGRES_PASSWORD \
                    ORCHESTRATOR_POSTGRES_PASSWORD JWT_SECRET PAYOUT_FLOAT_ADDRESS PILOT_ALLOWED_ADDRESSES; do
