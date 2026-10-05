@@ -155,8 +155,23 @@ A mainnet treasury database that exists but is stopped cannot be dumped. The run
 and fails. It dumps nothing, so it leaves no partial file. If you stop the whole mainnet treasury on
 purpose, the nightly run therefore fails every night.
 
-The restore rehearsal (`rehearse-restore.yml`) is stage-only so far. Rehearse a mainnet restore
-before the first real deposit.
+The restore rehearsal (`rehearse-restore.yml`) takes a chain. Choose `mainnet` and type `rehearse mainnet`.
+
+- **Source `synthetic`** dumps the mainnet databases with a passphrase made for the run, restores them
+  into throwaway databases inside the mainnet Postgres containers, counts the rows and drops them. It
+  tests the scripts. It never touches the live databases.
+- **Source `remote`** is the one that closes D1. It fetches the newest dump from the mainnet off-host
+  remote, opens it with the real passphrase in `.env.mainnet`, restores it into a throwaway database,
+  and runs one reconciliation against the copy (`treasury-service --reconcile-once`, through the
+  mainnet compose file). The reconciliation reads the real mainnet chain and TronGrid. It runs no
+  sweeper, no outbox and no payout workers, and writes nothing outside the copy. Both copies are
+  dropped on every exit.
+- The logs of these runs are public. On mainnet they print table names, row counts and file names,
+  never a row, and never the name of the remote.
+- A ledger with nothing in it reconciles trivially. A clean run on an empty ledger proves the path:
+  the remote answers, the passphrase opens the dump, the restore loads, the reconciliation runs. It
+  does not prove that data survives. Run it again after the first real deposits, and record both
+  dates under D1.
 
 `.env.mainnet` is not in these backups. It holds the mainnet `DEPOSIT_MNEMONIC`: see "What this
 does not cover" above.

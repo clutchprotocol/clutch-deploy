@@ -20,28 +20,41 @@
 # starts the sweeper, the chain outbox and the payout workers, all of which act on chain — so an
 # instance reading a COPY of chain_outbox would re-broadcast transactions already submitted and
 # re-sweep addresses already swept. Verifying a backup must not be able to move money.
+#
+# CHAIN=stage (the default) or CHAIN=mainnet picks the treasury (scripts/lib/chain.sh): its env file, its
+# containers and its compose project. On mainnet the reconciliation reads the real mainnet chain and
+# TronGrid, against the restored copy of the ledger, and nothing it writes leaves the copy. The logs of
+# the workflow that runs this are public, so on mainnet the remote's name is not printed.
+#
+# A ledger with nothing in it reconciles trivially. A clean run then proves the path (the remote answers,
+# the passphrase opens the dump, the restore loads, the reconciliation runs), not that data survives.
+# Run it again once the ledger holds real deposits.
 
 set -euo pipefail
 
 cd "$(dirname "$0")/.."
+. scripts/lib/chain.sh
+chain_select "${CHAIN:-stage}" || exit 1
+ENV_FILE="$CH_ENV_FILE"
+echo "treasury: $CH_NAME"
 
 env_get() {
   # `|| true` because an absent key is an empty answer, not a failure. Under `set -euo pipefail` a
   # grep matching nothing fails the pipeline and kills the script inside a command substitution,
   # with no output at all. That is exactly how the first rehearsal died.
-  grep -E "^$1=" .env 2>/dev/null | head -1 | cut -d= -f2- | sed -e 's/^"//' -e 's/"$//' || true
+  grep -E "^$1=" "$ENV_FILE" 2>/dev/null | head -1 | cut -d= -f2- | sed -e 's/^"//' -e 's/"$//' || true
 }
 
 REMOTE="$(env_get BACKUP_REMOTE)"
 PGPASS="$(env_get TREASURY_POSTGRES_PASSWORD)"
 
 if [ -z "$REMOTE" ]; then
-  echo "ABORT: BACKUP_REMOTE is not set. There is no off-host copy to verify, and verifying the"
+  echo "ABORT: BACKUP_REMOTE is not set in $ENV_FILE. There is no off-host copy to verify, and verifying the"
   echo "  local one would prove nothing about surviving the loss of this host."
   exit 1
 fi
 if [ -z "$PGPASS" ]; then
-  echo "ABORT: TREASURY_POSTGRES_PASSWORD is not in .env."
+  echo "ABORT: TREASURY_POSTGRES_PASSWORD is not in $ENV_FILE."
   exit 1
 fi
 
@@ -50,8 +63,8 @@ TREASURY_TARGET="treasury_restore_$STAMP"
 ORCH_TARGET="orchestrator_restore_$STAMP"
 WORKDIR="$(mktemp -d)"
 
-TREASURY_CONTAINER="${TREASURY_CONTAINER:-clutch-stage-treasury-postgres-1}"
-ORCH_CONTAINER="${ORCHESTRATOR_CONTAINER:-clutch-stage-orchestrator-postgres-1}"
+TREASURY_CONTAINER="${TREASURY_CONTAINER:-$CH_TREASURY_PG}"
+ORCH_CONTAINER="${ORCHESTRATOR_CONTAINER:-$CH_ORCH_PG}"
 
 # Cleanup runs on every exit path, including a failed reconciliation. A restored ledger left behind
 # is a second copy of every deposit and every mint intent sitting on the same box, and the whole
@@ -84,7 +97,12 @@ fetch_newest() {
   echo "$name"
 }
 
-echo "=== 1/4 fetching the newest dumps from $REMOTE ==="
+# The remote says where the backups live. On stage it is printed, as it always was. On mainnet it is not.
+if [ "$CH_NAME" = mainnet ]; then
+  echo "=== 1/4 fetching the newest dumps from the mainnet off-host remote (its name is not printed: the log is public) ==="
+else
+  echo "=== 1/4 fetching the newest dumps from $REMOTE ==="
+fi
 TREASURY_DUMP="$(fetch_newest treasury)"
 ORCH_DUMP="$(fetch_newest orchestrator)"
 echo "  $TREASURY_DUMP"
@@ -92,8 +110,8 @@ echo "  $ORCH_DUMP"
 
 echo ""
 echo "=== 2/4 restoring into $TREASURY_TARGET and $ORCH_TARGET ==="
-RESTORE_TARGET="$TREASURY_TARGET" bash scripts/restore-treasury-db.sh "$WORKDIR/$TREASURY_DUMP"
-RESTORE_TARGET="$ORCH_TARGET" bash scripts/restore-treasury-db.sh "$WORKDIR/$ORCH_DUMP"
+CHAIN="$CH_NAME" RESTORE_TARGET="$TREASURY_TARGET" bash scripts/restore-treasury-db.sh "$WORKDIR/$TREASURY_DUMP"
+CHAIN="$CH_NAME" RESTORE_TARGET="$ORCH_TARGET" bash scripts/restore-treasury-db.sh "$WORKDIR/$ORCH_DUMP"
 
 echo ""
 echo "=== 3/4 reconciling against the RESTORED treasury ledger ==="
@@ -103,12 +121,12 @@ echo "  (--reconcile-once: no sweeper, no outbox, no payout workers, no HTTP ser
 # custody address. Only the database is redirected. `--no-deps` so this cannot start anything, and
 # the repeated service name is because the image's CMD is the binary with no ENTRYPOINT, so the
 # arguments have to name it.
-FILES=(-f docker-compose.yml -f docker-compose.treasury.yml -f docker-compose.stage.cloudflare-flex.yml -f docker-compose.stage.treasury.yml)
-
+# chain_compose names the project and the files of the chosen treasury (and its own env file on mainnet).
+# The database service is `treasury-postgres` in both compose files.
 set +e
-docker compose -p clutch-stage "${FILES[@]}" run --rm --no-deps \
+chain_compose run --rm --no-deps \
   -e "APP_DATABASE_URL=postgres://treasury:$PGPASS@treasury-postgres:5432/$TREASURY_TARGET" \
-  treasury-service treasury-service --reconcile-once
+  "$CH_SVC_TREASURY" treasury-service --reconcile-once
 RECONCILE_RC=$?
 set -e
 
@@ -141,7 +159,11 @@ case "$RECONCILE_RC" in
     echo "  Check whether LIVE reports the same status before suspecting the backup. Identical"
     echo "  numbers on both sides mean the restore is faithful and the drift is a pre-existing"
     echo "  ledger problem to fix on its own terms:"
-    echo "    curl -s https://explorer-stage.clutchprotocol.io/api/v1/reserve"
+    if [ "$CH_NAME" = mainnet ]; then
+      echo "    PROBE=mainnet-treasury shows the live treasury's latest reconciliation runs"
+    else
+      echo "    curl -s https://explorer-stage.clutchprotocol.io/api/v1/reserve"
+    fi
     ;;
   *)
     echo "  COULD NOT RUN (exit $RECONCILE_RC)."
