@@ -1,4 +1,4 @@
-# Close a `needs_manual` deposit whose depositor has ALREADY been repaid.
+# Close a `needs_manual` deposit whose depositor has ALREADY been repaid, on stage or on mainnet.
 #
 # A failed mint burns the deposit's client_ref, so repayment is always a brand-new treasury intent
 # to the same beneficiary -- and nothing links it back. The deposit then sits in `needs_manual`
@@ -7,6 +7,10 @@
 #
 # This moves NO money and mints nothing. It refuses unless the treasury already holds a credited
 # mint intent for that deposit's beneficiary, so it cannot make an unpaid deposit look paid.
+#
+# The mainnet treasury is chosen with `chain`, and asks for the longer word "close mainnet". The logs
+# of this workflow are public, so on mainnet the script cuts the depositor's address and the
+# deposit's transaction id in its output.
 
 name: Close a repaid deposit (stage)
 
@@ -19,8 +23,15 @@ on:
       reason:
         description: "Which repayment made this good. Recorded in this log and nowhere else."
         required: true
+      chain:
+        description: "Which treasury"
+        type: choice
+        default: stage
+        options:
+          - stage
+          - mainnet
       confirm:
-        description: 'Type "close" to confirm'
+        description: 'Type "close" to confirm (type "close mainnet" for the mainnet treasury)'
         required: true
         default: ""
 
@@ -32,10 +43,16 @@ jobs:
   close:
     runs-on: ubuntu-latest
     steps:
+      # Through env, never interpolated into the script body.
       - name: Check the confirmation
+        env:
+          CONFIRM: ${{ inputs.confirm }}
+          CHAIN: ${{ inputs.chain }}
         run: |
-          if [ "${{ inputs.confirm }}" != "close" ]; then
-            echo "Refusing: confirm was '${{ inputs.confirm }}', expected 'close'."
+          want="close"
+          [ "$CHAIN" = "mainnet" ] && want="close mainnet"
+          if [ "$CONFIRM" != "$want" ]; then
+            echo "Refusing: confirm was '$CONFIRM', expected '$want' for $CHAIN."
             exit 1
           fi
 
@@ -44,8 +61,10 @@ jobs:
           ACTOR: ${{ github.actor }}
           REASON: ${{ inputs.reason }}
           DEPOSIT_ID: ${{ inputs.deposit_id }}
+          CHAIN: ${{ inputs.chain }}
         run: |
           echo "dispatched by $ACTOR"
+          echo "treasury: $CHAIN"
           echo "deposit: $DEPOSIT_ID"
           echo "reason: $REASON"
 
@@ -55,6 +74,7 @@ jobs:
           CLUTCH_SSH_HOST: ${{ secrets.STAGE_HOST }}
           CLUTCH_SSH_USER: ${{ secrets.STAGE_USER }}
           DEPOSIT_ID: ${{ inputs.deposit_id }}
+          CHAIN: ${{ inputs.chain }}
         run: |
           # Plain ssh, not appleboy/ssh-action. That action downloads a drone-ssh binary from
           # GitHub releases on EVERY run -- unconditionally, there is no skip-if-present -- and on
@@ -74,7 +94,7 @@ jobs:
           # input gave us, kept deliberately: a workflow input must not be able to become part of
           # the command that runs. The file is deleted on the host the moment it has been read.
           : > "$RUNNER_TEMP/clutch-env.sh"
-          for v in DEPOSIT_ID; do printf '%s=%q\n' "$v" "${!v-}" >> "$RUNNER_TEMP/clutch-env.sh"; done
+          for v in DEPOSIT_ID CHAIN; do printf '%s=%q\n' "$v" "${!v-}" >> "$RUNNER_TEMP/clutch-env.sh"; done
           sshpass -e ssh $SSH_OPTS "$CLUTCH_SSH_USER@$CLUTCH_SSH_HOST" "cat > $R.env" < "$RUNNER_TEMP/clutch-env.sh"
           cat > "$RUNNER_TEMP/clutch-remote.sh" <<'CLUTCH_REMOTE_EOF'
           set -euo pipefail

@@ -153,6 +153,18 @@ check "mainnet backup remote refuses a space" "REFUSED" "$(remote_of 'r2:my buck
 check "mainnet backup remote refuses a dollar sign" "REFUSED" "$(remote_of 'r2:$bucket')"
 check "mainnet backup remote refuses a lone quote" "REFUSED" "$(remote_of "r2:buck'et")"
 
+# What a public log may show of a user's address. The same 42-character address, once per chain.
+ADDR=0xe8735e0cbe4253d4fc6aae12271cc113ef83e87f
+mask_of() { ( . scripts/lib/chain.sh; chain_select "$1" >/dev/null; chain_mask "$2" ); }
+masksql_of() { ( . scripts/lib/chain.sh; chain_select "$1" >/dev/null; chain_mask_sql "$2" ); }
+check "an address is shown whole on stage" "$ADDR" "$(mask_of stage "$ADDR")"
+check "an address is cut to its first eight and last four characters on mainnet" "0xe8735e...e87f" "$(mask_of mainnet "$ADDR")"
+check "the cut address does not hold the middle of the address" "no" "$(case "$(mask_of mainnet "$ADDR")" in *cbe4253d4fc6aae12271cc113ef83e8*) echo yes ;; *) echo no ;; esac)"
+check "a short value is not shown at all on mainnet" "<hidden>" "$(mask_of mainnet 0x1234)"
+check "a short value is shown on stage" "0x1234" "$(mask_of stage 0x1234)"
+check "a column is selected as it is on stage" "i.beneficiary" "$(masksql_of stage i.beneficiary)"
+check "a column is cut in the select list on mainnet" "(left(i.beneficiary, 8) || '...' || right(i.beneficiary, 4))" "$(masksql_of mainnet i.beneficiary)"
+
 echo ""
 echo "$passed passed, $failed failed"
 [ "$failed" -eq 0 ]

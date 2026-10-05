@@ -18,11 +18,18 @@
 # A `pending` row is already queued, a `confirmed` one is done, and a `failed` one is a different
 # decision that should be made deliberately.
 #
-# Usage:  INTENT_ID=<uuid> bash scripts/redrive-mint.sh
+# Usage:  INTENT_ID=<uuid> [CHAIN=mainnet] bash scripts/redrive-mint.sh
+#
+# CHAIN=stage (the default) or CHAIN=mainnet picks the treasury (scripts/lib/chain.sh). On mainnet the
+# beneficiary is cut in the output, because the log of the workflow that runs this is public.
 
 set -euo pipefail
 
 cd "$(dirname "$0")/.."
+. scripts/lib/chain.sh
+chain_select "${CHAIN:-stage}" || exit 1
+ENV_FILE="$CH_ENV_FILE"
+echo "treasury: $CH_NAME"
 
 INTENT_ID="${INTENT_ID:-}"
 if [ -z "$INTENT_ID" ]; then
@@ -39,11 +46,11 @@ fi
 env_get() {
   # `|| true`: an absent key is an empty answer, not a failure. Under `set -euo pipefail` a grep
   # matching nothing kills the script inside a command substitution, with no output.
-  grep -E "^$1=" .env 2>/dev/null | head -1 | cut -d= -f2- | sed -e 's/^"//' -e 's/"$//' || true
+  grep -E "^$1=" "$ENV_FILE" 2>/dev/null | head -1 | cut -d= -f2- | sed -e 's/^"//' -e 's/"$//' || true
 }
 
 PGPASS="$(env_get TREASURY_POSTGRES_PASSWORD)"
-CONTAINER="${TREASURY_CONTAINER:-clutch-stage-treasury-postgres-1}"
+CONTAINER="${TREASURY_CONTAINER:-$CH_TREASURY_PG}"
 
 psql_t() {
   docker exec -e "PGPASSWORD=$PGPASS" -i "$CONTAINER" psql -U treasury -d treasury -v ON_ERROR_STOP=1 "$@"
@@ -52,7 +59,7 @@ psql_t() {
 echo "=== before ==="
 psql_t -c "
   select o.id as outbox_id, o.status as outbox_status, o.attempts, o.next_attempt_at,
-         i.status as intent_status, i.amount_clt, i.beneficiary,
+         i.status as intent_status, i.amount_clt, $(chain_mask_sql i.beneficiary) as beneficiary,
          left(i.chain_tx_hash, 18) as tx_hash
   from chain_outbox o join mint_intents i on i.id = o.intent_id
   where o.intent_id = '$INTENT_ID';"

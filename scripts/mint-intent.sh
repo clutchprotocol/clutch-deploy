@@ -5,6 +5,14 @@
 #   ACTION=create   BENEFICIARY=0x... AMOUNT_CLT=990000000 REASON="..."   bash scripts/mint-intent.sh
 #   ACTION=approve  INTENT_ID=<uuid>                                      bash scripts/mint-intent.sh
 #
+# CHAIN=stage (the default) or CHAIN=mainnet picks the treasury it acts on (scripts/lib/chain.sh). The
+# logs of the workflows that run this are public, so on mainnet a user's address is never printed whole.
+#
+# `approve` takes an intent in `created` (a manual mint, or a deposit's intent not yet approved) and in
+# `needs_manual`. The second is where a deposit lands when it is over the per-transaction mint cap, and
+# the way out is to raise the cap (set-mint-caps) and approve it again: the treasury's approve call
+# accepts that on purpose (intents.rs), and the alert that tells the operator to do it names this tool.
+#
 # # What this does and does not enforce
 #
 # The treasury derives `created_by` and `approved_by` from the AUTHENTICATED ROLE, never from the
@@ -20,13 +28,28 @@
 
 set -euo pipefail
 
-PG=clutch-stage-treasury-postgres-1
-SVC=clutch-stage-treasury-service-1
+. "$(dirname "$0")/lib/chain.sh"
+chain_select "${CHAIN:-stage}" || exit 1
+PG=$CH_TREASURY_PG
+SVC=$CH_TREASURY
 ACTION="${ACTION:?ACTION must be create or approve}"
+echo "treasury: $CH_NAME"
+
+# Every value below that reaches SQL is checked first, because a workflow input is not a trusted string.
+UUID_RE='^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$'
+
+# The treasury's reply names the beneficiary in full. On mainnet that value is cut like every other.
+show_resp() {
+  if [ "$CH_NAME" = mainnet ]; then
+    printf '%s' "$1" | sed -E 's/("beneficiary":"[^"]{8})[^"]*([^"]{4}")/\1...\2/g'
+  else
+    printf '%s' "$1"
+  fi
+}
 
 show_intent() {
   docker exec "$PG" psql -U treasury -d treasury \
-    -c "select id, beneficiary, amount_clt, status, created_by, approved_by, created_at
+    -c "select id, $(chain_mask_sql beneficiary) as beneficiary, amount_clt, status, created_by, approved_by, created_at
         from mint_intents where id = '$1';" 2>&1 | sed 's/^/    /'
 }
 
@@ -38,6 +61,15 @@ if [ "$ACTION" = "create" ]; then
   case "$AMOUNT_CLT" in
     ''|*[!0-9]*) echo "ABORT: AMOUNT_CLT must be a positive integer in micro-dollars (1 USD = 1000000)."; exit 1;;
   esac
+  # BENEFICIARY is interpolated into SQL below, so only the characters of an address (or a stage
+  # test name) get through. On mainnet it must be an address: 0x and 40 hex characters.
+  case "$BENEFICIARY" in
+    ''|*[!0-9A-Za-z_.:-]*) echo "ABORT: BENEFICIARY has a character an address does not."; exit 1;;
+  esac
+  if [ "$CH_NAME" = mainnet ] && ! printf '%s' "$BENEFICIARY" | grep -qE '^0x[0-9a-fA-F]{40}$'; then
+    echo "ABORT: on mainnet BENEFICIARY must be 0x and 40 hex characters."
+    exit 1
+  fi
 
   # There is no idempotency key available for a manual mint: the treasury's `client_ref` requires
   # `expected_amount_usdt`, which pins the verifier to an on-chain transfer that a correction mint
@@ -57,7 +89,11 @@ if [ "$ACTION" = "create" ]; then
     echo "!!! DUPLICATE GUARD OVERRIDDEN — $DUPES matching intent(s) exist and are being ignored."
     echo "!!! justification: $OVERRIDE_REASON"
     echo "!!! Verify the shortfall on chain BEFORE approving:"
-    echo "!!!   inspect-stage.yml -f probe=balance -f address=$BENEFICIARY"
+    if [ "$CH_NAME" = mainnet ]; then
+      echo "!!!   look the beneficiary up on the mainnet explorer (the address is not printed on mainnet)"
+    else
+      echo "!!!   inspect-stage.yml -f probe=balance -f address=$BENEFICIARY"
+    fi
     echo "!!! Approval is still a separate dispatch by a second person. Nothing is minted here."
     echo ""
     DUPES=0
@@ -74,7 +110,7 @@ if [ "$ACTION" = "create" ]; then
   fi
 
   echo "=== creating mint intent ==="
-  echo "    beneficiary: $BENEFICIARY"
+  echo "    beneficiary: $(chain_mask "$BENEFICIARY")"
   echo "    amount_clt:  $AMOUNT_CLT  (\$$(awk "BEGIN{printf \"%.2f\", $AMOUNT_CLT/1000000}"))"
   echo "    reason:      $REASON"
   echo ""
@@ -92,7 +128,7 @@ if [ "$ACTION" = "create" ]; then
      -H "Content-Type: application/json" -d "$PAYLOAD" \
      http://127.0.0.1:8090/internal/mint-intents' 2>&1 || true)
 
-  echo "    response: $RESP"
+  echo "    response: $(show_resp "$RESP")"
   ID=$(printf '%s' "$RESP" | sed -n 's/.*"id":"\([0-9a-f-]*\)".*/\1/p')
   if [ -z "$ID" ]; then
     echo ""
@@ -112,6 +148,10 @@ fi
 
 if [ "$ACTION" = "approve" ]; then
   INTENT_ID="${INTENT_ID:?INTENT_ID must be set}"
+  if ! printf '%s' "$INTENT_ID" | grep -qE "$UUID_RE"; then
+    echo "ABORT: INTENT_ID is not a UUID."
+    exit 1
+  fi
 
   echo "=== intent before approval ==="
   show_intent "$INTENT_ID"
@@ -122,9 +162,15 @@ if [ "$ACTION" = "approve" ]; then
     echo "ABORT: no such intent."
     exit 1
   fi
-  if [ "$STATUS" != "created" ]; then
-    echo "ABORT: intent is '$STATUS', not 'created'. Only a freshly created intent can be approved."
+  # `needs_manual` too: see the header. An intent in any other status is already past approval or
+  # terminal, and the treasury would refuse it as well.
+  if [ "$STATUS" != "created" ] && [ "$STATUS" != "needs_manual" ]; then
+    echo "ABORT: intent is '$STATUS', not 'created' or 'needs_manual'. Only those can be approved."
     exit 1
+  fi
+  if [ "$STATUS" = "needs_manual" ]; then
+    echo "    this intent is parked in needs_manual. If it is over the per-transaction mint cap, raise the"
+    echo "    cap first (set-mint-caps): the outbox re-checks the caps before it submits, and would park it again."
   fi
 
   echo ""
@@ -133,7 +179,7 @@ if [ "$ACTION" = "approve" ]; then
   RESP=$(docker exec -e IID="$INTENT_ID" "$SVC" sh -c \
     'curl -sS --fail-with-body -X POST -H "Authorization: Bearer $APP_APPROVER_TOKEN" \
      "http://127.0.0.1:8090/internal/mint-intents/$IID/approve"' 2>&1 || true)
-  echo "    response: $RESP"
+  echo "    response: $(show_resp "$RESP")"
 
   echo ""
   echo "=== intent after ==="

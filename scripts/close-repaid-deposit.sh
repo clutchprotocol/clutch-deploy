@@ -2,7 +2,11 @@
 #
 # Close a `needs_manual` deposit that a human has already made good, by hand.
 #
-#   DEPOSIT_ID=2ad18204-... bash scripts/close-repaid-deposit.sh
+#   DEPOSIT_ID=2ad18204-... [CHAIN=mainnet] bash scripts/close-repaid-deposit.sh
+#
+# CHAIN=stage (the default) or CHAIN=mainnet picks the treasury (scripts/lib/chain.sh). The logs of the
+# workflow that runs this are public, so on mainnet the depositor's address and the deposit's
+# transaction id are cut in the output.
 #
 # When a deposit's mint intent fails, its client_ref is burned and the deposit parks in
 # `needs_manual`. Repaying the depositor therefore means a BRAND-NEW treasury mint intent to the
@@ -19,9 +23,16 @@
 set -euo pipefail
 
 DEPOSIT_ID="${DEPOSIT_ID:?DEPOSIT_ID must be set (the orchestrator deposit_intents id)}"
+# A full id or the start of one: hex digits and dashes only, because it reaches SQL below.
+case "$DEPOSIT_ID" in
+  ''|*[!0-9a-fA-F-]*) echo "ABORT: DEPOSIT_ID may hold only hex digits and dashes."; exit 1 ;;
+esac
 
-OPG=clutch-stage-orchestrator-postgres-1
-TPG=clutch-stage-treasury-postgres-1
+. "$(dirname "$0")/lib/chain.sh"
+chain_select "${CHAIN:-stage}" || exit 1
+echo "treasury: $CH_NAME"
+OPG=$CH_ORCH_PG
+TPG=$CH_TREASURY_PG
 
 for c in "$OPG" "$TPG"; do
   if ! docker ps --format '{{.Names}}' | grep -qx "$c"; then
@@ -44,7 +55,8 @@ esac
 
 echo "=== the deposit ==="
 docker exec "$OPG" psql -U orchestrator -d orchestrator -c \
-  "select id, status, amount_usdt, received_usdt, clt_address, tron_tx_id, created_at
+  "select id, status, amount_usdt, received_usdt, $(chain_mask_sql clt_address) as clt_address,
+          $(chain_mask_sql tron_tx_id) as tron_tx_id, created_at
      from deposit_intents where id = '$DEPOSIT_ID';" 2>&1 | sed 's/^/    /'
 
 STATUS=$(docker exec "$OPG" psql -U orchestrator -d orchestrator -tAc \
@@ -74,7 +86,7 @@ PAID=$(docker exec "$TPG" psql -U treasury -d treasury -tAc \
 case "$PAID" in
   ''|0)
     echo ""
-    echo "ABORT: no credited mint exists for $BENEFICIARY."
+    echo "ABORT: no credited mint exists for $(chain_mask "$BENEFICIARY")."
     echo "  This deposit has NOT been made good, so closing it would hide someone who is owed CLT."
     echo "  Repay them first with mint-intent-create.yml + mint-intent-approve.yml, then run this."
     exit 1;;
@@ -82,7 +94,7 @@ esac
 
 echo ""
 echo "=== closing ==="
-echo "    $PAID credited mint(s) to $BENEFICIARY — the depositor has been made good."
+echo "    $PAID credited mint(s) to $(chain_mask "$BENEFICIARY") — the depositor has been made good."
 docker exec "$OPG" psql -U orchestrator -d orchestrator -c \
   "update deposit_intents set status = 'credited', updated_at = now()
     where id = '$DEPOSIT_ID' and status = 'needs_manual';" 2>&1 | sed 's/^/    /'

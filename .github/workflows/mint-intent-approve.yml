@@ -1,4 +1,5 @@
-# Approve a mint intent on stage. The other half of the four-eyes flow — THIS ONE CREATES MONEY.
+# Approve a mint intent, on stage or on mainnet. The other half of the four-eyes flow — THIS ONE
+# CREATES MONEY.
 #
 # Run by someone OTHER than whoever created the intent. The treasury enforces that `created_by` and
 # `approved_by` differ, but it knows only role strings; that two different people were involved is
@@ -6,6 +7,12 @@
 #
 # Approval is not authorisation to mint. The outbox re-checks the per-transaction and daily caps and
 # the node's sync state immediately before submitting, and refuses on any of them.
+#
+# An intent in `needs_manual` can be approved too. That is where a deposit lands when it is over the
+# per-transaction mint cap: raise the cap with "Set mint caps", approve it here, then put the cap back.
+#
+# The mainnet treasury is chosen with `chain`, and asks for the longer word "approve mainnet". The
+# logs of this workflow are public, so on mainnet the script cuts a user's address in its output.
 
 name: Approve mint intent (stage)
 
@@ -13,10 +20,17 @@ on:
   workflow_dispatch:
     inputs:
       intent_id:
-        description: "Mint intent id (uuid) from the create run"
+        description: "Mint intent id (uuid) from the create run, or from the parked-deposit alert"
         required: true
+      chain:
+        description: "Which treasury"
+        type: choice
+        default: stage
+        options:
+          - stage
+          - mainnet
       confirm:
-        description: 'Type "approve" to confirm creating money'
+        description: 'Type "approve" to confirm creating money (type "approve mainnet" for the mainnet treasury)'
         required: true
         default: ""
 
@@ -28,10 +42,16 @@ jobs:
   approve:
     runs-on: ubuntu-latest
     steps:
+      # Through env, never interpolated into the script body.
       - name: Check the confirmation
+        env:
+          CONFIRM: ${{ inputs.confirm }}
+          CHAIN: ${{ inputs.chain }}
         run: |
-          if [ "${{ inputs.confirm }}" != "approve" ]; then
-            echo "Refusing: confirm was '${{ inputs.confirm }}', expected 'approve'."
+          want="approve"
+          [ "$CHAIN" = "mainnet" ] && want="approve mainnet"
+          if [ "$CONFIRM" != "$want" ]; then
+            echo "Refusing: confirm was '$CONFIRM', expected '$want' for $CHAIN."
             exit 1
           fi
 
@@ -39,8 +59,10 @@ jobs:
         env:
           ACTOR: ${{ github.actor }}
           INTENT_ID: ${{ inputs.intent_id }}
+          CHAIN: ${{ inputs.chain }}
         run: |
           echo "approved by $ACTOR"
+          echo "treasury: $CHAIN"
           echo "intent: $INTENT_ID"
 
       - name: Approve via SSH
@@ -49,6 +71,7 @@ jobs:
           CLUTCH_SSH_HOST: ${{ secrets.STAGE_HOST }}
           CLUTCH_SSH_USER: ${{ secrets.STAGE_USER }}
           INTENT_ID: ${{ inputs.intent_id }}
+          CHAIN: ${{ inputs.chain }}
         run: |
           # Plain ssh, not appleboy/ssh-action. That action downloads a drone-ssh binary from
           # GitHub releases on EVERY run -- unconditionally, there is no skip-if-present -- and on
@@ -68,7 +91,7 @@ jobs:
           # input gave us, kept deliberately: a workflow input must not be able to become part of
           # the command that runs. The file is deleted on the host the moment it has been read.
           : > "$RUNNER_TEMP/clutch-env.sh"
-          for v in INTENT_ID; do printf '%s=%q\n' "$v" "${!v-}" >> "$RUNNER_TEMP/clutch-env.sh"; done
+          for v in INTENT_ID CHAIN; do printf '%s=%q\n' "$v" "${!v-}" >> "$RUNNER_TEMP/clutch-env.sh"; done
           sshpass -e ssh $SSH_OPTS "$CLUTCH_SSH_USER@$CLUTCH_SSH_HOST" "cat > $R.env" < "$RUNNER_TEMP/clutch-env.sh"
           cat > "$RUNNER_TEMP/clutch-remote.sh" <<'CLUTCH_REMOTE_EOF'
           set -euo pipefail

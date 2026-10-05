@@ -36,6 +36,10 @@ on:
       - "scripts/resume-minting.sh"
       - "scripts/set-mint-caps.sh"
       - "scripts/backup-treasury-db.sh"
+      - "scripts/mint-intent.sh"
+      - "scripts/redrive-mint.sh"
+      - "scripts/reverse-mint.sh"
+      - "scripts/close-repaid-deposit.sh"
       - "scripts/lib/mainnet-preflight.sh"
       - "scripts/test-mainnet-preflight.sh"
       - "scripts/mainnet-treasury-up.sh"
@@ -81,6 +85,10 @@ on:
       - "scripts/resume-minting.sh"
       - "scripts/set-mint-caps.sh"
       - "scripts/backup-treasury-db.sh"
+      - "scripts/mint-intent.sh"
+      - "scripts/redrive-mint.sh"
+      - "scripts/reverse-mint.sh"
+      - "scripts/close-repaid-deposit.sh"
       - "scripts/lib/mainnet-preflight.sh"
       - "scripts/test-mainnet-preflight.sh"
       - "scripts/mainnet-treasury-up.sh"
@@ -131,6 +139,10 @@ jobs:
           bash -n scripts/resume-minting.sh
           bash -n scripts/set-mint-caps.sh
           bash -n scripts/backup-treasury-db.sh
+          bash -n scripts/mint-intent.sh
+          bash -n scripts/redrive-mint.sh
+          bash -n scripts/reverse-mint.sh
+          bash -n scripts/close-repaid-deposit.sh
           bash -n scripts/lib/mainnet-preflight.sh
           bash -n scripts/test-mainnet-preflight.sh
           bash -n scripts/mainnet-treasury-up.sh

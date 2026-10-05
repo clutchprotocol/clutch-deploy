@@ -98,3 +98,28 @@ mainnet_backup_remote() {
   esac
   printf '%s/mainnet\n' "$s"
 }
+
+# chain_mask <value>: a user's address or hash, for a line of output. The logs of the workflows that run
+# these scripts are public. On mainnet the value is cut to its first eight and last four characters (a
+# value of 14 or fewer is not shown at all); on stage, where the money is test money, it is shown whole.
+# Call it after chain_select.
+chain_mask() {
+  local v="$1"
+  if [ "${CH_NAME:-}" != mainnet ]; then
+    printf '%s' "$v"
+  elif [ "${#v}" -gt 14 ]; then
+    printf '%s...%s' "${v:0:8}" "${v: -4}"
+  else
+    printf '<hidden>'
+  fi
+}
+
+# chain_mask_sql <column expression>: the same cut for a SQL select list, so that a query that shows a
+# user's address never hands the whole of it to the log on mainnet. On stage the expression is unchanged.
+chain_mask_sql() {
+  if [ "${CH_NAME:-}" = mainnet ]; then
+    printf "(left(%s, 8) || '...' || right(%s, 4))" "$1" "$1"
+  else
+    printf '%s' "$1"
+  fi
+}
