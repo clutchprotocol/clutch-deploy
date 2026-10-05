@@ -74,10 +74,13 @@ MAX_REDEEM=$(val MAX_REDEMPTION_CLT 25000000)
 MIN_REDEEM=$(val MIN_REDEMPTION_CLT 5000000)
 PAYOUT_CAP=$(val PER_TX_PAYOUT_CAP_USDT 25000000)
 FEE=$(val REDEMPTION_FEE_USDT 1000000)
+# The stage compose default (docker-compose.treasury.yml): the mainnet file has none, and requires it.
+DAILY_PAYOUT=$(val DAILY_PAYOUT_CAP_CLT 100000000)
 
 for pair in "PER_TX_MINT_CAP_CLT:$PER_TX_MINT" "DAILY_MINT_CAP_CLT:$DAILY_MINT" \
             "MAX_REDEMPTION_CLT:$MAX_REDEEM" "MIN_REDEMPTION_CLT:$MIN_REDEEM" \
-            "PER_TX_PAYOUT_CAP_USDT:$PAYOUT_CAP" "REDEMPTION_FEE_USDT:$FEE"; do
+            "PER_TX_PAYOUT_CAP_USDT:$PAYOUT_CAP" "REDEMPTION_FEE_USDT:$FEE" \
+            "DAILY_PAYOUT_CAP_CLT:$DAILY_PAYOUT"; do
   name="${pair%%:*}" v="${pair#*:}"
   case "$v" in
     ''|*[!0-9]*) bad "$name is not a non-negative integer of micro-units: '$v'"; ;;
@@ -92,6 +95,7 @@ note "max redemption (orch)      $(usd "$MAX_REDEEM")"
 note "per-tx payout cap (signer) $(usd "$PAYOUT_CAP")"
 note "min redemption             $(usd "$MIN_REDEEM")"
 note "redemption fee             $(usd "$FEE")"
+note "daily payout ceiling       $(usd "$DAILY_PAYOUT")"
 echo ""
 echo "=== invariants ==="
 
@@ -143,6 +147,20 @@ elif [ "$pct" -ge 20 ]; then
   note "High but defensible. It falls as the amount rises; check the number at a typical amount too."
 else
   ok "fee is ${pct}% of the smallest allowed redemption"
+fi
+
+# 5b. The rolling 24-hour payout ceiling (treasury-service, DAILY_PAYOUT_CAP_CLT) is a third bound on a
+#     redemption, in a third place, derived from neither of the other two. payout.rs never pays a
+#     redemption that alone exceeds it: it raises a p1 and skips the intent. The CLT was burned when the
+#     redemption was created, so a maximum above the ceiling is a burn that can never be paid. This is
+#     invariant 2 again, against a different limit. Nothing compared them until 2026-10-05, when the
+#     pilot's ceiling was lowered to $200 against a $50 maximum and the gap was found by reading.
+if [ "$MAX_REDEEM" -gt "$DAILY_PAYOUT" ]; then
+  bad "max redemption ($(usd "$MAX_REDEEM")) exceeds the daily payout ceiling ($(usd "$DAILY_PAYOUT"))"
+  note "A redemption above the ceiling burns the CLT and is then never paid (payout.rs skips it with a p1)."
+  note "Raise DAILY_PAYOUT_CAP_CLT or lower MAX_REDEMPTION_CLT."
+else
+  ok "the daily payout ceiling can pay the largest redemption"
 fi
 
 # 6-10. The GasFree rail (clutch-treasury's GasFree design, §6 and §7). Checked while GASFREE_NETWORK is

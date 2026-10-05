@@ -47,6 +47,20 @@ NILE=(
 )
 
 check "GasFree off: the caps alone, as before" 0 "All invariants hold"
+
+# The rolling 24-hour payout ceiling against the largest redemption. A redemption above the ceiling
+# burns the CLT and is never paid (payout.rs skips it with a p1), and nothing compared the two before.
+check "the stage defaults: the ceiling can pay the largest redemption" 0 "the daily payout ceiling can pay the largest redemption"
+check "a ceiling equal to the largest redemption holds" 0 "the daily payout ceiling can pay the largest redemption" DAILY_PAYOUT_CAP_CLT=25000000
+check "a ceiling below the largest redemption fails" 1 "exceeds the daily payout ceiling" DAILY_PAYOUT_CAP_CLT=20000000
+check "a ceiling below the largest redemption says what it costs" 1 "burns the CLT and is then never paid" DAILY_PAYOUT_CAP_CLT=20000000
+check "a ceiling that is not a whole number fails" 1 "DAILY_PAYOUT_CAP_CLT is not a non-negative integer" DAILY_PAYOUT_CAP_CLT=abc
+check "the pilot's mainnet limits hold" 0 "the daily payout ceiling can pay the largest redemption" \
+  MAX_REDEMPTION_CLT=50000000 PER_TX_PAYOUT_CAP_USDT=50000000 DAILY_PAYOUT_CAP_CLT=200000000 \
+  MIN_REDEMPTION_CLT=25000000 REDEMPTION_FEE_USDT=2000000
+check "a maximum raised above the pilot's ceiling fails" 1 "exceeds the daily payout ceiling" \
+  MAX_REDEMPTION_CLT=250000000 PER_TX_PAYOUT_CAP_USDT=250000000 DAILY_PAYOUT_CAP_CLT=200000000 \
+  MIN_REDEMPTION_CLT=25000000 REDEMPTION_FEE_USDT=2000000
 check "a complete Nile set holds" 0 "the redemption fee covers a GasFree payout's relay fee" "${NILE[@]}" TRANSFER_RAIL=gasfree
 check "the float target covers the largest payout" 0 "the payout float fills far enough for the largest payout" "${NILE[@]}"
 check "a trailing slash on the relay URL is the same URL" 0 "All invariants hold" "${NILE[@]}" GASFREE_API_URL=https://open-test.gasfree.io/nile/
@@ -66,7 +80,8 @@ check "an unknown TRANSFER_RAIL" 1 "TRANSFER_RAIL must be trx or gasfree" TRANSF
 # The checker reads the file ENV_FILE names, not only .env. The mainnet limits (readiness B4, with
 # the $2.00 redemption fee the maintainer accepted on 2026-10-02) live in .env.mainnet.
 printf '%s\n' PER_TX_MINT_CAP_CLT=1000000000 DAILY_MINT_CAP_CLT=2000000000 MAX_REDEMPTION_CLT=200000000 \
-  MIN_REDEMPTION_CLT=25000000 PER_TX_PAYOUT_CAP_USDT=200000000 REDEMPTION_FEE_USDT=2000000 > "$T/mainnet.env"
+  MIN_REDEMPTION_CLT=25000000 PER_TX_PAYOUT_CAP_USDT=200000000 REDEMPTION_FEE_USDT=2000000 \
+  DAILY_PAYOUT_CAP_CLT=1000000000 > "$T/mainnet.env"
 check "ENV_FILE names another file: its limits are read" 0 "fee is 8% of the smallest allowed redemption" ENV_FILE=mainnet.env
 printf '%s\n' REDEMPTION_FEE_USDT=1000000 MIN_REDEMPTION_CLT=5000000 > "$T/.env"
 check "ENV_FILE wins over .env" 0 "fee is 8% of the smallest allowed redemption" ENV_FILE=mainnet.env
