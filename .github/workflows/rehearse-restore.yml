@@ -1,24 +1,39 @@
-# Readiness item D1: prove the backup and restore path actually works.
+# Readiness item D1: prove the backup and restore path actually works, on stage or on mainnet.
 #
-# A dump nobody has restored is a hypothesis. This runs the whole loop against stage -- dump both
-# databases, encrypt, decrypt, restore into a throwaway database, count the rows, drop it -- so the
-# scripts are known to work before the day someone needs them.
+# A dump nobody has restored is a hypothesis. This runs the whole loop against the chosen treasury --
+# dump both databases, encrypt, decrypt, restore into a throwaway database, count the rows, drop it --
+# so the scripts are known to work before the day someone needs them.
 #
 # The passphrase is generated per run and never written anywhere. That is deliberate: it makes this
 # a test of the machinery rather than a backup, and it means this workflow cannot quietly become
 # the thing producing backups nobody can decrypt. Real backups take their passphrase from the
-# host's .env, which has to be stored off the host to be worth anything.
+# host's env file, which has to be stored off the host to be worth anything.
 #
 # Nothing here touches a live database. restore-treasury-db.sh creates `<db>_restore_<stamp>` and
 # refuses to target anything else; DROP_AFTER=1 removes that copy at the end.
+#
+# The mainnet treasury is chosen with `chain`, and asks for the longer word "rehearse mainnet". The
+# logs of this workflow are public, so on mainnet nothing it prints names a user or the remote: table
+# names, row counts and file names only. With source `remote` on mainnet it fetches the newest dump from
+# the mainnet off-host remote, opens it with the REAL passphrase in .env.mainnet, restores it, and runs
+# one reconciliation against the copy (treasury-service --reconcile-once reads the real mainnet chain
+# and TronGrid, and writes nothing outside the copy). A ledger with nothing in it reconciles trivially,
+# so a clean run proves the path; run it again once the ledger holds real deposits.
 
 name: Rehearse restore (stage, D1)
 
 on:
   workflow_dispatch:
     inputs:
+      chain:
+        description: "Which treasury"
+        type: choice
+        default: stage
+        options:
+          - stage
+          - mainnet
       confirm:
-        description: 'Type "rehearse" to run the backup and restore rehearsal'
+        description: 'Type "rehearse" to run the backup and restore rehearsal (type "rehearse mainnet" for the mainnet treasury)'
         required: true
       source:
         description: 'synthetic = fresh dump, ephemeral passphrase (tests the scripts). remote = newest off-host dump, real passphrase (tests the backups that exist).'
@@ -37,10 +52,16 @@ jobs:
   rehearse:
     runs-on: ubuntu-latest
     steps:
+      # Through env, never interpolated into the script body.
       - name: Check confirmation
+        env:
+          CONFIRM: ${{ inputs.confirm }}
+          CHAIN: ${{ inputs.chain }}
         run: |
-          if [ "${{ inputs.confirm }}" != "rehearse" ]; then
-            echo "Refusing: confirmation was '${{ inputs.confirm }}', expected 'rehearse'."
+          want="rehearse"
+          [ "$CHAIN" = "mainnet" ] && want="rehearse mainnet"
+          if [ "$CONFIRM" != "$want" ]; then
+            echo "Refusing: confirmation was '$CONFIRM', expected '$want' for $CHAIN."
             exit 1
           fi
 
@@ -49,6 +70,8 @@ jobs:
           SSHPASS: ${{ secrets.STAGE_SSH_PASSWORD }}
           CLUTCH_SSH_HOST: ${{ secrets.STAGE_HOST }}
           CLUTCH_SSH_USER: ${{ secrets.STAGE_USER }}
+          SOURCE: ${{ inputs.source }}
+          CHAIN: ${{ inputs.chain }}
         run: |
           # Plain ssh, not appleboy/ssh-action. That action downloads a drone-ssh binary from
           # GitHub releases on EVERY run -- unconditionally, there is no skip-if-present -- and on
@@ -63,6 +86,12 @@ jobs:
           command -v sshpass >/dev/null || { sudo apt-get update -qq && sudo apt-get install -y -qq sshpass; }
           R="/tmp/clutch-ci-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
           SSH_OPTS="-o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o ConnectTimeout=30 -o ServerAliveInterval=30"
+          # Values reach the host as a file of shell-quoted assignments and are sourced there --
+          # never interpolated into the command line. The file is deleted on the host the moment it
+          # has been read.
+          : > "$RUNNER_TEMP/clutch-env.sh"
+          for v in SOURCE CHAIN; do printf '%s=%q\n' "$v" "${!v-}" >> "$RUNNER_TEMP/clutch-env.sh"; done
+          sshpass -e ssh $SSH_OPTS "$CLUTCH_SSH_USER@$CLUTCH_SSH_HOST" "cat > $R.env" < "$RUNNER_TEMP/clutch-env.sh"
           cat > "$RUNNER_TEMP/clutch-remote.sh" <<'CLUTCH_REMOTE_EOF'
           set -euo pipefail
           cd "${{ secrets.STAGE_DEPLOY_PATH }}"
@@ -73,9 +102,11 @@ jobs:
           # ledger is never left lying in a temp directory.
           trap 'rm -rf "$REHEARSAL_DIR"' EXIT
 
-          if [ "${{ inputs.source }}" = "remote" ]; then
+          echo "treasury: ${CHAIN:-stage}"
+
+          if [ "$SOURCE" = "remote" ]; then
             # The disaster path, and the only version that proves anything about the backups that
-            # actually exist: read them back OUT of the remote, decrypt with .env's real
+            # actually exist: read them back OUT of the remote, decrypt with the env file's real
             # passphrase, restore, and reconcile against the restored ledger. The synthetic run
             # below proves the scripts execute; it cannot tell you that the passphrase on this
             # host still opens the dumps sitting in the bucket, nor that what comes back out of
@@ -88,7 +119,7 @@ jobs:
             exit 0
           fi
 
-          # Ephemeral, never echoed, never written to .env. Lives for this shell only.
+          # Ephemeral, never echoed, never written to an env file. Lives for this shell only.
           REHEARSAL_PASSPHRASE="$(openssl rand -base64 48)"
 
           echo "=== 1/3 backup into a temp directory ==="
@@ -112,11 +143,14 @@ jobs:
           echo ""
           echo "=== rehearsal complete ==="
           echo "The scripts work. What this did NOT prove, and what still closes D1:"
-          echo "  - BACKUP_PASSPHRASE set in .env and stored somewhere that is NOT this host"
+          echo "  - BACKUP_PASSPHRASE set in the env file and stored somewhere that is NOT this host"
           echo "  - BACKUP_REMOTE set, so dumps stop sharing a disk with the databases"
           echo "  - reconciliation run green against a restored ledger, not just row counts"
+          echo "    (run this again with source remote)"
           CLUTCH_REMOTE_EOF
           sshpass -e ssh $SSH_OPTS "$CLUTCH_SSH_USER@$CLUTCH_SSH_HOST" "cat > $R.sh" < "$RUNNER_TEMP/clutch-remote.sh"
           # Old files from earlier runs are swept here rather than in a cleanup step that
-          # a cancelled job would skip.
-          timeout 20m sshpass -e ssh $SSH_OPTS "$CLUTCH_SSH_USER@$CLUTCH_SSH_HOST" "find /tmp -maxdepth 1 -name 'clutch-ci-*' -mtime +1 -delete 2>/dev/null; bash $R.sh"
+          # a cancelled job would skip. The sourcing runs under an explicit `bash -c` because
+          # `printf %q` emits bash quoting ($'...' for a newline), which the remote login shell
+          # is not guaranteed to be able to parse.
+          timeout 20m sshpass -e ssh $SSH_OPTS "$CLUTCH_SSH_USER@$CLUTCH_SSH_HOST" "find /tmp -maxdepth 1 -name 'clutch-ci-*' -mtime +1 -delete 2>/dev/null; bash -c 'set -a; . $R.env; set +a; rm -f $R.env; exec bash $R.sh'"

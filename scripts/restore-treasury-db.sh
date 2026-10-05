@@ -8,19 +8,26 @@
 # is how a restore turns into an outage plus a corrupt ledger.
 #
 # Usage:  bash scripts/restore-treasury-db.sh backups/treasury-20260911T000000Z.dump.enc
+#         CHAIN=mainnet bash scripts/restore-treasury-db.sh backups/mainnet/treasury-20261005T000000Z.dump.enc
 #
-# Reads BACKUP_PASSPHRASE from .env, the same one the dump was written with.
+# Reads BACKUP_PASSPHRASE from the env file of the chosen treasury (.env, or .env.mainnet with
+# CHAIN=mainnet; scripts/lib/chain.sh), the same one the dump was written with. The containers come from
+# the same helper. It prints table names and row counts only, never a row.
 
 set -euo pipefail
 
 cd "$(dirname "$0")/.."
+. scripts/lib/chain.sh
+chain_select "${CHAIN:-stage}" || exit 1
+ENV_FILE="$CH_ENV_FILE"
+echo "treasury: $CH_NAME"
 
 DUMP="${1:-}"
 if [ -z "$DUMP" ] || [ ! -f "$DUMP" ]; then
-  echo "usage: bash scripts/restore-treasury-db.sh <path to .dump.enc>"
+  echo "usage: [CHAIN=mainnet] bash scripts/restore-treasury-db.sh <path to .dump.enc>"
   echo ""
   echo "available:"
-  ls -1t backups/*.dump.enc 2>/dev/null | sed 's/^/  /' || echo "  (none in backups/)"
+  ls -1t "$CH_BACKUP_DIR"/*.dump.enc 2>/dev/null | sed 's/^/  /' || echo "  (none in $CH_BACKUP_DIR/)"
   exit 1
 fi
 
@@ -29,14 +36,14 @@ env_get() {
   # a grep that matches nothing fails the pipeline and kills the script inside a command
   # substitution -- which is exactly how the first rehearsal died, on an unset optional setting,
   # before printing a single line. The first real backup would have died the same way.
-  grep -E "^$1=" .env 2>/dev/null | head -1 | cut -d= -f2- | sed -e 's/^"//' -e 's/"$//' || true
+  grep -E "^$1=" "$ENV_FILE" 2>/dev/null | head -1 | cut -d= -f2- | sed -e 's/^"//' -e 's/"$//' || true
 }
 
-# The environment wins over .env, so a rehearsal can inject an ephemeral passphrase
-# without writing a secret to the host. Real backups still take theirs from .env.
+# The environment wins over the env file, so a rehearsal can inject an ephemeral passphrase
+# without writing a secret to the host. Real backups still take theirs from the env file.
 BACKUP_PASSPHRASE="${BACKUP_PASSPHRASE:-$(env_get BACKUP_PASSPHRASE)}"
 if [ -z "$BACKUP_PASSPHRASE" ]; then
-  echo "ABORT: BACKUP_PASSPHRASE is not set in .env — nothing here can decrypt that dump."
+  echo "ABORT: BACKUP_PASSPHRASE is not set in $ENV_FILE — nothing here can decrypt that dump."
   exit 1
 fi
 export BACKUP_PASSPHRASE
@@ -45,8 +52,8 @@ export BACKUP_PASSPHRASE
 # orchestrator dump into a treasury schema.
 BASE="$(basename "$DUMP")"
 case "$BASE" in
-  treasury-*)     DB=treasury;     USER=treasury;     CONTAINER="${TREASURY_CONTAINER:-clutch-stage-treasury-postgres-1}";     PASSWORD="$(env_get TREASURY_POSTGRES_PASSWORD)" ;;
-  orchestrator-*) DB=orchestrator; USER=orchestrator; CONTAINER="${ORCHESTRATOR_CONTAINER:-clutch-stage-orchestrator-postgres-1}"; PASSWORD="$(env_get ORCHESTRATOR_POSTGRES_PASSWORD)" ;;
+  treasury-*)     DB=treasury;     USER=treasury;     CONTAINER="${TREASURY_CONTAINER:-$CH_TREASURY_PG}";     PASSWORD="$(env_get TREASURY_POSTGRES_PASSWORD)" ;;
+  orchestrator-*) DB=orchestrator; USER=orchestrator; CONTAINER="${ORCHESTRATOR_CONTAINER:-$CH_ORCH_PG}"; PASSWORD="$(env_get ORCHESTRATOR_POSTGRES_PASSWORD)" ;;
   *)
     echo "ABORT: cannot tell which database $BASE came from."
     echo "  Expected a name starting with 'treasury-' or 'orchestrator-'."

@@ -136,7 +136,12 @@ if [ -n "$BACKUP_REMOTE" ]; then
   # before uploading -- read "cannot list buckets" as "bucket missing" and tried to create it.
   # The fix is `no_check_bucket = true` on that REMOTE, not a flag here: it is an S3 backend
   # option, and which backend this is happens to be the operator's choice. See docs/BACKUP-RESTORE.md.
-  echo "=== copying to $BACKUP_REMOTE ==="
+  # The remote says where the backups live, and the log of this workflow is public: on mainnet it is not printed.
+  if [ "$CH_NAME" = mainnet ]; then
+    echo "=== copying to the mainnet off-host remote (its name is not printed: the log is public) ==="
+  else
+    echo "=== copying to $BACKUP_REMOTE ==="
+  fi
   rclone copy "$BACKUP_DIR/treasury-$STAMP.dump.enc" "$BACKUP_REMOTE" --no-traverse
   rclone copy "$BACKUP_DIR/orchestrator-$STAMP.dump.enc" "$BACKUP_REMOTE" --no-traverse
   echo "  copied both dumps off host"

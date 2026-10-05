@@ -23,7 +23,7 @@ pass() { passed=$((passed + 1)); echo "ok    $1"; }
 fail() { failed=$((failed + 1)); echo "FAIL  $1"; }
 
 for s in halt-minting resume-minting set-mint-caps activate-float sweep-address backup-treasury-db \
-         mint-intent redrive-mint reverse-mint close-repaid-deposit; do
+         mint-intent redrive-mint reverse-mint close-repaid-deposit restore-treasury-db verify-restored-ledger; do
   f="scripts/$s.sh"
   if grep -q 'clutch-stage' "$f"; then fail "$s.sh names no stage container or project"; else pass "$s.sh names no stage container or project"; fi
   if grep -q 'lib/chain.sh' "$f" && grep -q 'chain_select' "$f"; then
@@ -36,7 +36,7 @@ done
 # <workflow>:<the word it asks for on stage>. sweep-address is not in this list: it is stage only (below).
 for pair in halt-minting:halt resume-minting:resume set-mint-caps:set activate-float:activate \
             mint-intent-create:create mint-intent-approve:approve redrive-mint:redrive reverse-mint:reverse \
-            close-repaid-deposit:close; do
+            close-repaid-deposit:close rehearse-restore:rehearse; do
   w="${pair%%:*}" word="${pair##*:}"
   f=".github/workflows/$w.yml"
   if grep -q '^      chain:' "$f" && grep -q '^          - mainnet' "$f"; then
@@ -207,13 +207,44 @@ for pair in "mint-intent:UUID_RE" "mint-intent:on mainnet BENEFICIARY must be 0x
 done
 # The confirmation is read from the environment in every one of the five, never interpolated into the
 # script body (a `${{ inputs.confirm }}` inside a run block is shell text).
-for w in mint-intent-create mint-intent-approve redrive-mint reverse-mint close-repaid-deposit; do
+for w in mint-intent-create mint-intent-approve redrive-mint reverse-mint close-repaid-deposit rehearse-restore; do
   if grep -qF 'CONFIRM: ${{ inputs.confirm }}' ".github/workflows/$w.yml" && ! grep -qE 'if \[ "\$\{\{ inputs\.confirm' ".github/workflows/$w.yml"; then
     pass "$w.yml reads the confirmation from the environment"
   else
     fail "$w.yml reads the confirmation from the environment"
   fi
 done
+
+# The restore rehearsal on mainnet. The reconciliation runs through the chosen treasury's own compose
+# definition (chain_compose), the restore passes the chain on to restore-treasury-db.sh, and neither the
+# backup nor the verification prints the name of the off-host remote on mainnet: it says where the
+# backups live, and the logs are public. The workflow gets its source from the environment as well.
+if grep -qF 'chain_compose run --rm --no-deps' scripts/verify-restored-ledger.sh; then
+  pass "verify-restored-ledger.sh reconciles through the chain's own compose definition"
+else
+  fail "verify-restored-ledger.sh reconciles through the chain's own compose definition"
+fi
+if [ "$(grep -cF 'CHAIN="$CH_NAME" RESTORE_TARGET=' scripts/verify-restored-ledger.sh)" -eq 2 ]; then
+  pass "verify-restored-ledger.sh passes the chain on to both restores"
+else
+  fail "verify-restored-ledger.sh passes the chain on to both restores"
+fi
+if grep -qF "its name is not printed: the log is public" scripts/verify-restored-ledger.sh \
+   && grep -qF "its name is not printed: the log is public" scripts/backup-treasury-db.sh; then
+  pass "the mainnet remote's name is printed by neither the backup nor the verification"
+else
+  fail "the mainnet remote's name is printed by neither the backup nor the verification"
+fi
+if grep -qF 'ENV_FILE="$CH_ENV_FILE"' scripts/restore-treasury-db.sh && grep -qF 'grep -E "^$1=" "$ENV_FILE"' scripts/restore-treasury-db.sh; then
+  pass "restore-treasury-db.sh reads the chain's env file"
+else
+  fail "restore-treasury-db.sh reads the chain's env file"
+fi
+if grep -qF 'SOURCE: ${{ inputs.source }}' .github/workflows/rehearse-restore.yml && ! grep -qF '"${{ inputs.source }}"' .github/workflows/rehearse-restore.yml; then
+  pass "rehearse-restore.yml passes its source through the environment"
+else
+  fail "rehearse-restore.yml passes its source through the environment"
+fi
 
 echo ""
 echo "$passed passed, $failed failed"

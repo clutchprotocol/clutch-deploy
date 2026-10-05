@@ -40,6 +40,8 @@ on:
       - "scripts/redrive-mint.sh"
       - "scripts/reverse-mint.sh"
       - "scripts/close-repaid-deposit.sh"
+      - "scripts/restore-treasury-db.sh"
+      - "scripts/verify-restored-ledger.sh"
       - "scripts/lib/mainnet-preflight.sh"
       - "scripts/test-mainnet-preflight.sh"
       - "scripts/mainnet-treasury-up.sh"
@@ -89,6 +91,8 @@ on:
       - "scripts/redrive-mint.sh"
       - "scripts/reverse-mint.sh"
       - "scripts/close-repaid-deposit.sh"
+      - "scripts/restore-treasury-db.sh"
+      - "scripts/verify-restored-ledger.sh"
       - "scripts/lib/mainnet-preflight.sh"
       - "scripts/test-mainnet-preflight.sh"
       - "scripts/mainnet-treasury-up.sh"
@@ -143,6 +147,8 @@ jobs:
           bash -n scripts/redrive-mint.sh
           bash -n scripts/reverse-mint.sh
           bash -n scripts/close-repaid-deposit.sh
+          bash -n scripts/restore-treasury-db.sh
+          bash -n scripts/verify-restored-ledger.sh
           bash -n scripts/lib/mainnet-preflight.sh
           bash -n scripts/test-mainnet-preflight.sh
           bash -n scripts/mainnet-treasury-up.sh
