@@ -182,7 +182,7 @@ Its app services have `mainnet-` names (`mainnet-treasury-service`, `mainnet-tro
   - Then it starts the five services and waits for each to be healthy. It prints no service log, because the run log is public. An unhealthy service gets the command `docker logs --tail 50 <container>`, to run on the host.
   - It never runs `down` and never takes `-v`. Never run `down -v` against `clutch-main-treasury`: its two databases are in its volumes.
 - **`PROBE=mainnet-treasury`** shows what runs, its ports and networks, whether every service name resolves to one address, its settings (secrets as presence only), the breaker, reconciliation, alerts, mint intents, redemptions and the GasFree float. The run log is public, so it prints no address and no identifier of a user: alert texts are masked.
-- `set-gasfree-settings.yml` (network mainnet, confirm `gasfree mainnet`) writes the GasFree block and the limits (17 values) into `.env.mainnet`. The payout side and the mint caps are the pilot's until the KMS payout key (readiness A2) ships: a $100 float target, $50 for both the redemption maximum and the signer's per-transaction cap, a $200 rolling 24-hour payout ceiling (readiness B4's decided set has $1,000, $200 and $1,000), and mint caps of $100 per deposit and $200 per day (decided: $1,000 and $2,000). Mainnet has been open to every account since 2026-10-05 (`PILOT_ALLOWED_ADDRESSES=*`), so what is credited in a day cannot outgrow what can be paid out. The relay's key pair is put there by hand, as plain lines: the script refuses if either is missing, blank or quoted.
+- `set-gasfree-settings.yml` (network mainnet, confirm `gasfree mainnet`) writes the GasFree block and the limits (17 values) into `.env.mainnet`. The payout side and the mint caps are the pilot's until the KMS payout key (readiness A2) ships: $50 for both the redemption maximum and the signer's per-transaction cap, a $200 rolling 24-hour payout ceiling (readiness B4's decided set has $200 and $1,000), and mint caps of $100 per deposit and $200 per day (decided: $1,000 and $2,000). **One wallet** (accepted 2026-10-05): the float target is $1,000,000, which no deposit can reach, so every sweep goes to the GasFree float and custody stays empty. The float is then not a ceiling on theft: the key on the host holds the whole reserve (readiness A2, "One wallet"). Mainnet has been open to every account since 2026-10-05 (`PILOT_ALLOWED_ADDRESSES=*`), so what is credited in a day cannot outgrow what can be paid out. The relay's key pair is put there by hand, as plain lines: the script refuses if either is missing, blank or quoted.
 - **`test-treasury-scripts.yml` parses every workflow file with Ruby** (the step "Workflow files parse", `ruby -ryaml`). A YAML mistake in a workflow is otherwise found only after the merge, when someone dispatches it.
 
 ## Gotchas
@@ -199,7 +199,8 @@ Its app services have `mainnet-` names (`mainnet-treasury-service`, `mainnet-tro
   **The PAYOUT endpoint (`/internal/payout`) is the deliberate exception** and does take `to` and
   `amount`, because a redemption has no other way to express them. Its bound is different, not
   absent: it can only spend from the payout float at `2/0` — never a deposit address, never
-  custody — so the float balance caps the loss, and a per-tx cap bounds one request. Unlike sweep,
+  custody — so the float balance caps the loss (on mainnet, with one wallet since 2026-10-05, that
+  balance is the whole reserve), and a per-tx cap bounds one request. Unlike sweep,
   its safety DOES depend on the bearer token and the internal-only network. `contract` is still
   never a parameter. See
   `clutch-treasury/docs/superpowers/specs/2026-08-30-redemption-payout-rail-design.md`.

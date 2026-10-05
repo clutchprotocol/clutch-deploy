@@ -14,9 +14,9 @@
 # Nile writes the GasFree block with .env.example's values. Mainnet writes the block with the values
 # the maintainer accepted on 2026-10-02 (the live relay fees were 1.50 USDT to activate and 1.50 per
 # transfer) AND the limits of readiness item B4 with the $2.00 redemption fee, except that the payout
-# side is the pilot's until the KMS payout key (A2) ships: a $100 float, $50 payouts and a $200 daily
-# payout ceiling. They are written
-# together because check-cap-invariants.sh relates them: the fee must cover the relay's transfer
+# side is the pilot's until the KMS payout key (A2) ships: $50 payouts and a $200 daily payout
+# ceiling, and ONE WALLET (a float target of $1,000,000, so every sweep goes to the float). They are
+# written together because check-cap-invariants.sh relates them: the fee must cover the relay's transfer
 # maximum, and the float target must cover the largest payout plus that fee. test-set-gasfree-
 # settings.sh checks every value against .env.example and .env.mainnet.example.
 #
@@ -58,13 +58,17 @@ case "$NETWORK" in
       MIN_DEPOSIT_USDT=5000000
       GASFREE_EXPECTED_IMPLEMENTATION=a3b0edffa1b94e93d297dcc9b6860175e9b537ec
       GASFREE_EXPECTED_CONTROLLER_IMPLEMENTATION=c8b13e3104f8a2d6e915ac132bdeda7faaf84d7d
-      # The PILOT's payout side (accepted 2026-10-04, readiness B4 "Pilot limits"): a $100 float,
-      # $50 payouts and a $200 daily ceiling, where B4's decided set has $1,000, $200 and $1,000. The
-      # key that pays is still derived from DEPOSIT_MNEMONIC on this host (readiness A2), so the
-      # float is the ceiling on theft. Raise all four together, and only after A2 ships.
-      # check-cap-invariants.sh relates the first three: the float target must cover the largest
-      # payout plus the relay's fee.
-      PAYOUT_FLOAT_TARGET_USDT=100000000
+      # ONE WALLET (accepted 2026-10-05, readiness A2 "One wallet"). A sweep goes to the float while
+      # the float holds less than this, and to custody after that. $1,000,000 is never reached (the
+      # daily mint cap is $200), so every sweep goes to the float and custody stays empty. This is a
+      # switch, not a limit: the float no longer caps what a leaked key can take, because the key on
+      # this host (derived from DEPOSIT_MNEMONIC) now holds the whole reserve. To use custody again,
+      # put it back to $100. check-cap-invariants.sh still needs it to cover the largest payout plus
+      # the relay's fee.
+      PAYOUT_FLOAT_TARGET_USDT=1000000000000
+      # The PILOT's payout side (accepted 2026-10-04, readiness B4 "Pilot limits"): $50 payouts and a
+      # $200 daily ceiling, where B4's decided set has $200 and $1,000. Raise both together, and only
+      # after A2 ships.
       # The PILOT's mint caps (accepted 2026-10-05, when mainnet was opened to every account): $100 per
       # deposit and $200 per day, the same as the daily payout ceiling below, where B4's decided set has
       # $1,000 and $2,000. A deposit above the per-transaction cap parks for a human (the user's USDT
