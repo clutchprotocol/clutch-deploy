@@ -226,11 +226,16 @@ services:
       - "APP_TRONGRID_URL=${TRONGRID_URL:?set TRONGRID_URL in .env.mainnet}"
       - APP_TRONGRID_API_KEY=${TRONGRID_API_KEY:-}
       - "APP_USDT_CONTRACT=${USDT_CONTRACT:?set USDT_CONTRACT in .env.mainnet}"
-      # What a user may ask to redeem. The stage file has these ON; here they are OFF until the
-      # maintainer turns mainnet on for users, which is a reviewed commit that changes this line.
+      # What a user may ask to redeem. The stage file has these ON; here they were OFF until the
+      # maintainer turned mainnet on for users, which is a reviewed commit that changes this line. It
+      # is ON since 2026-10-05, the maintainer's decision. While the GasFree float has not made its
+      # first transfer (activate-float.yml, chain mainnet), the treasury itself refuses to create a
+      # redemption (503, "not yet", in create_redemption_intent_handler), before anything exists to
+      # burn against, and the orchestrator tells the user that redemptions are not available yet. So
+      # this is safe to leave on before the activation, and withdrawals begin when the activation runs.
       - APP_MAX_REDEMPTION_CLT=${MAX_REDEMPTION_CLT:?set MAX_REDEMPTION_CLT in .env.mainnet}
       - APP_MIN_REDEMPTION_CLT=${MIN_REDEMPTION_CLT:?set MIN_REDEMPTION_CLT in .env.mainnet}
-      - APP_REDEMPTIONS_ENABLED=false
+      - APP_REDEMPTIONS_ENABLED=true
       - APP_DEPOSIT_HOT_WINDOW_HOURS=${DEPOSIT_HOT_WINDOW_HOURS:-24}
       - APP_PERMANENT_DEPOSIT_ADDRESSES_ENABLED=${PERMANENT_DEPOSIT_ADDRESSES_ENABLED:-true}
       - APP_TRANSFER_RAIL=${TRANSFER_RAIL:-trx}
