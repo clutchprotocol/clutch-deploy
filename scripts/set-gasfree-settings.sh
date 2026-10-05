@@ -43,7 +43,11 @@ case "$NETWORK" in
       MIN_DEPOSIT_USDT=1000000
       GASFREE_EXPECTED_IMPLEMENTATION=b8eda40b467b45af107f198e94cc2fa1378adf50
       GASFREE_EXPECTED_CONTROLLER_IMPLEMENTATION=2ec1c0ada96ac9c3d6aab8e0c6e18194ed72c441
-      PAYOUT_FLOAT_TARGET_USDT=30000000
+      # ONE WALLET on stage too (2026-10-05), as on mainnet: a sweep goes to the float while it holds less
+      # than this, and to custody after that. $1,000,000 is never reached on Nile, so every sweep goes to
+      # the float and custody stays empty. It was $30. check-cap-invariants.sh still needs it to cover
+      # the largest payout plus the relay's fee.
+      PAYOUT_FLOAT_TARGET_USDT=1000000000000
     )
     ;;
   mainnet)
