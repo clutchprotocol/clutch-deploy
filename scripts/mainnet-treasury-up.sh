@@ -154,4 +154,4 @@ echo "  nginx: reloaded"
 
 echo ""
 echo "started. No port is published. The orchestrator is on the stage network, so that nginx can reach"
-echo "it, and /payment/ on the mainnet site goes to it. It serves only the accounts of the pilot allowlist."
+echo "it, and /payment/ on the mainnet site goes to it. ($expect)"
