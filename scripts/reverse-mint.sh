@@ -2,7 +2,10 @@
 #
 # Record that a mint the ledger holds was destroyed on chain.
 #
-#   INTENT_ID=<uuid> REASON="..." bash scripts/reverse-mint.sh
+#   INTENT_ID=<uuid> REASON="..." [CHAIN=mainnet] bash scripts/reverse-mint.sh
+#
+# CHAIN=stage (the default) or CHAIN=mainnet picks the treasury (scripts/lib/chain.sh). Nothing here
+# prints a user's address, so mainnet needs no cutting.
 #
 # Appends one mint_reversed event, which the ledger_balances view subtracts from liability. It does
 # NOT touch the original mint_executed row -- treasury_events is append-only, and the original is a
@@ -16,9 +19,22 @@ set -euo pipefail
 INTENT_ID="${INTENT_ID:?INTENT_ID must be set}"
 REASON="${REASON:?REASON must be set — it lands in the event description and is the only record of why}"
 
-# Container name copied from inspect-stage.sh, not guessed -- the first version of this script
-# invented clutch-stage-treasury-db-1, which does not exist.
-PSQL="docker exec -i clutch-stage-treasury-postgres-1 psql -U treasury -d treasury -t -A"
+# Both values reach SQL: the id as a string, the reason between dollar quotes below. A UUID is checked
+# for its shape, and a reason may not hold a dollar sign, which would end the quoting early.
+if ! printf '%s' "$INTENT_ID" | grep -qE '^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$'; then
+  echo "ABORT: INTENT_ID is not a UUID."
+  exit 1
+fi
+case "$REASON" in
+  *'$'*) echo "ABORT: REASON may not contain a dollar sign."; exit 1 ;;
+esac
+
+. "$(dirname "$0")/lib/chain.sh"
+chain_select "${CHAIN:-stage}" || exit 1
+echo "treasury: $CH_NAME"
+
+# The container name comes from the chain helper, which takes it from the compose files.
+PSQL="docker exec -i $CH_TREASURY_PG psql -U treasury -d treasury -t -A"
 
 # The intent must exist and be one the ledger actually counted. Reversing a 'created' intent would
 # subtract liability that was never added.

@@ -1,4 +1,4 @@
-# Put a stuck `submitted` mint back in the outbox queue.
+# Put a stuck `submitted` mint back in the outbox queue, on stage or on mainnet.
 #
 # `submitted` is terminal in practice: the outbox retries `pending` and `failed`, nothing re-drives
 # `submitted`, nothing times it out, and nothing checks whether the transaction landed. Only the
@@ -15,6 +15,9 @@
 # already decided on.
 #
 # scripts/redrive-mint.sh refuses anything that is not currently `submitted`.
+#
+# The mainnet treasury is chosen with `chain`, and asks for the longer word "redrive mainnet". The
+# logs of this workflow are public, so on mainnet the script cuts a user's address in its output.
 
 name: Re-drive a stuck mint (stage)
 
@@ -22,11 +25,18 @@ on:
   workflow_dispatch:
     inputs:
       intent_id:
-        description: 'Mint intent UUID (from PROBE=sweeper, the "mint intents" table)'
+        description: 'Mint intent UUID (from PROBE=sweeper, or PROBE=mainnet-treasury on mainnet, the "mint intents" table)'
         required: true
         type: string
+      chain:
+        description: "Which treasury"
+        type: choice
+        default: stage
+        options:
+          - stage
+          - mainnet
       confirm:
-        description: 'Type "redrive" to confirm re-queuing this mint for submission'
+        description: 'Type "redrive" to confirm re-queuing this mint for submission (type "redrive mainnet" for the mainnet treasury)'
         required: true
         default: ""
 
@@ -38,10 +48,16 @@ jobs:
   redrive:
     runs-on: ubuntu-latest
     steps:
+      # Through env, never interpolated into the script body.
       - name: Check the confirmation
+        env:
+          CONFIRM: ${{ inputs.confirm }}
+          CHAIN: ${{ inputs.chain }}
         run: |
-          if [ "${{ inputs.confirm }}" != "redrive" ]; then
-            echo "::error::confirm must be exactly 'redrive' — got '${{ inputs.confirm }}'"
+          want="redrive"
+          [ "$CHAIN" = "mainnet" ] && want="redrive mainnet"
+          if [ "$CONFIRM" != "$want" ]; then
+            echo "::error::confirm must be exactly '$want' for $CHAIN — got '$CONFIRM'"
             exit 1
           fi
 
@@ -54,6 +70,7 @@ jobs:
           # cannot become part of the command that runs. The script validates it as a UUID again
           # on the host, because a workflow input is not a trusted string and this one reaches SQL.
           INTENT_ID: ${{ inputs.intent_id }}
+          CHAIN: ${{ inputs.chain }}
         run: |
           # Plain ssh, not appleboy/ssh-action: that action downloads a drone-ssh binary from
           # GitHub releases on every run, and on 2026-09-14 that CDN 504'd six times and failed a
@@ -65,7 +82,7 @@ jobs:
           # Values reach the host as a file of shell-quoted assignments and are sourced there --
           # never interpolated into the command line.
           : > "$RUNNER_TEMP/clutch-env.sh"
-          for v in INTENT_ID; do printf '%s=%q\n' "$v" "${!v-}" >> "$RUNNER_TEMP/clutch-env.sh"; done
+          for v in INTENT_ID CHAIN; do printf '%s=%q\n' "$v" "${!v-}" >> "$RUNNER_TEMP/clutch-env.sh"; done
           sshpass -e ssh $SSH_OPTS "$CLUTCH_SSH_USER@$CLUTCH_SSH_HOST" "cat > $R.env" < "$RUNNER_TEMP/clutch-env.sh"
           cat > "$RUNNER_TEMP/clutch-remote.sh" <<'CLUTCH_REMOTE_EOF'
           set -euo pipefail

@@ -1,4 +1,4 @@
-# Create a mint intent on stage. Half of the four-eyes flow — this one MINTS NOTHING.
+# Create a mint intent, on stage or on mainnet. Half of the four-eyes flow — this one MINTS NOTHING.
 #
 # A mint intent created here sits at `created` until a DIFFERENT person runs "Approve mint intent".
 # The treasury derives `created_by` and `approved_by` from the authenticated role and a DB CHECK
@@ -11,6 +11,11 @@
 # This is for manual corrections (an overpaid deposit owed more CLT, a credit that has to be made
 # good). Ordinary deposits do not come through here: the orchestrator creates those intents and the
 # verifier approves them on independent on-chain evidence.
+#
+# The mainnet treasury is chosen with `chain`, and asks for the longer word "create mainnet". The
+# beneficiary is an INPUT, and the inputs of a run are shown in plain text: on mainnet it is a public
+# chain address that the mint will show on chain anyway, but it is public here too. The script cuts it
+# in its own output, and on mainnet it accepts only 0x and 40 hex characters.
 
 name: Create mint intent (stage)
 
@@ -18,7 +23,7 @@ on:
   workflow_dispatch:
     inputs:
       beneficiary:
-        description: "Address to credit"
+        description: "Address to credit (on mainnet this input, like every input of a run, is public)"
         required: true
       amount_clt:
         description: "Amount in micro-dollars (1 USD = 1000000, so $990 = 990000000)"
@@ -34,8 +39,15 @@ on:
         description: "Justification for the override. Required when overriding."
         required: false
         default: ""
+      chain:
+        description: "Which treasury"
+        type: choice
+        default: stage
+        options:
+          - stage
+          - mainnet
       confirm:
-        description: 'Type "create" to confirm'
+        description: 'Type "create" to confirm (type "create mainnet" for the mainnet treasury)'
         required: true
         default: ""
 
@@ -47,10 +59,16 @@ jobs:
   create:
     runs-on: ubuntu-latest
     steps:
+      # Through env, never interpolated into the script body.
       - name: Check the confirmation
+        env:
+          CONFIRM: ${{ inputs.confirm }}
+          CHAIN: ${{ inputs.chain }}
         run: |
-          if [ "${{ inputs.confirm }}" != "create" ]; then
-            echo "Refusing: confirm was '${{ inputs.confirm }}', expected 'create'."
+          want="create"
+          [ "$CHAIN" = "mainnet" ] && want="create mainnet"
+          if [ "$CONFIRM" != "$want" ]; then
+            echo "Refusing: confirm was '$CONFIRM', expected '$want' for $CHAIN."
             exit 1
           fi
 
@@ -60,8 +78,10 @@ jobs:
         env:
           ACTOR: ${{ github.actor }}
           REASON: ${{ inputs.reason }}
+          CHAIN: ${{ inputs.chain }}
         run: |
           echo "dispatched by $ACTOR"
+          echo "treasury: $CHAIN"
           echo "reason: $REASON"
 
       - name: Create via SSH
@@ -74,6 +94,7 @@ jobs:
           REASON: ${{ inputs.reason }}
           OVERRIDE_DUPLICATE: ${{ inputs.override_duplicate }}
           OVERRIDE_REASON: ${{ inputs.override_reason }}
+          CHAIN: ${{ inputs.chain }}
         run: |
           # Plain ssh, not appleboy/ssh-action. That action downloads a drone-ssh binary from
           # GitHub releases on EVERY run -- unconditionally, there is no skip-if-present -- and on
@@ -93,7 +114,7 @@ jobs:
           # input gave us, kept deliberately: a workflow input must not be able to become part of
           # the command that runs. The file is deleted on the host the moment it has been read.
           : > "$RUNNER_TEMP/clutch-env.sh"
-          for v in BENEFICIARY AMOUNT_CLT REASON OVERRIDE_DUPLICATE OVERRIDE_REASON; do printf '%s=%q\n' "$v" "${!v-}" >> "$RUNNER_TEMP/clutch-env.sh"; done
+          for v in BENEFICIARY AMOUNT_CLT REASON OVERRIDE_DUPLICATE OVERRIDE_REASON CHAIN; do printf '%s=%q\n' "$v" "${!v-}" >> "$RUNNER_TEMP/clutch-env.sh"; done
           sshpass -e ssh $SSH_OPTS "$CLUTCH_SSH_USER@$CLUTCH_SSH_HOST" "cat > $R.env" < "$RUNNER_TEMP/clutch-env.sh"
           cat > "$RUNNER_TEMP/clutch-remote.sh" <<'CLUTCH_REMOTE_EOF'
           set -euo pipefail

@@ -22,7 +22,8 @@ failed=0
 pass() { passed=$((passed + 1)); echo "ok    $1"; }
 fail() { failed=$((failed + 1)); echo "FAIL  $1"; }
 
-for s in halt-minting resume-minting set-mint-caps activate-float sweep-address backup-treasury-db; do
+for s in halt-minting resume-minting set-mint-caps activate-float sweep-address backup-treasury-db \
+         mint-intent redrive-mint reverse-mint close-repaid-deposit; do
   f="scripts/$s.sh"
   if grep -q 'clutch-stage' "$f"; then fail "$s.sh names no stage container or project"; else pass "$s.sh names no stage container or project"; fi
   if grep -q 'lib/chain.sh' "$f" && grep -q 'chain_select' "$f"; then
@@ -33,7 +34,9 @@ for s in halt-minting resume-minting set-mint-caps activate-float sweep-address 
 done
 
 # <workflow>:<the word it asks for on stage>. sweep-address is not in this list: it is stage only (below).
-for pair in halt-minting:halt resume-minting:resume set-mint-caps:set activate-float:activate; do
+for pair in halt-minting:halt resume-minting:resume set-mint-caps:set activate-float:activate \
+            mint-intent-create:create mint-intent-approve:approve redrive-mint:redrive reverse-mint:reverse \
+            close-repaid-deposit:close; do
   w="${pair%%:*}" word="${pair##*:}"
   f=".github/workflows/$w.yml"
   if grep -q '^      chain:' "$f" && grep -q '^          - mainnet' "$f"; then
@@ -161,6 +164,56 @@ if grep -qF 'The output is not printed, because the log is public' scripts/set-m
 else
   fail "set-mint-caps.sh does not print compose output on mainnet"
 fi
+
+# The manual mint tools on mainnet. Their workflow logs are public, so a user's address must never reach
+# one whole: every place that prints one goes through the cutting helpers (chain_mask, chain_mask_sql, and
+# show_resp for the treasury's JSON reply, which names the beneficiary). The check matches the call
+# itself, not the bare word, which also stands in comments.
+for pair in "mint-intent:chain_mask_sql beneficiary" "mint-intent:chain_mask \"\$BENEFICIARY\"" "mint-intent:show_resp \"\$RESP\"" \
+            "redrive-mint:chain_mask_sql i.beneficiary" "close-repaid-deposit:chain_mask_sql clt_address" \
+            "close-repaid-deposit:chain_mask_sql tron_tx_id" "close-repaid-deposit:chain_mask \"\$BENEFICIARY\""; do
+  s="${pair%%:*}" needle="${pair#*:}"
+  if grep -qF -- "$needle" "scripts/$s.sh"; then
+    pass "$s.sh cuts a user's address with '$needle'"
+  else
+    fail "$s.sh cuts a user's address with '$needle'"
+  fi
+done
+# And no query of them selects the column bare.
+if grep -qE '^[[:space:]]*(-c )?"select id, beneficiary,|i\.beneficiary,$|select id, status, amount_usdt, received_usdt, clt_address' \
+     scripts/mint-intent.sh scripts/redrive-mint.sh scripts/close-repaid-deposit.sh; then
+  fail "no mint tool selects a user's address bare"
+else
+  pass "no mint tool selects a user's address bare"
+fi
+
+# `approve` takes `needs_manual`: the treasury accepts it (a deposit over the per-transaction cap lands
+# there, and the way out is to raise the cap and approve again), and the alert says to use this tool.
+if grep -qF '"$STATUS" != "needs_manual"' scripts/mint-intent.sh; then
+  pass "mint-intent.sh approves an intent parked in needs_manual"
+else
+  fail "mint-intent.sh approves an intent parked in needs_manual"
+fi
+# What reaches SQL is checked first: an intent id for its shape, a mainnet beneficiary for being an
+# address, a close id for hex, and a reversal's reason for the dollar sign that would end its quoting.
+for pair in "mint-intent:UUID_RE" "mint-intent:on mainnet BENEFICIARY must be 0x" "reverse-mint:INTENT_ID is not a UUID" \
+            "reverse-mint:REASON may not contain a dollar sign" "close-repaid-deposit:DEPOSIT_ID may hold only hex digits and dashes"; do
+  s="${pair%%:*}" needle="${pair#*:}"
+  if grep -qF -- "$needle" "scripts/$s.sh"; then
+    pass "$s.sh checks its input: '$needle'"
+  else
+    fail "$s.sh checks its input: '$needle'"
+  fi
+done
+# The confirmation is read from the environment in every one of the five, never interpolated into the
+# script body (a `${{ inputs.confirm }}` inside a run block is shell text).
+for w in mint-intent-create mint-intent-approve redrive-mint reverse-mint close-repaid-deposit; do
+  if grep -qF 'CONFIRM: ${{ inputs.confirm }}' ".github/workflows/$w.yml" && ! grep -qE 'if \[ "\$\{\{ inputs\.confirm' ".github/workflows/$w.yml"; then
+    pass "$w.yml reads the confirmation from the environment"
+  else
+    fail "$w.yml reads the confirmation from the environment"
+  fi
+done
 
 echo ""
 echo "$passed passed, $failed failed"
