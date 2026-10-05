@@ -43,7 +43,7 @@ cat > "$T/stage.json" <<'JSON'
 JSON
 
 # The mainnet stack as it should render: its own names, a private network, no ports, a superset of
-# the stage settings plus the KMS ones.
+# the stage settings plus the mint key.
 cat > "$T/mainnet.json" <<'JSON'
 {
   "name": "clutch-main-treasury",
@@ -60,7 +60,7 @@ cat > "$T/mainnet.json" <<'JSON'
       "networks": {"treasury-network": null, "clutch-network": null},
       "environment": {
         "APP_CHAIN_ID": "1000", "APP_SIGNER_URL": "http://mainnet-tron-signer:8093",
-        "APP_PER_TX_MINT_CAP_CLT": "1000000000", "APP_SIGNER_KIND": "azure_kms", "APP_MINT_AUTHORITY_SECRET": "",
+        "APP_PER_TX_MINT_CAP_CLT": "1000000000", "APP_SIGNER_KIND": "env", "APP_MINT_AUTHORITY_SECRET": "ci-mint-key",
         "APP_NODE_WS_URL": "ws://mainnet-node3:8183/ws",
         "APP_NODE_PEER_WS_URLS": "ws://mainnet-node1:8181/ws,ws://mainnet-node2:8182/ws",
         "APP_USDT_CONTRACT": "TR7NHqjeKQxGTCi8q8ZY4pL8otSzgjLj6t", "APP_TRONGRID_URL": "https://api.trongrid.io"
@@ -145,10 +145,12 @@ check "an image on latest fails" 1 "not pinned to a sha tag: mainnet-treasury-se
   '.services["mainnet-treasury-service"].image = "ghcr.io/clutchprotocol/clutch-treasury:latest"'
 check "the wrong chain id fails" 1 "mainnet-treasury-service must run chain 1000" \
   '.services["mainnet-treasury-service"].environment.APP_CHAIN_ID = "2077"'
-check "a plaintext mint key beside the KMS signer fails" 1 "mainnet-treasury-service must have an empty APP_MINT_AUTHORITY_SECRET" \
-  '.services["mainnet-treasury-service"].environment.APP_MINT_AUTHORITY_SECRET = "abcd"'
-check "the env signer instead of KMS fails" 1 "mainnet-treasury-service must sign with azure_kms" \
-  '.services["mainnet-treasury-service"].environment.APP_SIGNER_KIND = "env"'
+check "an empty mint key fails" 1 "mainnet-treasury-service must have an APP_MINT_AUTHORITY_SECRET" \
+  '.services["mainnet-treasury-service"].environment.APP_MINT_AUTHORITY_SECRET = ""'
+check "a missing mint key fails" 1 "mainnet-treasury-service must have an APP_MINT_AUTHORITY_SECRET" \
+  'del(.services["mainnet-treasury-service"].environment.APP_MINT_AUTHORITY_SECRET)'
+check "the KMS signer instead of the env signer fails" 1 "mainnet-treasury-service must sign with the env signer" \
+  '.services["mainnet-treasury-service"].environment.APP_SIGNER_KIND = "azure_kms"'
 check "the testnet node URL fails" 1 "mainnet-treasury-service must read a mainnet node" \
   '.services["mainnet-treasury-service"].environment.APP_NODE_WS_URL = "ws://node3:8083/ws"'
 check "the Nile TronGrid fails" 1 "mainnet-tron-signer must use TronGrid mainnet" \

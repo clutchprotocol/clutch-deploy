@@ -1,0 +1,63 @@
+# Create the MAINNET mint key, on the stage host, once.
+#
+# Since 2026-10-05 the mint key is a plain secret in .env.mainnet and not an Azure KMS key (readiness
+# A1, "Mint key on the host"). scripts/mainnet-mint-key.sh makes it inside the treasury image's
+# ceremony-check and writes it straight into the host's .env.mainnet, with its public address. The secret
+# never reaches GitHub and is never printed: only the ADDRESS is, because it is public and has to go into
+# config/node-mainnet/*.toml as mint_authority, which is part of the genesis.
+#
+# Run it ONCE. It never replaces a key: if one is there it only prints the address again. Back the secret
+# up somewhere that is not the host. If it is lost, no CLT can be minted on the chain again.
+#
+# Nothing is restarted and no node config is changed. The address goes into the configs by a pull request.
+
+name: Mainnet — create the mint key (once)
+
+on:
+  workflow_dispatch:
+    inputs:
+      confirm:
+        description: 'Type "CREATE MINT KEY" to confirm. A key that exists is never replaced.'
+        required: true
+        default: ""
+
+# It writes .env.mainnet, so it queues with the other writers of that file.
+concurrency:
+  group: env-file-writers
+  cancel-in-progress: false
+
+jobs:
+  create:
+    runs-on: ubuntu-latest
+    steps:
+      # Through env, never interpolated into the script body.
+      - name: Check the confirmation
+        env:
+          CONFIRM: ${{ inputs.confirm }}
+        run: |
+          if [ "$CONFIRM" != "CREATE MINT KEY" ]; then
+            echo "Refusing: confirm was '$CONFIRM', expected 'CREATE MINT KEY'."
+            exit 1
+          fi
+
+      - name: Create it via SSH
+        env:
+          SSHPASS: ${{ secrets.STAGE_SSH_PASSWORD }}
+          CLUTCH_SSH_HOST: ${{ secrets.STAGE_HOST }}
+          CLUTCH_SSH_USER: ${{ secrets.STAGE_USER }}
+        run: |
+          # The same transport as mainnet-treasury-up.yml: plain ssh, the script travels as a file, and no
+          # input reaches the host (the typed word is checked above, on the runner), so there is no env
+          # file. No `set -x`: the host file holds the deposit mnemonic and, after this, the mint key.
+          set -euo pipefail
+          command -v sshpass >/dev/null || { sudo apt-get update -qq && sudo apt-get install -y -qq sshpass; }
+          R="/tmp/clutch-ci-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
+          SSH_OPTS="-o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o ConnectTimeout=30 -o ServerAliveInterval=30"
+          cat > "$RUNNER_TEMP/clutch-remote.sh" <<'CLUTCH_REMOTE_EOF'
+          set -euo pipefail
+          cd "${{ secrets.STAGE_DEPLOY_PATH }}"
+          git pull --ff-only origin main
+          bash scripts/mainnet-mint-key.sh
+          CLUTCH_REMOTE_EOF
+          sshpass -e ssh $SSH_OPTS "$CLUTCH_SSH_USER@$CLUTCH_SSH_HOST" "cat > $R.sh" < "$RUNNER_TEMP/clutch-remote.sh"
+          timeout 10m sshpass -e ssh $SSH_OPTS "$CLUTCH_SSH_USER@$CLUTCH_SSH_HOST" "find /tmp -maxdepth 1 -name 'clutch-ci-*' -mtime +1 -delete 2>/dev/null; bash $R.sh"

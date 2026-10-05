@@ -1,0 +1,70 @@
+# Replace the MAINNET chain with a new, empty one. Once. It DELETES the old chain.
+#
+# mint_authority is a genesis value, so moving the mint key from Azure KMS to the host (readiness A1,
+# "Mint key on the host", accepted 2026-10-05) needs a new chain. scripts/reset-mainnet-chain.sh does
+# only the stopping and the wiping, and only after gates that prove the old chain holds nothing: the new
+# key is in .env.mainnet and in all three node configs, check-genesis.sh passes, the treasury still signs
+# with KMS (so a second run refuses), no CLT was ever minted, and there is room to copy the old data. It
+# halts minting first and keeps a copy of the three data volumes in backups/mainnet-chain-<time>/.
+#
+# Two typed words:
+#   CHECK                  read-only: runs the gates and changes nothing. Run this first.
+#   RESET MAINNET CHAIN    the gates, then halt, stop, copy, delete.
+#
+# After it, in this order: "Mainnet — start the chain" (START MAINNET), "Mainnet — start the treasury",
+# then "Resume minting" for mainnet. The mainnet app is down between the reset and the chain start.
+
+name: Mainnet — reset the chain (once, deletes the old chain)
+
+on:
+  workflow_dispatch:
+    inputs:
+      confirm:
+        description: 'Type "CHECK" for the read-only gates, or "RESET MAINNET CHAIN" to delete the old chain'
+        required: true
+        default: ""
+
+# It reads .env.mainnet and changes the treasury's breaker, so it queues with the writers of that file.
+concurrency:
+  group: env-file-writers
+  cancel-in-progress: false
+
+jobs:
+  reset:
+    runs-on: ubuntu-latest
+    steps:
+      # Through env, never interpolated into the script body.
+      - name: Check the confirmation
+        env:
+          CONFIRM: ${{ inputs.confirm }}
+        run: |
+          case "$CONFIRM" in
+            "CHECK"|"RESET MAINNET CHAIN") ;;
+            *) echo "Refusing: confirm was '$CONFIRM', expected 'CHECK' or 'RESET MAINNET CHAIN'."; exit 1 ;;
+          esac
+
+      - name: Run it via SSH
+        env:
+          SSHPASS: ${{ secrets.STAGE_SSH_PASSWORD }}
+          CLUTCH_SSH_HOST: ${{ secrets.STAGE_HOST }}
+          CLUTCH_SSH_USER: ${{ secrets.STAGE_USER }}
+          CONFIRM: ${{ inputs.confirm }}
+        run: |
+          # The same transport as halt-minting.yml. The mode reaches the host as a file of shell-quoted
+          # assignments, sourced there, and it is one of two fixed words chosen on the runner.
+          set -euo pipefail
+          command -v sshpass >/dev/null || { sudo apt-get update -qq && sudo apt-get install -y -qq sshpass; }
+          if [ "$CONFIRM" = "RESET MAINNET CHAIN" ]; then MODE=reset; else MODE=check; fi
+          R="/tmp/clutch-ci-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
+          SSH_OPTS="-o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o ConnectTimeout=30 -o ServerAliveInterval=30"
+          : > "$RUNNER_TEMP/clutch-env.sh"
+          for v in MODE; do printf '%s=%q\n' "$v" "${!v-}" >> "$RUNNER_TEMP/clutch-env.sh"; done
+          sshpass -e ssh $SSH_OPTS "$CLUTCH_SSH_USER@$CLUTCH_SSH_HOST" "cat > $R.env" < "$RUNNER_TEMP/clutch-env.sh"
+          cat > "$RUNNER_TEMP/clutch-remote.sh" <<'CLUTCH_REMOTE_EOF'
+          set -euo pipefail
+          cd "${{ secrets.STAGE_DEPLOY_PATH }}"
+          git pull --ff-only origin main
+          MODE="$MODE" bash scripts/reset-mainnet-chain.sh
+          CLUTCH_REMOTE_EOF
+          sshpass -e ssh $SSH_OPTS "$CLUTCH_SSH_USER@$CLUTCH_SSH_HOST" "cat > $R.sh" < "$RUNNER_TEMP/clutch-remote.sh"
+          timeout 25m sshpass -e ssh $SSH_OPTS "$CLUTCH_SSH_USER@$CLUTCH_SSH_HOST" "find /tmp -maxdepth 1 -name 'clutch-ci-*' -mtime +1 -delete 2>/dev/null; bash -c 'set -a; . $R.env; set +a; rm -f $R.env; exec bash $R.sh'"

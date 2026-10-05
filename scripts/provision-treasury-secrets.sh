@@ -52,6 +52,11 @@ GENERATED="TREASURY_POSTGRES_PASSWORD ORCHESTRATOR_POSTGRES_PASSWORD MINT_AUTHOR
 # orphans every address already handed out, on a network where those addresses hold real money.
 ENV_FILE="${ENV_FILE:-.env}"
 
+# The mainnet mint key is not generated here. It has to be made together with its address, because the
+# address goes into the genesis, and scripts/mainnet-mint-key.sh does both, once. A key generated here
+# would have no recorded address, and that script would then refuse to make the real one.
+if [ "$ENV_FILE" != ".env" ]; then GENERATED="${GENERATED/MINT_AUTHORITY_SECRET/}"; fi
+
 # The xpub probe below starts the signer PINNED for this env file's stack, the same build that
 # runs, never `latest`: a newer build is code nobody has deployed yet.
 if [ "$ENV_FILE" = ".env" ]; then PIN_ENV=stage; else PIN_ENV=mainnet; fi

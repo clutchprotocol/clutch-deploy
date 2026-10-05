@@ -28,19 +28,22 @@
 #     with a trailing space, quotes or a double space is still the same secret;
 #   - a JWT_SECRET that is not .env's MAINNET_JWT_SECRET: the mainnet hub signs user tokens with
 #     that one, and the orchestrator rejects every request signed by anything else;
-#   - a plaintext mint key (64 hex characters) in MINT_AUTHORITY_SECRET: the mint authority is the
-#     KMS key, and a plaintext one on the host is exactly what the key ceremony removed. The
-#     placeholder in .env.mainnet.example (not hex) is fine.
+#   - a mint key that is not 64 hex characters, or whose recorded address (MINT_AUTHORITY_ADDRESS) is not
+#     the `mint_authority` of the node configs. The key is a plain secret on this host since 2026-10-05
+#     (readiness A1, "Mint key on the host"), made together with its address by mainnet-mint-key.sh.
+#     A key that is not the chain's mint authority mints nothing: the treasury would halt itself at
+#     start. This cannot prove the secret derives the address (no tool here does that); the treasury's
+#     own check against the chain does, and the key and the address are written in one step.
 
 MAINNET_USDT=TR7NHqjeKQxGTCi8q8ZY4pL8otSzgjLj6t
 
 # Every setting the mainnet compose file requires with `:?` or that the money path cannot run without,
 # and BACKUP_PASSPHRASE: backup-treasury-db.sh aborts without it, so a treasury that started would have
 # no backup the first night.
-PF_REQUIRED="CUSTODY_TRON_ADDRESS TRONGRID_URL USDT_CONTRACT AZURE_TENANT_ID AZURE_CLIENT_ID AZURE_CLIENT_SECRET AZURE_VAULT_URL AZURE_KEY_NAME AZURE_KEY_VERSION DEPOSIT_MNEMONIC DEPOSIT_ACCOUNT_XPUB PAYOUT_FLOAT_ADDRESS SIGNER_TOKEN TREASURY_INITIATOR_TOKEN TREASURY_APPROVER_TOKEN TREASURY_READONLY_TOKEN TREASURY_POSTGRES_PASSWORD ORCHESTRATOR_POSTGRES_PASSWORD JWT_SECRET PER_TX_MINT_CAP_CLT DAILY_MINT_CAP_CLT MAX_REDEMPTION_CLT MIN_REDEMPTION_CLT PER_TX_PAYOUT_CAP_USDT REDEMPTION_FEE_USDT DAILY_PAYOUT_CAP_CLT BACKUP_PASSPHRASE PILOT_ALLOWED_ADDRESSES"
+PF_REQUIRED="CUSTODY_TRON_ADDRESS TRONGRID_URL USDT_CONTRACT MINT_AUTHORITY_SECRET MINT_AUTHORITY_ADDRESS DEPOSIT_MNEMONIC DEPOSIT_ACCOUNT_XPUB PAYOUT_FLOAT_ADDRESS SIGNER_TOKEN TREASURY_INITIATOR_TOKEN TREASURY_APPROVER_TOKEN TREASURY_READONLY_TOKEN TREASURY_POSTGRES_PASSWORD ORCHESTRATOR_POSTGRES_PASSWORD JWT_SECRET PER_TX_MINT_CAP_CLT DAILY_MINT_CAP_CLT MAX_REDEMPTION_CLT MIN_REDEMPTION_CLT PER_TX_PAYOUT_CAP_USDT REDEMPTION_FEE_USDT DAILY_PAYOUT_CAP_CLT BACKUP_PASSPHRASE PILOT_ALLOWED_ADDRESSES"
 
 # Settings that must differ between the two files.
-PF_DIFFER="DEPOSIT_MNEMONIC DEPOSIT_ACCOUNT_XPUB CUSTODY_TRON_ADDRESS PAYOUT_FLOAT_ADDRESS SIGNER_TOKEN TREASURY_INITIATOR_TOKEN TREASURY_APPROVER_TOKEN TREASURY_READONLY_TOKEN TREASURY_POSTGRES_PASSWORD ORCHESTRATOR_POSTGRES_PASSWORD JWT_SECRET BACKUP_PASSPHRASE BACKUP_REMOTE"
+PF_DIFFER="MINT_AUTHORITY_SECRET DEPOSIT_MNEMONIC DEPOSIT_ACCOUNT_XPUB CUSTODY_TRON_ADDRESS PAYOUT_FLOAT_ADDRESS SIGNER_TOKEN TREASURY_INITIATOR_TOKEN TREASURY_APPROVER_TOKEN TREASURY_READONLY_TOKEN TREASURY_POSTGRES_PASSWORD ORCHESTRATOR_POSTGRES_PASSWORD JWT_SECRET BACKUP_PASSPHRASE BACKUP_REMOTE"
 
 pf_ok()  { printf 'OK    %s\n' "$1"; }
 pf_bad() { printf 'FAIL  %s\n' "$1"; PF_FAIL=1; }
@@ -112,8 +115,8 @@ pf_lint() {  # pf_lint <file>
   return "$bad"
 }
 
-preflight() {  # preflight <mainnet env file> <stage env file>
-  local m="$1" s="$2" n mv sv mode
+preflight() {  # preflight <mainnet env file> <stage env file> [<node config>, default config/node-mainnet/node1.toml]
+  local m="$1" s="$2" nodecfg="${3:-config/node-mainnet/node1.toml}" n mv sv mode
   PF_FAIL=0
 
   if [ ! -f "$m" ]; then pf_bad "$m does not exist"; return 1; fi
@@ -190,11 +193,33 @@ preflight() {  # preflight <mainnet env file> <stage env file>
     pf_bad "PILOT_ALLOWED_ADDRESSES is neither * nor a comma-separated list of 0x addresses (40 hex characters each, no spaces)"
   fi
 
+  # The mint key: 64 lower-case hex characters, as mainnet-mint-key.sh writes it. The treasury also takes
+  # a 0x prefix; this refuses it, so there is one form. Empty or missing is already reported above, so
+  # it is not reported twice.
   mv=$(pf_get "$m" MINT_AUTHORITY_SECRET)
-  if printf '%s' "$mv" | grep -Eq '^(0x)?[0-9a-fA-F]{64}$'; then
-    pf_bad "a plaintext mint key (MINT_AUTHORITY_SECRET) is in the mainnet file: the mint authority is the KMS key"
+  if [ -z "$mv" ]; then
+    :
+  elif printf '%s' "$mv" | grep -Eq '^[0-9a-f]{64}$'; then
+    pf_ok "the mint key is 64 hex characters"
   else
-    pf_ok "no plaintext mint key in the mainnet file"
+    pf_bad "MINT_AUTHORITY_SECRET is not 64 lower-case hex characters (run \"Mainnet - create the mint key\")"
+  fi
+  # Its address is the chain's mint_authority, in every node config. Only the first config is read here:
+  # check-genesis.sh makes the three agree, and the start refuses when they do not.
+  mv=$(pf_get "$m" MINT_AUTHORITY_ADDRESS | tr 'A-F' 'a-f')
+  if [ -z "$mv" ]; then
+    :
+  elif ! printf '%s' "$mv" | grep -Eq '^0x[0-9a-f]{40}$'; then
+    pf_bad "MINT_AUTHORITY_ADDRESS is not a 0x address of 40 hex characters"
+  elif [ ! -f "$nodecfg" ]; then
+    pf_bad "the node config is missing, so the mint address cannot be checked against it"
+  else
+    sv=$(sed -n 's/^mint_authority = "\(0x[0-9a-fA-F]\{40\}\)".*/\1/p' "$nodecfg" | head -1 | tr 'A-F' 'a-f')
+    if [ "$mv" = "$sv" ]; then
+      pf_ok "MINT_AUTHORITY_ADDRESS is the mint_authority of the node configs"
+    else
+      pf_bad "MINT_AUTHORITY_ADDRESS is not the mint_authority in $nodecfg: this key would not be the chain's mint authority"
+    fi
   fi
 
   return "$PF_FAIL"

@@ -44,6 +44,12 @@ on:
       - "scripts/verify-restored-ledger.sh"
       - "scripts/lib/mainnet-preflight.sh"
       - "scripts/test-mainnet-preflight.sh"
+      - "scripts/mainnet-mint-key.sh"
+      - "scripts/test-mainnet-mint-key.sh"
+      - "scripts/reset-mainnet-chain.sh"
+      - "scripts/test-reset-mainnet-chain.sh"
+      - "scripts/check-genesis.sh"
+      - "config/node-mainnet/*.toml"
       - "scripts/mainnet-treasury-up.sh"
       - "docker-compose.treasury.yml"
       - "docker-compose.mainnet.treasury.yml"
@@ -95,6 +101,12 @@ on:
       - "scripts/verify-restored-ledger.sh"
       - "scripts/lib/mainnet-preflight.sh"
       - "scripts/test-mainnet-preflight.sh"
+      - "scripts/mainnet-mint-key.sh"
+      - "scripts/test-mainnet-mint-key.sh"
+      - "scripts/reset-mainnet-chain.sh"
+      - "scripts/test-reset-mainnet-chain.sh"
+      - "scripts/check-genesis.sh"
+      - "config/node-mainnet/*.toml"
       - "scripts/mainnet-treasury-up.sh"
       - "docker-compose.treasury.yml"
       - "docker-compose.mainnet.treasury.yml"
@@ -151,6 +163,10 @@ jobs:
           bash -n scripts/verify-restored-ledger.sh
           bash -n scripts/lib/mainnet-preflight.sh
           bash -n scripts/test-mainnet-preflight.sh
+          bash -n scripts/mainnet-mint-key.sh
+          bash -n scripts/test-mainnet-mint-key.sh
+          bash -n scripts/reset-mainnet-chain.sh
+          bash -n scripts/test-reset-mainnet-chain.sh
           bash -n scripts/mainnet-treasury-up.sh
       - name: Cap invariants
         if: ${{ !cancelled() }}
@@ -179,6 +195,12 @@ jobs:
       - name: Mainnet preflight
         if: ${{ !cancelled() }}
         run: bash scripts/test-mainnet-preflight.sh
+      - name: Mainnet mint key writer
+        if: ${{ !cancelled() }}
+        run: bash scripts/test-mainnet-mint-key.sh
+      - name: Mainnet chain reset gates
+        if: ${{ !cancelled() }}
+        run: bash scripts/test-reset-mainnet-chain.sh
       # A YAML mistake in a workflow file is otherwise found only after the merge, when the workflow
       # is dispatched. A block scalar, because a plain one would end at the " #" inside the ruby code.
       - name: Workflow files parse
