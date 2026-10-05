@@ -72,6 +72,8 @@ Off unless `.env` sets `GASFREE_NETWORK` (clutch-treasury's `docs/superpowers/sp
 | `redemption …: payout outcome UNKNOWN … do not return this intent to payout_pending before …` | A GasFree permit may still run until that time. | Wait until the time has passed, then follow the page. |
 | `redemptions are not available yet: the GasFree float … has never made a transfer` | The float's one-time activation has not run. | Run `activate-float.yml` once. It runs a fresh reconciliation, and refuses unless the surplus, less what redemptions not yet paid are owed, covers the most the activation may cost. |
 
+**One wallet, on stage and on mainnet (since 2026-10-05).** `PAYOUT_FLOAT_TARGET_USDT` is $1,000,000 in both, so every sweep goes to the GasFree float and custody stays empty. The key on the host holds the whole reserve, so there is nothing to top up from custody and the float is not a ceiling on theft. `Set GasFree settings (stage)` writes the value (network `nile` for stage, `mainnet` for mainnet).
+
 Rules that do not change:
 
 - **Never remove the `GASFREE_*` settings while any user has a GasFree address, or while the GasFree float holds USDT**, even after setting `TRANSFER_RAIL=trx`: without them the treasury refuses deposits there, the orchestrator will not show the address, and the reserve stops counting the GasFree float, which trips the breaker.
