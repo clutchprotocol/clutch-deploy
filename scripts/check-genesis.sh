@@ -205,9 +205,10 @@ if [ "${MAINNET:-0}" = "1" ]; then
       note "it is caught here so it is not found by a node that will not start."
     else
       ok "single-signer mint authority, per A1 (decided 2026-09-18)"
-      note "ACCEPTED RISK: whoever holds that one key can mint without limit. The four-eyes rule"
-      note "in treasury-service is off-chain and does not stop it; the mint caps and the breaker"
-      note "bound it, and neither is the chain refusing."
+      note "ACCEPTED RISK: whoever holds that one key can mint without limit. The four-eyes rule,"
+      note "the mint caps and the breaker are all in treasury-service, off-chain: they stop a mistake"
+      note "in the treasury, not someone who holds the key and signs mints themselves, and the chain"
+      note "does not refuse that. Since 2026-10-05 the key is a plain secret on the stage host."
       note "mint_authority, mint_cosigners and mint_threshold are all genesis-committed, so"
       note "adding a second key later is a NEW CHAIN, not a configuration change."
     fi

@@ -55,12 +55,14 @@ chain_id = 1000
 is_testnet = false
 tx_fee = 1000
 
-# The Azure Key Vault key, confirmed by ceremony step 4 on 2026-09-19: the vault signed a synthetic
-# digest and the signature recovered to this address. Key
-# clutch-mint-vault-1/keys/clutch-mint-key-1, version a37aaf417d3447c7b4587ba97235bca9, EC P-256K.
+# The mint key held on the stage host (.env.mainnet, MINT_AUTHORITY_SECRET). It was made on 2026-10-05 by
+# the workflow "Mainnet - create the mint key" (scripts/mainnet-mint-key.sh), which printed this address.
+# It replaces the Azure Key Vault key (0xe44cda17...) of the first mainnet chain. mint_authority is part of
+# the genesis, so the move needed a new chain (readiness A1, "Mint key on the host";
+# scripts/reset-mainnet-chain.sh).
 # Single-signer by decision (readiness A1) -- mint_cosigners and mint_threshold are deliberately
 # absent, which encodes identically to a genesis from before those fields existed.
-mint_authority = "0xe44cda17f55acf4ccc03cab374de1f227cac6621"
+mint_authority = "0x87b7ec606b943b99273097644f3a9e22581ceda6"
 
 # The zero address, chosen over carrying the testnet's across -- that one is an address somebody
 # holds the key to, and this field stays in the genesis hash forever. Inert either way:
