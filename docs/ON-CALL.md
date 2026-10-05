@@ -94,8 +94,11 @@ either stack.
 
 **Only the pilot's accounts can use it.** It publishes no port. `/payment/` on the mainnet site proxies to
 the orchestrator, which joins the stage network so that nginx can reach it, and the orchestrator serves
-only the accounts in `PILOT_ALLOWED_ADDRESSES` (see "Who may use mainnet" below). Redemptions are off
-(`APP_REDEMPTIONS_ENABLED=false`). To close the route again, put back the `return 503` block in
+only the accounts in `PILOT_ALLOWED_ADDRESSES` (see "Who may use mainnet" below). Redemptions are on
+(`APP_REDEMPTIONS_ENABLED=true`, since 2026-10-05), but until the GasFree float has made its first
+transfer the treasury refuses to create one (503, "not yet"), before anything exists to burn against, and
+the app says that withdrawals are not available yet. They begin when `Activate the GasFree payout float`
+has run. To close the route again, put back the `return 503` block in
 `config/nginx/clutch.d/app.clutchprotocol.io/payment.conf` and the 503 gate in `scripts/deploy-stage.sh`,
 or change the secret `PILOT_ALLOWED_ADDRESSES` to an address nobody holds, run `Set the mainnet pilot
 allowlist`, and then `Mainnet — start the treasury`.
