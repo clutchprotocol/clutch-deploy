@@ -78,8 +78,8 @@ case "$NETWORK" in
       REDEMPTION_FEE_USDT=2000000
       # The rolling 24-hour payout ceiling, the float from the other side. It must stay at or above
       # MAX_REDEMPTION_CLT: treasury-service never pays a redemption that alone exceeds it (payout.rs
-      # raises a p1 and skips it), and nothing in check-cap-invariants.sh compares the two. $200 is
-      # four largest payouts, the same ratio as stage's $100 against its $25.
+      # raises a p1 and skips it), and check-cap-invariants.sh (5b) refuses a set where it does not. $200
+      # is four largest payouts, the same ratio as stage's $100 against its $25.
       DAILY_PAYOUT_CAP_CLT=200000000
     )
     ;;
