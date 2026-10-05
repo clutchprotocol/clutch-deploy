@@ -200,7 +200,7 @@ services:
   # (and only it, of this file's services) so that nginx can reach it, and serves only the accounts in
   # PILOT_ALLOWED_ADDRESSES.
   mainnet-payment-orchestrator:
-    image: ghcr.io/clutchprotocol/clutch-orchestrator:sha-df5243a
+    image: ghcr.io/clutchprotocol/clutch-orchestrator:sha-b702959
     depends_on:
       orchestrator-postgres:
         condition: service_healthy
