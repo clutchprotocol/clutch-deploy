@@ -128,7 +128,7 @@ ENVF=.env.mainnet
 run mainnet
 check "mainnet: the block and the limits are written, and the invariants hold" eval '[ "$code" -eq 0 ] && said "All invariants hold" && said "the redemption fee covers a GasFree payout" && said "the payout float fills far enough for the largest payout"'
 check "mainnet: every value is .env.mainnet.example's value" matches_example .env.mainnet .env.mainnet.example $MAINNET_NAMES
-check "mainnet: a setting present twice is replaced in both places" eval '[ "$(grep -cx "PER_TX_MINT_CAP_CLT=1000000000" "$T/.env.mainnet")" -eq 2 ]'
+check "mainnet: a setting present twice is replaced in both places" eval '[ "$(grep -cx "PER_TX_MINT_CAP_CLT=100000000" "$T/.env.mainnet")" -eq 2 ]'
 check "mainnet: the key, the secret and the other lines are untouched, and never printed" eval 'has_line GASFREE_API_KEY=key-marker-7f3a && has_line GASFREE_API_SECRET=secret-marker-9c1d && has_line UNRELATED=keep-me && has_line LAST_LINE=1 && ! said key-marker-7f3a && ! said secret-marker-9c1d'
 check "mainnet: the stage .env is never touched" cmp -s "$T/.env" "$T/stage-before"
 check "mainnet: the file as it was is kept in .env.mainnet.bak" cmp -s "$T/.env.mainnet.bak" "$T/mainnet-before"

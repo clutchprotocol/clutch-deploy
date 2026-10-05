@@ -65,8 +65,13 @@ case "$NETWORK" in
       # check-cap-invariants.sh relates the first three: the float target must cover the largest
       # payout plus the relay's fee.
       PAYOUT_FLOAT_TARGET_USDT=100000000
-      PER_TX_MINT_CAP_CLT=1000000000
-      DAILY_MINT_CAP_CLT=2000000000
+      # The PILOT's mint caps (accepted 2026-10-05, when mainnet was opened to every account): $100 per
+      # deposit and $200 per day, the same as the daily payout ceiling below, where B4's decided set has
+      # $1,000 and $2,000. A deposit above the per-transaction cap parks for a human (the user's USDT
+      # stays at their address, counted in the reserve, and no CLT is minted), so what is credited in a
+      # day can never outgrow what can be paid out. Raise them with the payout side, after A2 ships.
+      PER_TX_MINT_CAP_CLT=100000000
+      DAILY_MINT_CAP_CLT=200000000
       MAX_REDEMPTION_CLT=50000000
       MIN_REDEMPTION_CLT=25000000
       PER_TX_PAYOUT_CAP_USDT=50000000
