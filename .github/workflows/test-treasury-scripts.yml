@@ -50,6 +50,8 @@ on:
       - "scripts/test-reset-mainnet-chain.sh"
       - "scripts/delete-old-chain-copies.sh"
       - "scripts/test-delete-old-chain-copies.sh"
+      - "scripts/prune-host-images.sh"
+      - "scripts/test-prune-host-images.sh"
       - "scripts/check-genesis.sh"
       - "config/node-mainnet/*.toml"
       - "scripts/mainnet-treasury-up.sh"
@@ -109,6 +111,8 @@ on:
       - "scripts/test-reset-mainnet-chain.sh"
       - "scripts/delete-old-chain-copies.sh"
       - "scripts/test-delete-old-chain-copies.sh"
+      - "scripts/prune-host-images.sh"
+      - "scripts/test-prune-host-images.sh"
       - "scripts/check-genesis.sh"
       - "config/node-mainnet/*.toml"
       - "scripts/mainnet-treasury-up.sh"
@@ -173,6 +177,8 @@ jobs:
           bash -n scripts/test-reset-mainnet-chain.sh
           bash -n scripts/delete-old-chain-copies.sh
           bash -n scripts/test-delete-old-chain-copies.sh
+          bash -n scripts/prune-host-images.sh
+          bash -n scripts/test-prune-host-images.sh
           bash -n scripts/mainnet-treasury-up.sh
       - name: Cap invariants
         if: ${{ !cancelled() }}
@@ -210,6 +216,9 @@ jobs:
       - name: Mainnet old-chain copies deleter
         if: ${{ !cancelled() }}
         run: bash scripts/test-delete-old-chain-copies.sh
+      - name: Host image cleanup
+        if: ${{ !cancelled() }}
+        run: bash scripts/test-prune-host-images.sh
       # A YAML mistake in a workflow file is otherwise found only after the merge, when the workflow
       # is dispatched. A block scalar, because a plain one would end at the " #" inside the ruby code.
       - name: Workflow files parse
