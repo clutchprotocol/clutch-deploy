@@ -32,7 +32,6 @@ on:
       - "docker-compose.yml"
       - "docker-compose.stage.cloudflare-flex.yml"
       - "docker-compose.treasury.yml"
-      - "docker-compose.bitcart.yml"
       - "config/**"
       - ".github/workflows/deploy-stage.yml"
       # The deploy logic itself lives here now. Without this, editing scripts/deploy-stage.sh

@@ -10,10 +10,7 @@
 #
 # Local:
 #   docker compose -p clutch-dev -f docker-compose.yml -f docker-compose.dev.yml \
-#     -f docker-compose.treasury.yml -f docker-compose.treasury.dev.yml \
-#     -f docker-compose.bitcart.yml up -d --build
-#
-# Bitcart needs no dev counterpart — it is a pinned upstream image in both environments.
+#     -f docker-compose.treasury.yml -f docker-compose.treasury.dev.yml up -d --build
 services:
   treasury-service:
     build:
