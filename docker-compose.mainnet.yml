@@ -140,6 +140,11 @@ services:
     environment:
       - APP_DATABASE_URL=postgres://postgres:${MAINNET_EXPLORER_POSTGRES_PASSWORD:-postgres}@mainnet-explorer-postgres:5432/clutch_explorer
       - APP_SEQ_API_KEY=${SEQ_API_KEY:-}
+      # The reserve behind CLT, republished at /api/v1/reserve and on the home page: the MAINNET
+      # treasury's public reconciliation (docker-compose.mainnet.treasury.yml), reached over
+      # clutch-mainnet. The testnet explorer gets the same from docker-compose.treasury.yml. If the
+      # treasury is down, the explorer says the reserve is unavailable and the rest still works.
+      - APP_TREASURY_PUBLIC_RECONCILIATION_URL=http://mainnet-treasury-service:8090/public/reconciliation
     networks:
       # clutch-mainnet for the validators and its database; the stage network because nginx
       # resolves upstreams by container name over there, and Seq lives there.
