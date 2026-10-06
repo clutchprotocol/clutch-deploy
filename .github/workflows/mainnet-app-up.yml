@@ -186,7 +186,8 @@ jobs:
       - name: Check the mainnet hosts from outside
         run: |
           set -euo pipefail
-          for url in https://app.clutchprotocol.io/ https://api.clutchprotocol.io/health; do
+          # explorer.: /api/v1/stats, not /health -- only the explorer's API answers it with 200.
+          for url in https://app.clutchprotocol.io/ https://api.clutchprotocol.io/health https://explorer.clutchprotocol.io/api/v1/stats; do
             code=000
             for _ in $(seq 1 12); do
               code=$(curl -s -o /dev/null -w '%{http_code}' --max-time 10 "$url" || true)
