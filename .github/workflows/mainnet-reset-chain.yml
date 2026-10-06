@@ -1,20 +1,24 @@
-# Replace the MAINNET chain with a new, empty one. Once. It DELETES the old chain.
+# Replace the MAINNET chain with a new, empty one. It DELETES the old chain.
 #
-# mint_authority is a genesis value, so moving the mint key from Azure KMS to the host (readiness A1,
-# "Mint key on the host", accepted 2026-10-05) needs a new chain. scripts/reset-mainnet-chain.sh does
-# only the stopping and the wiping, and only after gates that prove the old chain holds nothing: the new
-# key is in .env.mainnet and in all three node configs, check-genesis.sh passes, the treasury still signs
-# with KMS (so a second run refuses), no CLT was ever minted, and there is room to copy the old data. It
-# halts minting first and keeps a copy of the three data volumes in backups/mainnet-chain-<time>/.
+# A genesis value (mint_authority) cannot change on a running chain, and a change to the consensus rules
+# needs every validator to run it from the same block. Both need a new chain while nobody holds anything
+# on the old one. It was used on 2026-10-05 to move the mint key from Azure KMS to the host (readiness A1,
+# "Mint key on the host") and again in 2026-10 to start the validators on the build that accepts a
+# wallet's personal_sign signature. scripts/reset-mainnet-chain.sh does only the stopping and the wiping,
+# and only after gates that prove the old chain holds nothing: the mint key is in .env.mainnet and in all
+# three node configs, check-genesis.sh passes, the treasury container is here, no CLT was ever minted, and
+# there is room to copy the old data. The day any CLT exists it refuses. It halts minting first and keeps
+# a copy of the three data volumes in backups/mainnet-chain-<time>/.
 #
 # Two typed words:
 #   CHECK                  read-only: runs the gates and changes nothing. Run this first.
 #   RESET MAINNET CHAIN    the gates, then halt, stop, copy, delete.
 #
-# After it, in this order: "Mainnet — start the chain" (START MAINNET), "Mainnet — start the treasury",
-# then "Resume minting" for mainnet. The mainnet app is down between the reset and the chain start.
+# After it, in this order: "Mainnet — start the chain" (START MAINNET), "Mainnet — start the treasury"
+# (nothing changes when it already runs), then "Resume minting" for mainnet and "Mainnet — bring up the
+# app services". The mainnet app is down between the reset and the chain start.
 
-name: Mainnet — reset the chain (once, deletes the old chain)
+name: Mainnet — reset the chain (deletes the old chain)
 
 on:
   workflow_dispatch:
