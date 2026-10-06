@@ -1,0 +1,69 @@
+# Delete the copies of old mainnet chains that "Mainnet — reset the chain" keeps on the host.
+#
+# Every reset keeps a copy of the three data volumes of the chain it wipes, in
+# backups/mainnet-chain-<time>/ (mode 700, 10 MB to 40 MB). The copy is only of use for a rollback. The
+# note beside it says to delete it once the new chain has run for a while. This workflow does that.
+# scripts/delete-old-chain-copies.sh deletes only folders with the exact name the reset script makes,
+# and only if they hold only what the reset script writes. A link, a folder with another name or one
+# with another file in it is skipped with a reason. The treasury database dumps in the same backups/
+# folder are never touched. In delete mode it also refuses while a validator is not running, because
+# the copy is the way back when a new chain does not start.
+#
+# Two typed words:
+#   CHECK                      read-only: lists what would be deleted, with each note. Run this first.
+#   DELETE OLD CHAIN COPIES    deletes them.
+
+name: Mainnet — delete the copies of old chains
+
+on:
+  workflow_dispatch:
+    inputs:
+      confirm:
+        description: 'Type "CHECK" to list the copies, or "DELETE OLD CHAIN COPIES" to delete them'
+        required: true
+        default: ""
+
+# It queues with the chain reset, which makes the copies this deletes: the two never run together.
+concurrency:
+  group: env-file-writers
+  cancel-in-progress: false
+
+jobs:
+  delete:
+    runs-on: ubuntu-latest
+    steps:
+      # Through env, never interpolated into the script body.
+      - name: Check the confirmation
+        env:
+          CONFIRM: ${{ inputs.confirm }}
+        run: |
+          case "$CONFIRM" in
+            "CHECK"|"DELETE OLD CHAIN COPIES") ;;
+            *) echo "Refusing: confirm was '$CONFIRM', expected 'CHECK' or 'DELETE OLD CHAIN COPIES'."; exit 1 ;;
+          esac
+
+      - name: Run it via SSH
+        env:
+          SSHPASS: ${{ secrets.STAGE_SSH_PASSWORD }}
+          CLUTCH_SSH_HOST: ${{ secrets.STAGE_HOST }}
+          CLUTCH_SSH_USER: ${{ secrets.STAGE_USER }}
+          CONFIRM: ${{ inputs.confirm }}
+        run: |
+          # The same transport as mainnet-reset-chain.yml. The mode reaches the host as a file of
+          # shell-quoted assignments, sourced there, and it is one of two fixed words chosen on the runner.
+          set -euo pipefail
+          command -v sshpass >/dev/null || { sudo apt-get update -qq && sudo apt-get install -y -qq sshpass; }
+          if [ "$CONFIRM" = "DELETE OLD CHAIN COPIES" ]; then MODE=delete; else MODE=check; fi
+          R="/tmp/clutch-ci-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
+          SSH_OPTS="-o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o ConnectTimeout=30 -o ServerAliveInterval=30"
+          : > "$RUNNER_TEMP/clutch-env.sh"
+          for v in MODE; do printf '%s=%q\n' "$v" "${!v-}" >> "$RUNNER_TEMP/clutch-env.sh"; done
+          sshpass -e ssh $SSH_OPTS "$CLUTCH_SSH_USER@$CLUTCH_SSH_HOST" "cat > $R.env" < "$RUNNER_TEMP/clutch-env.sh"
+          cat > "$RUNNER_TEMP/clutch-remote.sh" <<'CLUTCH_REMOTE_EOF'
+          set -euo pipefail
+          cd "${{ secrets.STAGE_DEPLOY_PATH }}"
+          git pull --ff-only origin main
+          MODE="$MODE" bash scripts/delete-old-chain-copies.sh
+          CLUTCH_REMOTE_EOF
+          sshpass -e ssh $SSH_OPTS "$CLUTCH_SSH_USER@$CLUTCH_SSH_HOST" "cat > $R.sh" < "$RUNNER_TEMP/clutch-remote.sh"
+          timeout 10m sshpass -e ssh $SSH_OPTS "$CLUTCH_SSH_USER@$CLUTCH_SSH_HOST" "find /tmp -maxdepth 1 -name 'clutch-ci-*' -mtime +1 -delete 2>/dev/null; bash -c 'set -a; . $R.env; set +a; rm -f $R.env; exec bash $R.sh'"
