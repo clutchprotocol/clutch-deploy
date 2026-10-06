@@ -478,6 +478,12 @@ if [ "$TREASURY" = "true" ]; then
   # from it is what says the frontend upstream still resolves.
   edge_check explorer-stage.clutchprotocol.io /health 200 || { restore_nginx; exit 1; }
   edge_check explorer-stage.clutchprotocol.io /        200 || { restore_nginx; exit 1; }
+  # explorer. -- the MAINNET explorer. Not /health: before this name had a server block, the default
+  # server answered it, and that one sends /health to the Hub API, so a 200 there proved nothing.
+  # /api/v1/stats exists on the explorer API only (the Hub API answers it 404), so a 200 says the
+  # explorer's API is behind the name. / is its frontend.
+  edge_check explorer.clutchprotocol.io /api/v1/stats 200 || { restore_nginx; exit 1; }
+  edge_check explorer.clutchprotocol.io /              200 || { restore_nginx; exit 1; }
 
   # The three nodes. /metrics is what Prometheus scrapes, /ws is what the Hub API reads the chain
   # over, and `location /` returning 404 is a route rather than an accident -- these hosts expose
