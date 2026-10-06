@@ -1,0 +1,70 @@
+# Remove the Docker images on the stage host that no container uses and that are older than 7 days.
+#
+# Every deploy pulls new sha-<7> images and nothing removed the old ones. On 2026-10-06 the host held
+# 263 images (17 in use, about 20 GB) with 3.6 GB free, and Seq stopped taking logs because of it.
+# scripts/prune-host-images.sh removes only what `docker image prune -a --filter until=168h` would:
+# images no container uses, running or stopped. Nothing that runs stops. A removed image is pulled
+# again from its registry when something needs it, for example a rollback to an old pin.
+#
+# The host serves the testnet AND the mainnet, so this one run covers both.
+#
+# Two typed words:
+#   CHECK                   lists what would be removed and shows the disk. Removes nothing.
+#   REMOVE UNUSED IMAGES    removes them.
+
+name: Stage host — remove unused Docker images
+
+on:
+  workflow_dispatch:
+    inputs:
+      confirm:
+        description: 'Type "CHECK" to list them, or "REMOVE UNUSED IMAGES" to remove them'
+        required: true
+        default: ""
+
+# Its own queue. Not deploy-stage's: GitHub keeps one pending run per group and cancels the older
+# pending one, so sharing that group could cancel a waiting deploy.
+concurrency:
+  group: stage-prune-images
+  cancel-in-progress: false
+
+jobs:
+  prune:
+    runs-on: ubuntu-latest
+    steps:
+      # Through env, never interpolated into the script body.
+      - name: Check the confirmation
+        env:
+          CONFIRM: ${{ inputs.confirm }}
+        run: |
+          case "$CONFIRM" in
+            "CHECK"|"REMOVE UNUSED IMAGES") ;;
+            *) echo "Refusing: confirm was '$CONFIRM', expected 'CHECK' or 'REMOVE UNUSED IMAGES'."; exit 1 ;;
+          esac
+
+      - name: Run it via SSH
+        env:
+          SSHPASS: ${{ secrets.STAGE_SSH_PASSWORD }}
+          CLUTCH_SSH_HOST: ${{ secrets.STAGE_HOST }}
+          CLUTCH_SSH_USER: ${{ secrets.STAGE_USER }}
+          CONFIRM: ${{ inputs.confirm }}
+        run: |
+          # The same transport as mainnet-delete-old-chain-copies.yml. The mode reaches the host as a
+          # file of shell-quoted assignments, sourced there, and it is one of two fixed words chosen
+          # on the runner.
+          set -euo pipefail
+          command -v sshpass >/dev/null || { sudo apt-get update -qq && sudo apt-get install -y -qq sshpass; }
+          if [ "$CONFIRM" = "REMOVE UNUSED IMAGES" ]; then MODE=prune; else MODE=check; fi
+          R="/tmp/clutch-ci-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
+          SSH_OPTS="-o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o ConnectTimeout=30 -o ServerAliveInterval=30"
+          : > "$RUNNER_TEMP/clutch-env.sh"
+          for v in MODE; do printf '%s=%q\n' "$v" "${!v-}" >> "$RUNNER_TEMP/clutch-env.sh"; done
+          sshpass -e ssh $SSH_OPTS "$CLUTCH_SSH_USER@$CLUTCH_SSH_HOST" "cat > $R.env" < "$RUNNER_TEMP/clutch-env.sh"
+          cat > "$RUNNER_TEMP/clutch-remote.sh" <<'CLUTCH_REMOTE_EOF'
+          set -euo pipefail
+          cd "${{ secrets.STAGE_DEPLOY_PATH }}"
+          git pull --ff-only origin main
+          MODE="$MODE" bash scripts/prune-host-images.sh
+          CLUTCH_REMOTE_EOF
+          sshpass -e ssh $SSH_OPTS "$CLUTCH_SSH_USER@$CLUTCH_SSH_HOST" "cat > $R.sh" < "$RUNNER_TEMP/clutch-remote.sh"
+          timeout 20m sshpass -e ssh $SSH_OPTS "$CLUTCH_SSH_USER@$CLUTCH_SSH_HOST" "find /tmp -maxdepth 1 -name 'clutch-ci-*' -mtime +1 -delete 2>/dev/null; bash -c 'set -a; . $R.env; set +a; rm -f $R.env; exec bash $R.sh'"

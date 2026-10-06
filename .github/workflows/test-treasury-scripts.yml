@@ -79,6 +79,9 @@ jobs:
       - name: Mainnet old-chain copies deleter
         if: ${{ !cancelled() }}
         run: bash scripts/test-delete-old-chain-copies.sh
+      - name: Host image cleanup
+        if: ${{ !cancelled() }}
+        run: bash scripts/test-prune-host-images.sh
       # A YAML mistake in a workflow file is otherwise found only after the merge, when the workflow
       # is dispatched. A block scalar, because a plain one would end at the " #" inside the ruby code.
       - name: Workflow files parse
