@@ -1,0 +1,36 @@
+# The MAINNET block explorer (explorer.clutchprotocol.io, chain_id 1000), mounted at /app/config
+# by mainnet-explorer-backend and mainnet-explorer-indexer in docker-compose.mainnet.yml.
+#
+# The same images as the testnet explorer; only this file and the compose services differ. The
+# testnet's file is config/explorer/default.toml. Every value here is public: the database password
+# comes from APP_DATABASE_URL in the compose file, and the Seq key from APP_SEQ_API_KEY.
+log_level = "info"
+listen_addr = "0.0.0.0:8088"
+
+# node3, as the mainnet Hub API and the treasury read it. The indexer takes the chain head from the
+# metrics endpoint and fetches each block over the RPC, so these three must name the SAME node.
+clutch_node_api_url = "http://mainnet-node3:8183"
+node_metrics_url = "http://mainnet-node3:3103/metrics"
+node_ws_url = "ws://mainnet-node3:8183/ws"
+
+strict_mode = true
+developer_mode = false
+cleanup_on_start = false
+data_source = "postgres"
+database_url = "postgres://postgres:postgres@mainnet-explorer-postgres:5432/clutch_explorer"
+indexer_poll_interval_ms = 4000
+indexer_start_height = 0
+
+# The testnet's Seq: the mainnet explorer reaches it on the stage network, as the mainnet Hub API does.
+seq_url = "http://seq:80"
+seq_api_key = ""
+
+# A public read API: any site may call it.
+allowed_origins = "*"
+
+# Off: the explorer's reserve section stays empty until it is pointed at the mainnet treasury.
+treasury_public_reconciliation_url = ""
+
+# The mainnet genesis (config/node-mainnet/*.toml): 200 + 200 bps.
+ride_request_referrer_fee_bps = 200
+ride_offer_referrer_fee_bps = 200

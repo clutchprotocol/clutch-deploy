@@ -124,6 +124,78 @@ services:
       - clutch-stage
     restart: unless-stopped
 
+  # ---------------------------------------------------------------------------------------
+  # The block explorer (explorer.clutchprotocol.io). The SAME images as the testnet explorer:
+  # the frontend names its network from the hostname it is served on, and the backend reads
+  # the chain that config/explorer-mainnet/default.toml points it at. It holds only public
+  # chain data, so losing it is an outage and a re-index, never a loss. A chain reset
+  # (`down -v`) deletes its database with the chain, and the indexer starts again from block 0.
+  #
+  # Names start with `mainnet-`: the testnet explorer's services sit on the stage network too,
+  # and two containers answering to one name there would split nginx's traffic between chains.
+
+  mainnet-explorer-backend:
+    image: ghcr.io/clutchprotocol/clutch-explorer-backend:sha-c6d0f5c
+    stop_grace_period: 30s
+    environment:
+      - APP_DATABASE_URL=postgres://postgres:${MAINNET_EXPLORER_POSTGRES_PASSWORD:-postgres}@mainnet-explorer-postgres:5432/clutch_explorer
+      - APP_SEQ_API_KEY=${SEQ_API_KEY:-}
+    networks:
+      # clutch-mainnet for the validators and its database; the stage network because nginx
+      # resolves upstreams by container name over there, and Seq lives there.
+      - clutch-mainnet
+      - clutch-stage
+    volumes:
+      - ./config/explorer-mainnet:/app/config:ro
+    depends_on:
+      - mainnet-explorer-postgres
+    restart: unless-stopped
+
+  mainnet-explorer-indexer:
+    image: ghcr.io/clutchprotocol/clutch-explorer-backend:sha-c6d0f5c
+    stop_grace_period: 30s
+    command: ["/usr/local/bin/indexer", "--env", "default"]
+    environment:
+      - APP_DATABASE_URL=postgres://postgres:${MAINNET_EXPLORER_POSTGRES_PASSWORD:-postgres}@mainnet-explorer-postgres:5432/clutch_explorer
+      - APP_SEQ_API_KEY=${SEQ_API_KEY:-}
+    # The image's HEALTHCHECK curls the API on 8088, which the indexer does not serve, so it would
+    # report `unhealthy` forever. Same as the testnet indexer.
+    healthcheck:
+      disable: true
+    networks:
+      - clutch-mainnet
+      # Seq only: nothing reaches the indexer.
+      - clutch-stage
+    volumes:
+      - ./config/explorer-mainnet:/app/config:ro
+    depends_on:
+      - mainnet-explorer-postgres
+    restart: unless-stopped
+
+  mainnet-explorer-postgres:
+    image: postgres:16-alpine
+    environment:
+      - POSTGRES_DB=clutch_explorer
+      - POSTGRES_USER=postgres
+      - POSTGRES_PASSWORD=${MAINNET_EXPLORER_POSTGRES_PASSWORD:-postgres}
+    volumes:
+      - mainnet-explorer-postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d clutch_explorer"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    # The mainnet network only: it publishes nothing and nginx never needs it.
+    networks:
+      - clutch-mainnet
+    restart: unless-stopped
+
+  mainnet-explorer-frontend:
+    image: ghcr.io/clutchprotocol/clutch-explorer-frontend:sha-c6d0f5c
+    networks:
+      - clutch-stage
+    restart: unless-stopped
+
 networks:
   clutch-mainnet:
     name: clutch-mainnet
@@ -143,4 +215,7 @@ volumes:
   mainnet-node2-data:
     driver: local
   mainnet-node3-data:
+    driver: local
+  # The explorer's index of the chain. Rebuilt from the chain when it is lost.
+  mainnet-explorer-postgres-data:
     driver: local

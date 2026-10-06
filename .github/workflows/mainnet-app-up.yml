@@ -1,15 +1,17 @@
-# Bring up the mainnet APP services (Hub API + demo app). Not the validators.
+# Bring up the mainnet APP services: the Hub API, the demo app and the block explorer (its API,
+# its indexer, its database and its frontend). Not the validators.
 #
 # Separate from mainnet-start.yml because that one refuses to run when the clutch-main project
 # already has containers -- it exists to start a chain that does not exist yet, and weakening that
 # guard so it could also add services would remove the check that matters most.
 #
 # Mainnet has its own pins in docker-compose.mainnet.yml, and a stage deploy never moves them. With
-# `promote` ticked (the default), this run first copies the Hub API and demo app tags that STAGE is
-# pinned to into the mainnet pins and commits that to main. So "update mainnet to the latest build"
-# means "to what stage already runs", and a build nobody has seen on stage cannot reach mainnet here.
+# `promote` ticked (the default), this run first copies the Hub API, demo app and explorer tags that
+# STAGE is pinned to into the mainnet pins and commits that to main. So "update mainnet to the latest
+# build" means "to what stage already runs", and a build nobody has seen on stage cannot reach
+# mainnet here.
 #
-# The `up` names only the two services AND passes --no-deps. The flag is the part that protects the
+# The `up` names only the app services AND passes --no-deps. The flag is the part that protects the
 # validators: without it compose also converges every dependency (hub-api -> node3 -> node2 -> node1)
 # and recreates any of them whose config or local image changed. They are authoring a live chain,
 # so the job also compares their start times before and after, and fails if either moved.
@@ -22,7 +24,7 @@ on:
         description: "Type UP to run"
         required: true
       promote:
-        description: "Copy the Hub API and demo app tags stage runs into the mainnet pins first. Untick to redeploy mainnet's current pins."
+        description: "Copy the Hub API, demo app and explorer tags stage runs into the mainnet pins first. Untick to redeploy mainnet's current pins."
         type: boolean
         default: true
 
@@ -49,11 +51,13 @@ jobs:
           set -euo pipefail
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          api=$(bash scripts/set-image.sh stage clutch-hub-api)
-          demo=$(bash scripts/set-image.sh stage clutch-hub-demo-app)
-          echo "stage runs clutch-hub-api=$api clutch-hub-demo-app=$demo"
-          echo "mainnet had clutch-hub-api=$(bash scripts/set-image.sh mainnet clutch-hub-api) clutch-hub-demo-app=$(bash scripts/set-image.sh mainnet clutch-hub-demo-app)"
-          PUSH=1 bash scripts/set-image.sh mainnet clutch-hub-api="$api" clutch-hub-demo-app="$demo"
+          moves=""
+          for img in clutch-hub-api clutch-hub-demo-app clutch-explorer-backend clutch-explorer-frontend; do
+            tag=$(bash scripts/set-image.sh stage "$img")
+            echo "$img: stage runs $tag, mainnet had $(bash scripts/set-image.sh mainnet "$img")"
+            moves="$moves $img=$tag"
+          done
+          PUSH=1 bash scripts/set-image.sh mainnet $moves
 
   up:
     needs: pin
@@ -101,8 +105,9 @@ jobs:
           }
           before=$(validators)
 
-          $C pull mainnet-hub-api mainnet-demo-app
-          $C up -d --no-deps mainnet-hub-api mainnet-demo-app
+          APPS="mainnet-hub-api mainnet-demo-app mainnet-explorer-postgres mainnet-explorer-backend mainnet-explorer-indexer mainnet-explorer-frontend"
+          $C pull $APPS
+          $C up -d --no-deps $APPS
           $C ps
 
           echo ""
@@ -115,6 +120,17 @@ jobs:
           done
           docker exec clutch-main-mainnet-hub-api-1 curl -fsS --max-time 5 http://127.0.0.1:3000/health 2>&1 | head -5 \
             || { echo "::error::the hub API never answered /health"; $C logs --tail 40 mainnet-hub-api; exit 1; }
+
+          echo ""
+          echo "=== waiting for the explorer API to answer ==="
+          for _ in $(seq 1 20); do
+            if docker exec clutch-main-mainnet-explorer-backend-1 curl -fsS --max-time 4 http://127.0.0.1:8088/health >/dev/null 2>&1; then
+              echo "explorer health: OK"; break
+            fi
+            sleep 5
+          done
+          docker exec clutch-main-mainnet-explorer-backend-1 curl -fsS --max-time 5 http://127.0.0.1:8088/health 2>&1 | head -5 \
+            || { echo "::error::the explorer API never answered /health"; $C logs --tail 40 mainnet-explorer-backend; exit 1; }
 
           echo ""
           echo "=== reloading nginx ==="
@@ -134,10 +150,12 @@ jobs:
           # The decisive check. A hub pointed at the wrong node would answer /health just as
           # happily while serving another chain's blocks.
           $C logs --tail 30 mainnet-hub-api 2>&1 | grep -aiE "node|ws://|connect" | tail -8 || true
+          # The explorer's indexer says which node it reads and how far it got.
+          $C logs --tail 40 mainnet-explorer-indexer 2>&1 | grep -aiE "mainnet-node|height|indexed|error" | tail -8 || true
 
           echo ""
           echo "=== what runs now ==="
-          for s in mainnet-hub-api mainnet-demo-app; do
+          for s in $APPS; do
             echo "  $s: $(docker inspect -f '{{.Config.Image}}' clutch-main-${s}-1 2>/dev/null || echo '?')"
           done
 
