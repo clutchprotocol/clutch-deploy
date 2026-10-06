@@ -28,7 +28,8 @@ seq_api_key = ""
 # A public read API: any site may call it.
 allowed_origins = "*"
 
-# Off: the explorer's reserve section stays empty until it is pointed at the mainnet treasury.
+# The reserve section. Set by docker-compose.mainnet.yml (APP_TREASURY_PUBLIC_RECONCILIATION_URL) to
+# the mainnet treasury, so a change there recreates the backend. Empty here switches it off.
 treasury_public_reconciliation_url = ""
 
 # The mainnet genesis (config/node-mainnet/*.toml): 200 + 200 bps.
