@@ -32,7 +32,7 @@ cp "$T/config/node-mainnet/node2.toml" "$T/node2.good"
 # halt-minting.sh has its own test. Here it only records that it was called, and with what.
 cat > "$T/scripts/halt-minting.sh" <<'EOF'
 #!/usr/bin/env bash
-echo "HALT chain=$CHAIN" >> "$FAKE_CALLS"
+echo "HALT chain=$CHAIN reason=$REASON" >> "$FAKE_CALLS"
 echo "(halt called)"
 EOF
 
@@ -142,14 +142,33 @@ check "the halt is for the mainnet treasury" called "HALT chain=mainnet"
 check "all three volumes are copied, and the copy is kept with a note" eval \
   'b=$(find "$T/backups" -mindepth 1 -maxdepth 1 -name "mainnet-chain-*"); [ -s "$b/node1.tgz" ] && [ -s "$b/node2.tgz" ] && [ -s "$b/node3.tgz" ] && [ -s "$b/README" ]'
 check "the project that is deleted is the mainnet chain" called "docker compose -p clutch-main -f docker-compose.mainnet.yml down -v"
+check "the note in the copy names the mint address and how the treasury signed" eval \
+  'b=$(find "$T/backups" -mindepth 1 -maxdepth 1 -name "mainnet-chain-*"); grep -qF "$ADDRESS" "$b/README" && grep -qF "signed with: azure_kms" "$b/README"'
+check "the halt gives a reason that is true for every reset" called "HALT chain=mainnet reason=mainnet chain reset"
 
-# 3. Each gate that must stop it, and stop it before anything changes.
+# 2b. The same reset, on the host as it is since 2026-10-05: the treasury signs with the key on the host.
+# This used to refuse (the gate wanted azure_kms), which would have made a second reset impossible.
+fresh; export FAKE_KIND=env
+run check
+check "a treasury that signs with the host key passes every gate (check)" eval '[ "$code" -eq 0 ] && said "Every gate passed" && said "APP_SIGNER_KIND of" && untouched'
 fresh; export FAKE_KIND=env
 run reset
-check "a treasury that does not sign with KMS stops it (the cutover is done)" eval '[ "$code" -eq 1 ] && said "does not sign with azure_kms" && untouched'
+check "a treasury that signs with the host key can be reset again" eval '[ "$code" -eq 0 ] && said "The old chain is gone"'
+check "the order is the same: halt, stop, copy, delete" eval \
+  '[ "$(line_of HALT)" -lt "$(line_of " stop")" ] && [ "$(line_of " stop")" -lt "$(line_of "--entrypoint tar")" ] && [ "$(line_of "--entrypoint tar")" -lt "$(line_of " down -v")" ]'
+check "the note in the copy says the treasury signed with the host key" eval \
+  'b=$(find "$T/backups" -mindepth 1 -maxdepth 1 -name "mainnet-chain-*"); grep -qF "signed with: env" "$b/README"'
+
+# 3. Each gate that must stop it, and stop it before anything changes.
+fresh; export FAKE_KIND=hsm
+run reset
+check "a treasury that signs in a way the script does not know stops it" eval '[ "$code" -eq 1 ] && said "signs in a way this script does not know" && untouched'
 fresh; unset FAKE_KIND
 run reset
-check "a treasury container that is not there stops it" eval '[ "$code" -eq 1 ] && said "<no such container>" && untouched'
+check "a treasury container that is not there stops it" eval '[ "$code" -eq 1 ] && said "<no such container>" && said "container is missing" && untouched'
+fresh; export FAKE_KIND=env; export FAKE_MINTED=3
+run reset
+check "a mint in the ledger stops it, on the host-key treasury too" eval '[ "$code" -eq 1 ] && said "CLT exists" && untouched'
 fresh; export FAKE_MINTED=3
 run reset
 check "a mint in the ledger stops it" eval '[ "$code" -eq 1 ] && said "CLT exists" && untouched'

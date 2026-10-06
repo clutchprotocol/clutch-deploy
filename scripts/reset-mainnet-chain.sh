@@ -1,25 +1,32 @@
 #!/usr/bin/env bash
 #
 # Replace the mainnet chain with a new, empty one. Run from the repo root on the stage host, by
-# "Mainnet - reset the chain (once)". It only STOPS and WIPES the old chain. The new one is started
-# afterwards by "Mainnet - start the chain" (START MAINNET), which already holds every genesis gate.
+# "Mainnet - reset the chain (deletes the old chain)". It only STOPS and WIPES the old chain. The new one
+# is started afterwards by "Mainnet - start the chain" (START MAINNET), which already holds every genesis gate.
 #
 #   MODE=check bash scripts/reset-mainnet-chain.sh    read-only: the gates, nothing is changed
 #   MODE=reset bash scripts/reset-mainnet-chain.sh    the gates, then halt, stop, copy, wipe
 #
-# Why this exists. mint_authority is one of the genesis values, so it cannot change on a running
-# chain. Moving the mint key from Azure KMS to this host (readiness A1, "Mint key on the host",
-# accepted 2026-10-05) therefore needs a new chain. start-mainnet.sh says never to run `down -v` on
-# this project, and that is right for a chain that holds anything. This is the one exception, and it
-# is allowed only because every gate below proves the old chain holds nothing: no CLT was ever minted
-# on it, so nobody owns anything on it and nothing is lost by wiping it.
+# Why this exists. A genesis value (mint_authority) cannot change on a running chain, and a change to
+# the consensus rules needs every validator to run it from the same block. Both need a new chain while
+# nobody holds anything on the old one. start-mainnet.sh says never to run `down -v` on this project,
+# and that is right for a chain that holds anything. This is the one exception, and it is allowed only
+# because every gate below proves the old chain holds nothing: no CLT was ever minted on it, so nobody
+# owns anything on it and nothing is lost by wiping it.
+#
+# It has been used for two reasons: on 2026-10-05 to move the mint key from Azure KMS to this host
+# (readiness A1, "Mint key on the host"), and on 2026-10 to start the validators on the build that
+# accepts a wallet's personal_sign signature (clutch-node, "wallet signatures"), a consensus change.
+# It can be used again as long as gate 3 holds. The day any CLT exists, it refuses, and a change like
+# that needs a rolling upgrade of the validators instead.
 #
 # The gates, all read-only, in order. Any one that fails stops the script before anything changes:
-#   1. .env.mainnet has the new mint key and its address, and all three node configs have that address
+#   1. .env.mainnet has the mint key and its address, and all three node configs have that address
 #      as mint_authority. check-genesis.sh (the mainnet rules) passes on them. Starting the new chain
 #      would otherwise fail AFTER the old one is gone.
-#   2. The mainnet treasury still signs with Azure KMS. That is true before the cutover and false after,
-#      so a second run of this script refuses.
+#   2. The mainnet treasury container is here, and signs in a way this script knows (the host key, or
+#      Azure KMS before 2026-10-05). It is a check that this is the host the script expects, and it
+#      says which one it found.
 #   3. The treasury ledger shows no mint, and the last reconciliation shows zero supply on chain.
 #   4. There is room for a copy of the three data volumes.
 # After the gates, "reset" mode: halts minting (so nothing is signed while the chain is down), stops
@@ -61,13 +68,17 @@ done
 echo "OK: all three node configs name the mint address of the key in .env.mainnet (the address is public: $address)"
 CONFIG_DIR=config/node-mainnet MAINNET=1 bash scripts/check-genesis.sh
 
-say "2. the treasury still signs with the old key"
+say "2. the mainnet treasury is here"
 # Read off the container's configuration, not its environment as a whole: that holds secrets.
 kind=$(docker inspect -f '{{range .Config.Env}}{{println .}}{{end}}' "$CH_TREASURY" 2>/dev/null \
          | sed -n 's/^APP_SIGNER_KIND=//p' | head -1) || true
 echo "APP_SIGNER_KIND of $CH_TREASURY: ${kind:-<no such container>}"
-[ "$kind" = azure_kms ] \
-  || die "the mainnet treasury does not sign with azure_kms. Either the cutover is already done, or this is not the host this script expects. Refusing."
+# env is the key on this host (since 2026-10-05). azure_kms is how it was signed before. This used to
+# require azure_kms, which made a second reset refuse; the gate that protects the money is gate 3.
+case "$kind" in
+  azure_kms|env) ;;
+  *) die "the mainnet treasury container is missing, or it signs in a way this script does not know ('${kind:-no such container}'). This is not the host this script expects. Refusing." ;;
+esac
 
 say "3. nothing was ever minted on the old chain"
 sql() { docker exec "$CH_TREASURY_PG" psql -U treasury -d treasury -tAc "$1" | tr -d '[:space:]'; }
@@ -111,7 +122,7 @@ if [ "$MODE" = check ]; then
 fi
 
 say "5. halt minting"
-CHAIN=mainnet REASON="mainnet chain reset: the mint key moves to this host" bash scripts/halt-minting.sh
+CHAIN=mainnet REASON="mainnet chain reset" bash scripts/halt-minting.sh
 
 say "6. stop the mainnet chain and copy its data"
 BK="backups/mainnet-chain-$(date -u +%Y%m%dT%H%M%SZ)"
@@ -125,9 +136,9 @@ for n in 1 2 3; do
 done
 cat > "$BK/README" <<EOF
 The old mainnet chain (chain_id 1000), copied on $(date -u +%Y-%m-%dT%H:%M:%SZ) just before it was wiped.
-Its mint_authority was 0xe44cda17f55acf4ccc03cab374de1f227cac6621, an Azure Key Vault key.
+The mint key in .env.mainnet at that time had the address $address (the treasury signed with: $kind).
 No CLT had been minted on it. node1.tgz, node2.tgz and node3.tgz are the three data volumes.
-It is only of use for a rollback, which also needs that Azure key and the compose files of before the cutover.
+It is only of use for a rollback, which also needs the node image and the compose files of before the reset.
 Delete this folder once the new chain has run for a while.
 EOF
 ls -l "$BK"
@@ -141,5 +152,6 @@ vols=$(docker volume ls -q --filter "name=${PROJECT}_mainnet-node" || true)
 
 say "done"
 echo "The old chain is gone. A copy is in $BK."
-echo "Next, in this order: \"Mainnet - start the chain\" (START MAINNET), \"Mainnet - start the treasury\","
-echo "then \"Resume minting\" for mainnet."
+echo "Next, in this order: \"Mainnet - start the chain\" (START MAINNET), then \"Mainnet - start the treasury\""
+echo "(it changes nothing when the treasury already runs with the same settings), then \"Resume minting\""
+echo "for mainnet, and \"Mainnet - bring up the app services\" if the app and the hub are down."
