@@ -4,7 +4,7 @@
 # broken limit through or stops every deploy. No secrets, no host access, no docker — copies of the
 # scripts, fixtures, and a temp directory. Same shape as test-nginx-block.yml.
 #
-# Any edit of a workflow file runs it too (the glob in `paths`), and the last step parses every
+# Any edit of a script or a workflow file runs it too (the globs in `paths`), and the last step parses every
 # workflow file, so a YAML mistake shows here and not only when the workflow is first dispatched.
 
 name: Test treasury scripts
@@ -12,119 +12,26 @@ name: Test treasury scripts
 on:
   pull_request:
     paths:
-      - "scripts/check-cap-invariants.sh"
-      - "scripts/test-cap-invariants.sh"
-      - "scripts/gasfree-fee-check.sh"
-      - "scripts/test-gasfree-fee-check.sh"
-      - "scripts/inspect-stage.sh"
-      - "scripts/activate-float.sh"
-      - "scripts/test-activate-float.sh"
-      - "scripts/fund-float.sh"
-      - "scripts/provision-treasury-secrets.sh"
-      - "scripts/sweep-address.sh"
-      - "scripts/deploy-stage.sh"
-      - "scripts/set-gasfree-settings.sh"
-      - "scripts/test-set-gasfree-settings.sh"
-      - "scripts/set-pilot-allowlist.sh"
-      - "scripts/test-set-pilot-allowlist.sh"
-      - "scripts/check-mainnet-compose.sh"
-      - "scripts/test-check-mainnet-compose.sh"
-      - "scripts/lib/chain.sh"
-      - "scripts/test-chain.sh"
-      - "scripts/test-chain-names.sh"
-      - "scripts/halt-minting.sh"
-      - "scripts/resume-minting.sh"
-      - "scripts/set-mint-caps.sh"
-      - "scripts/backup-treasury-db.sh"
-      - "scripts/mint-intent.sh"
-      - "scripts/redrive-mint.sh"
-      - "scripts/reverse-mint.sh"
-      - "scripts/close-repaid-deposit.sh"
-      - "scripts/restore-treasury-db.sh"
-      - "scripts/verify-restored-ledger.sh"
-      - "scripts/lib/mainnet-preflight.sh"
-      - "scripts/test-mainnet-preflight.sh"
-      - "scripts/mainnet-mint-key.sh"
-      - "scripts/test-mainnet-mint-key.sh"
-      - "scripts/reset-mainnet-chain.sh"
-      - "scripts/test-reset-mainnet-chain.sh"
-      - "scripts/delete-old-chain-copies.sh"
-      - "scripts/test-delete-old-chain-copies.sh"
-      - "scripts/check-genesis.sh"
+      - "scripts/**"
       - "config/node-mainnet/*.toml"
-      - "scripts/mainnet-treasury-up.sh"
       - "docker-compose.treasury.yml"
       - "docker-compose.mainnet.treasury.yml"
       - "docker-compose.stage.cloudflare-flex.yml"
       - "docker-compose.stage.treasury.yml"
       - ".env.example"
       - ".env.mainnet.example"
-      - ".github/workflows/halt-minting.yml"
-      - ".github/workflows/resume-minting.yml"
-      - ".github/workflows/set-mint-caps.yml"
-      - ".github/workflows/activate-float.yml"
-      - ".github/workflows/sweep-address.yml"
-      - ".github/workflows/backup-treasury-db.yml"
-      - ".github/workflows/mainnet-treasury-up.yml"
       - ".github/workflows/*.yml"
-      - ".github/workflows/test-treasury-scripts.yml"
   push:
     branches: [main]
     paths:
-      - "scripts/check-cap-invariants.sh"
-      - "scripts/test-cap-invariants.sh"
-      - "scripts/gasfree-fee-check.sh"
-      - "scripts/test-gasfree-fee-check.sh"
-      - "scripts/inspect-stage.sh"
-      - "scripts/activate-float.sh"
-      - "scripts/test-activate-float.sh"
-      - "scripts/fund-float.sh"
-      - "scripts/provision-treasury-secrets.sh"
-      - "scripts/sweep-address.sh"
-      - "scripts/deploy-stage.sh"
-      - "scripts/set-gasfree-settings.sh"
-      - "scripts/test-set-gasfree-settings.sh"
-      - "scripts/set-pilot-allowlist.sh"
-      - "scripts/test-set-pilot-allowlist.sh"
-      - "scripts/check-mainnet-compose.sh"
-      - "scripts/test-check-mainnet-compose.sh"
-      - "scripts/lib/chain.sh"
-      - "scripts/test-chain.sh"
-      - "scripts/test-chain-names.sh"
-      - "scripts/halt-minting.sh"
-      - "scripts/resume-minting.sh"
-      - "scripts/set-mint-caps.sh"
-      - "scripts/backup-treasury-db.sh"
-      - "scripts/mint-intent.sh"
-      - "scripts/redrive-mint.sh"
-      - "scripts/reverse-mint.sh"
-      - "scripts/close-repaid-deposit.sh"
-      - "scripts/restore-treasury-db.sh"
-      - "scripts/verify-restored-ledger.sh"
-      - "scripts/lib/mainnet-preflight.sh"
-      - "scripts/test-mainnet-preflight.sh"
-      - "scripts/mainnet-mint-key.sh"
-      - "scripts/test-mainnet-mint-key.sh"
-      - "scripts/reset-mainnet-chain.sh"
-      - "scripts/test-reset-mainnet-chain.sh"
-      - "scripts/delete-old-chain-copies.sh"
-      - "scripts/test-delete-old-chain-copies.sh"
-      - "scripts/check-genesis.sh"
+      - "scripts/**"
       - "config/node-mainnet/*.toml"
-      - "scripts/mainnet-treasury-up.sh"
       - "docker-compose.treasury.yml"
       - "docker-compose.mainnet.treasury.yml"
       - "docker-compose.stage.cloudflare-flex.yml"
       - "docker-compose.stage.treasury.yml"
       - ".env.example"
       - ".env.mainnet.example"
-      - ".github/workflows/halt-minting.yml"
-      - ".github/workflows/resume-minting.yml"
-      - ".github/workflows/set-mint-caps.yml"
-      - ".github/workflows/activate-float.yml"
-      - ".github/workflows/sweep-address.yml"
-      - ".github/workflows/backup-treasury-db.yml"
-      - ".github/workflows/mainnet-treasury-up.yml"
       - ".github/workflows/*.yml"
   workflow_dispatch:
 
@@ -135,45 +42,7 @@ jobs:
       - uses: actions/checkout@v4
       - name: Syntax
         run: |
-          bash -n scripts/check-cap-invariants.sh
-          bash -n scripts/test-cap-invariants.sh
-          bash -n scripts/gasfree-fee-check.sh
-          bash -n scripts/test-gasfree-fee-check.sh
-          bash -n scripts/inspect-stage.sh
-          bash -n scripts/activate-float.sh
-          bash -n scripts/test-activate-float.sh
-          bash -n scripts/fund-float.sh
-          bash -n scripts/provision-treasury-secrets.sh
-          bash -n scripts/sweep-address.sh
-          bash -n scripts/deploy-stage.sh
-          bash -n scripts/set-gasfree-settings.sh
-          bash -n scripts/test-set-gasfree-settings.sh
-          bash -n scripts/set-pilot-allowlist.sh
-          bash -n scripts/test-set-pilot-allowlist.sh
-          bash -n scripts/check-mainnet-compose.sh
-          bash -n scripts/test-check-mainnet-compose.sh
-          bash -n scripts/lib/chain.sh
-          bash -n scripts/test-chain.sh
-          bash -n scripts/test-chain-names.sh
-          bash -n scripts/halt-minting.sh
-          bash -n scripts/resume-minting.sh
-          bash -n scripts/set-mint-caps.sh
-          bash -n scripts/backup-treasury-db.sh
-          bash -n scripts/mint-intent.sh
-          bash -n scripts/redrive-mint.sh
-          bash -n scripts/reverse-mint.sh
-          bash -n scripts/close-repaid-deposit.sh
-          bash -n scripts/restore-treasury-db.sh
-          bash -n scripts/verify-restored-ledger.sh
-          bash -n scripts/lib/mainnet-preflight.sh
-          bash -n scripts/test-mainnet-preflight.sh
-          bash -n scripts/mainnet-mint-key.sh
-          bash -n scripts/test-mainnet-mint-key.sh
-          bash -n scripts/reset-mainnet-chain.sh
-          bash -n scripts/test-reset-mainnet-chain.sh
-          bash -n scripts/delete-old-chain-copies.sh
-          bash -n scripts/test-delete-old-chain-copies.sh
-          bash -n scripts/mainnet-treasury-up.sh
+          for f in scripts/*.sh scripts/lib/*.sh; do bash -n "$f" || exit 1; done
       - name: Cap invariants
         if: ${{ !cancelled() }}
         run: bash scripts/test-cap-invariants.sh

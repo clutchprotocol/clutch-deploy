@@ -2,7 +2,7 @@
 #
 # Read-only inspection of the stage VPS. Run ON the host, from the clutch-deploy checkout.
 #
-#   PROBE=nginx|containers|git|treasury|sweeper|chain|metrics|bitcart|energy|mainnet-treasury bash scripts/inspect-stage.sh
+#   PROBE=nginx|explorer|containers|git|treasury|sweeper|chain|mainnet|mainnet-treasury|gasfree|metrics|balance|energy bash scripts/inspect-stage.sh
 #
 # VHOST=<name> with PROBE=nginx also dumps that vhost's whole server block. Only
 # *.clutchprotocol.io is allowed: this log is public and the same file serves v2ray's vhosts.
@@ -14,8 +14,6 @@
 #
 # Every command here is read-only: ps / inspect / logs / grep / ss / SELECT. Nothing starts,
 # stops, or writes. Secrets are reported as <set> or used as credentials, never echoed.
-
-set -uo pipefail
 
 set -uo pipefail
 PROBE="${PROBE:-nginx}"
@@ -253,7 +251,7 @@ fi
 if [ "$PROBE" = "treasury" ]; then
   # An explicit allow-list of NON-SECRET keys. Never `docker inspect ... .Config.Env`
   # or `env` wholesale here: that environment also carries MINT_AUTHORITY_SECRET, the
-  # four-eyes tokens, BITCART_TOKEN and both Postgres passwords, and this log is
+  # four-eyes tokens and both Postgres passwords, and this log is
   # readable by anyone with repo access.
   # Unkeyed TronGrid throttles, and a throttled watcher looks exactly like "nobody paid" -- the
   # failure this stack is most likely to misread. Nothing surfaced it before, so the API-key
@@ -297,7 +295,7 @@ if [ "$PROBE" = "treasury" ]; then
     # TronGrid as `<set>` on this very probe. The distinction matters most for exactly that key:
     # unkeyed TronGrid throttles hard, and a throttled watcher is indistinguishable from "nobody
     # paid".
-    for k in APP_TRONGRID_API_KEY APP_BITCART_TOKEN APP_MINT_AUTHORITY_SECRET APP_GASFREE_API_KEY APP_GASFREE_API_SECRET; do
+    for k in APP_TRONGRID_API_KEY APP_MINT_AUTHORITY_SECRET APP_GASFREE_API_KEY APP_GASFREE_API_SECRET; do
       v=$(docker exec "clutch-stage-${c}-1" printenv "$k" 2>/dev/null || true)
       if [ -n "$v" ]; then
         echo "    $k=<set, ${#v} chars>"
@@ -794,49 +792,6 @@ if [ "$PROBE" = "chain" ]; then
   done
 fi
 
-if [ "$PROBE" = "bitcart" ]; then
-  echo "=== bitcart containers ==="
-  docker ps -a --format '{{.Names}}\t{{.Status}}' | grep bitcart || echo "(none)"
-
-  echo ""
-  echo "=== bitcart-trx daemon log (does it see the custody address / sync at all?) ==="
-  docker logs --tail 60 clutch-stage-bitcart-trx-1 2>&1 | tail -60 || true
-
-  echo ""
-  echo "=== bitcart-worker log (invoice/payment processing) ==="
-  docker logs --tail 40 clutch-stage-bitcart-worker-1 2>&1 | tail -40 || true
-
-  echo ""
-  echo "=== orchestrator log (webhook + poller) ==="
-  docker logs --tail 40 clutch-stage-payment-orchestrator-1 2>&1 | tail -40 || true
-
-  echo ""
-  echo "=== treasury-service log (verifier) ==="
-  docker logs --tail 30 clutch-stage-treasury-service-1 2>&1 | tail -30 || true
-
-  echo ""
-  echo "=== is a TronGrid API key wired to the trx daemon? (unkeyed TronGrid rate-limits hard) ==="
-  KEYSET=$(docker exec clutch-stage-bitcart-trx-1 printenv TRX_TRONGRID_API_KEY 2>/dev/null || true)
-  if [ -n "$KEYSET" ]; then
-    echo "  TRX_TRONGRID_API_KEY=<set>"
-  else
-    echo "  TRX_TRONGRID_API_KEY EMPTY — TronGrid throttles unkeyed clients, which looks"
-    echo "  exactly like a daemon that is not scanning"
-  fi
-
-  echo ""
-  echo "=== deposit intents ==="
-  # -U orchestrator, not postgres: POSTGRES_USER is 'orchestrator' (see
-  # docker-compose.treasury.yml), and the wrong user just prints "could not query".
-  docker exec clutch-stage-orchestrator-postgres-1 psql -U orchestrator -d orchestrator \
-    -c "select left(id::text,8) id, status, pay_amount_usdt, left(coalesce(tron_tx_id,'-'),12) tx, payment_window_closed pwc from deposit_intents order by created_at desc limit 10;" 2>&1 | tail -14 \
-    || echo "(could not query orchestrator db -- container down, or the user/db names changed)"
-
-  echo ""
-  echo "=== recent alerts (the unattributed-payment reporter writes here) ==="
-  docker exec clutch-stage-orchestrator-postgres-1 psql -U orchestrator -d orchestrator     -c "select severity, source, left(message,100) message from alerts order by created_at desc limit 8;" 2>&1 | tail -12     || echo "(could not query alerts)"
-fi
-
 if [ "$PROBE" = "git" ]; then
   echo "=== checkout state (a dirty tree blocks git pull --ff-only, silently) ==="
   git status --porcelain || true
@@ -855,34 +810,6 @@ if [ "$PROBE" = "git" ]; then
   echo "  $(git rev-list --count HEAD..origin/main 2>/dev/null || echo '?') commit(s) behind origin/main"
   echo "--- fileMode setting ---"
   git config core.fileMode || echo "(unset)"
-fi
-
-if [ "$PROBE" = "bitcart-daemon" ]; then
-  echo "=== bitcart TRX daemon: which chain, and is it syncing? ==="
-  for k in TRX_SERVER TRX_NETWORK TRX_HOST TRX_PORT; do
-    v=$(docker exec clutch-stage-bitcart-trx-1 printenv "$k" 2>/dev/null || true)
-    if [ -n "$v" ]; then echo "  $k=$v"; fi
-  done
-  KEY=$(docker exec clutch-stage-bitcart-trx-1 printenv TRX_TRONGRID_API_KEY 2>/dev/null || true)
-  if [ -n "$KEY" ]; then echo "  TRX_TRONGRID_API_KEY=<set>"; else
-    echo "  TRX_TRONGRID_API_KEY EMPTY — unkeyed TronGrid throttles, which looks identical to a"
-    echo "  daemon that is not scanning"
-  fi
-
-  # The daemon speaks JSON-RPC on 5009 behind basic auth. `getinfo` reports its synced height:
-  # if that is 0 or far behind Nile's head, nothing is being scanned and no address would ever
-  # match, regardless of what is registered.
-  LOGIN=$(docker exec clutch-stage-bitcart-trx-1 printenv LOGIN 2>/dev/null || echo electrum)
-  PASSWORD=$(docker exec clutch-stage-bitcart-trx-1 printenv PASSWORD 2>/dev/null || echo electrumz)
-  echo "  --- getinfo ---"
-  docker run --rm --network clutch-stage_clutch-network curlimages/curl:8.10.1     -s -m 20 -u "$LOGIN:$PASSWORD" -H 'content-type: application/json'     -d '{"id":1,"method":"getinfo","params":[]}' http://bitcart-trx:5009 2>&1 | head -c 700
-  echo ""
-  echo "  --- which addresses is it watching? ---"
-  docker run --rm --network clutch-stage_clutch-network curlimages/curl:8.10.1     -s -m 20 -u "$LOGIN:$PASSWORD" -H 'content-type: application/json'     -d '{"id":1,"method":"listaddresses","params":[]}' http://bitcart-trx:5009 2>&1 | head -c 700
-  echo ""
-  echo "  --- Nile head, for comparison ---"
-  docker run --rm curlimages/curl:8.10.1 -s -m 20 -X POST     https://nile.trongrid.io/wallet/getnowblock 2>/dev/null     | head -c 300
-  echo ""
 fi
 
 if [ "$PROBE" = "metrics" ]; then

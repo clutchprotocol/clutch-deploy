@@ -42,8 +42,6 @@ on:
           - metrics
           - balance
           - energy
-          - bitcart
-          - bitcart-daemon
 
 concurrency:
   group: inspect-stage
