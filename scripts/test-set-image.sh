@@ -149,14 +149,15 @@ ok "PUSH=1 refuses to run outside CI"
 
 echo "registry: calls ghcr.io"
 fixture
-# sha-c3e301f is the node image the mainnet validators run, so it will not be deleted while they do.
+# sha-95ea975 is the node image the mainnet validators run (wallet signatures, 2026-10), so it will not be
+# deleted while they do. It was sha-c3e301f until then.
 if PIN_ROOT="$WORK/r" bash "$SCRIPT" stage clutch-node=sha-0000000 > "$WORK/out" 2>&1; then
   fail "accepted a tag the registry does not have"
 fi
 unchanged || fail "refused a missing tag but still changed a file"
 ok "refuses a tag the registry does not have"
-PIN_ROOT="$WORK/r" bash "$SCRIPT" stage clutch-node=sha-c3e301f > "$WORK/out" 2>&1 || fail "refused a tag that exists"
-has 'clutch-node:sha-c3e301f' docker-compose.yml || fail "an existing tag was accepted but not written"
+PIN_ROOT="$WORK/r" bash "$SCRIPT" stage clutch-node=sha-95ea975 > "$WORK/out" 2>&1 || fail "refused a tag that exists"
+has 'clutch-node:sha-95ea975' docker-compose.yml || fail "an existing tag was accepted but not written"
 ok "accepts a tag the registry has"
 
 echo "the real compose files"
