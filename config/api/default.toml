@@ -1,9 +1,15 @@
-# Clutch Hub API config - Docker deployment
-# Node URL: use node1 container hostname
+# Clutch Hub API config — TESTNET (stage, chain_id 2077) and local dev.
+#
+# Mounted at /app/config by clutch-hub-api. The mainnet copy is config/api-mainnet/default.toml.
+# The hub reads this file, then APP_* variables only: an unprefixed variable in compose (RUST_LOG,
+# CLUTCH_NODE_WS_URL, SEQ_URL) overrides nothing. Secrets come from compose as APP_* (see below).
 serve_metric_enabled = true
 serve_metric_addr = "0.0.0.0:9090"
 ws_addr = "0.0.0.0:3000"
-clutch_node_ws_url = "ws://node1:8081/ws"
+# node3, like the treasury and the explorer. node1 is the p2p bootstrap and once fell ~115,000
+# blocks behind while answering queries cheerfully; being the bootstrap says nothing about which
+# node is best to read. (Compose used to set CLUTCH_NODE_WS_URL to node3, which the hub never read.)
+clutch_node_ws_url = "ws://node3:8083/ws"
 log_level = "info"
 seq_url = "http://seq:80"
 # Deliberately EMPTY. This file is committed, so a key written here is a published key.

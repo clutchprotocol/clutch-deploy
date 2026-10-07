@@ -5,11 +5,7 @@ services:
       context: ../clutch-hub/services/hub-api
       dockerfile: Dockerfile
     image: clutch-hub-api:dev
-    # Reuse the same env and config as base compose
-    env_file:
-      - .env
-    volumes:
-      - ./config/api:/app/config:ro
+    # Environment and config come from the base file.
 
   # Demo app: run Vite dev server with hot reload from local source
   clutch-hub-demo-app:
@@ -88,54 +84,19 @@ services:
       - clutch-hub-sdk-js-node-modules:/workspace/packages/sdk/node_modules
       - clutch-hub-demo-app-npm-cache:/root/.npm
 
-  # Explorer backend from local source
+  # Explorer backend and indexer from local source. Environment, config and depends_on come from
+  # the base file; config/explorer/default.toml already wipes the index on every start.
   clutch-explorer-backend:
     build:
       context: ../clutch-explorer/backend
       dockerfile: Dockerfile
     image: clutch-explorer-backend:dev
-    env_file:
-      - .env
-    environment:
-      APP_STRICT_MODE: "true"
-      APP_DEVELOPER_MODE: ${EXPLORER_DEVELOPER_MODE:-true}
-      APP_CLEANUP_ON_START: "true"
-      APP_DATA_SOURCE: postgres
-      APP_DATABASE_URL: postgres://${EXPLORER_POSTGRES_USER:-postgres}:${EXPLORER_POSTGRES_PASSWORD:-postgres}@clutch-explorer-postgres:5432/${EXPLORER_POSTGRES_DB:-clutch_explorer}
-      APP_SEQ_URL: http://seq:80
-      APP_SEQ_API_KEY: ${SEQ_API_KEY:-}
-    depends_on:
-      - clutch-explorer-postgres
-      - clutch-explorer-indexer
-      - seq
-    volumes:
-      - ./config/explorer:/app/config:ro
 
   clutch-explorer-indexer:
     build:
       context: ../clutch-explorer/backend
       dockerfile: Dockerfile
     image: clutch-explorer-backend:dev
-    command: ["/usr/local/bin/indexer", "--env", "default"]
-    env_file:
-      - .env
-    environment:
-      APP_DATA_SOURCE: postgres
-      APP_DEVELOPER_MODE: ${EXPLORER_DEVELOPER_MODE:-true}
-      APP_CLEANUP_ON_START: "true"
-      APP_DATABASE_URL: postgres://${EXPLORER_POSTGRES_USER:-postgres}:${EXPLORER_POSTGRES_PASSWORD:-postgres}@clutch-explorer-postgres:5432/${EXPLORER_POSTGRES_DB:-clutch_explorer}
-      APP_NODE_METRICS_URL: http://node1:3001/metrics
-      APP_NODE_WS_URL: ws://node1:8081/ws
-      APP_INDEXER_POLL_INTERVAL_MS: "4000"
-      APP_INDEXER_START_HEIGHT: "0"
-      APP_SEQ_URL: http://seq:80
-      APP_SEQ_API_KEY: ${SEQ_API_KEY:-}
-    depends_on:
-      - clutch-explorer-postgres
-      - node1
-      - seq
-    volumes:
-      - ./config/explorer:/app/config:ro
 
   clutch-explorer-postgres:
     image: postgres:16-alpine

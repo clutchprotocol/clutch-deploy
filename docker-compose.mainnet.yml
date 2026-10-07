@@ -84,13 +84,9 @@ services:
 
   mainnet-hub-api:
     image: ghcr.io/clutchprotocol/clutch-hub-api:sha-01c04bd
+    # The node it reads (mainnet-node3) and Seq are in config/api-mainnet/default.toml. The hub
+    # reads APP_* variables only, so these are the whole of what compose sets.
     environment:
-      - RUST_LOG=info
-      # node3 deliberately, matching the testnet: being the p2p bootstrap is a different job
-      # from being the best node to read, and node1 there fell ~115,000 blocks behind while
-      # answering queries cheerfully.
-      - CLUTCH_NODE_WS_URL=ws://mainnet-node3:8183/ws
-      - SEQ_URL=http://seq:80
       - APP_SEQ_API_KEY=${SEQ_API_KEY:-}
       - APP_ALLOWED_ORIGINS=${MAINNET_ALLOWED_ORIGINS:-https://app.clutchprotocol.io}
       # A DIFFERENT secret from the testnet's, required rather than defaulted. Sharing one

@@ -87,22 +87,13 @@ services:
       - seq
     ports:
       - "3000:3000"
+    # Everything else, the node it reads included, is in config/api/default.toml. The hub reads
+    # APP_* variables only, and it gets only these: no `env_file`, which handed it the whole .env,
+    # the treasury's secrets included.
     environment:
-      - RUST_LOG=info
-      # Pointed at node3. node1 is the p2p bootstrap and fell ~115,000 blocks behind; node2 then
-      # turned out to be stuck near height 100 as well. Both answer get_chain_info cheerfully with
-      # a stale height, so every service reading them saw a chain frozen near genesis while the
-      # real one was past 117,000. node3 is the only node currently holding the full chain.
-      # Being the bootstrap is a p2p role and says nothing about which node is best to read.
-      - CLUTCH_NODE_WS_URL=ws://node3:8083/ws
-      - SEQ_URL=http://seq:80
-      # APP_ prefixed because that is the only form config reads. As a bare SEQ_API_KEY this
-      # overrode nothing and the committed TOML key was the one actually in use.
       - APP_SEQ_API_KEY=${SEQ_API_KEY:-}
       - APP_ALLOWED_ORIGINS=${ALLOWED_ORIGINS:-*}
       - "APP_JWT_SECRET=${JWT_SECRET:?not set - it signs the tokens the hub API issues and the orchestrator trusts, so there is no safe default. Run provision-treasury-secrets.yml}"
-    env_file:
-      - .env
     restart: unless-stopped
     healthcheck:
       test: ["CMD", "curl", "-f", "http://127.0.0.1:3000/health"]
@@ -226,24 +217,12 @@ services:
       - clutch-explorer-indexer
     ports:
       - "8088:8088"
+    # Only what is secret or set per host; the rest is config/explorer/default.toml, which the
+    # indexer below reads too. No `env_file`: it handed the explorer the whole .env.
     environment:
-      - APP_LOG_LEVEL=info
-      - APP_DATA_SOURCE=postgres
       - APP_DATABASE_URL=postgres://${EXPLORER_POSTGRES_USER:-postgres}:${EXPLORER_POSTGRES_PASSWORD:-postgres}@clutch-explorer-postgres:5432/${EXPLORER_POSTGRES_DB:-clutch_explorer}
-      # Pointed at node3. node1 is the p2p bootstrap and fell ~115,000 blocks behind; node2 then
-      # turned out to be stuck near height 100 as well. Both answer get_chain_info cheerfully with
-      # a stale height, so every service reading them saw a chain frozen near genesis while the
-      # real one was past 117,000. node3 is the only node currently holding the full chain.
-      # Being the bootstrap is a p2p role and says nothing about which node is best to read.
-      - APP_CLUTCH_NODE_API_URL=http://node3:8083
-      - APP_STRICT_MODE=true
-      - APP_DEVELOPER_MODE=${EXPLORER_DEVELOPER_MODE:-false}
-      - APP_CLEANUP_ON_START=${EXPLORER_CLEANUP_ON_START:-false}
-      - APP_SEQ_URL=http://seq:80
       - APP_SEQ_API_KEY=${SEQ_API_KEY:-}
       - APP_ALLOWED_ORIGINS=${EXPLORER_ALLOWED_ORIGINS:-*}
-    env_file:
-      - .env
     restart: unless-stopped
     healthcheck:
       test: ["CMD", "curl", "-f", "http://127.0.0.1:8088/health"]
@@ -264,30 +243,11 @@ services:
       - seq
       - clutch-explorer-postgres
     command: ["/usr/local/bin/indexer", "--env", "default"]
+    # The node it reads (node3, the same for head and blocks) and its poll settings are in
+    # config/explorer/default.toml. No `env_file`: it handed the indexer the whole .env.
     environment:
-      - APP_LOG_LEVEL=info
-      - APP_DATA_SOURCE=postgres
       - APP_DATABASE_URL=postgres://${EXPLORER_POSTGRES_USER:-postgres}:${EXPLORER_POSTGRES_PASSWORD:-postgres}@clutch-explorer-postgres:5432/${EXPLORER_POSTGRES_DB:-clutch_explorer}
-      # Both of these must name the SAME node. The indexer takes the chain head from the metrics
-      # endpoint and then fetches each block by height over the RPC; pointed at two different
-      # nodes it can only ever index up to the SLOWER one's height, and a head it cannot fetch
-      # a body for stalls the pass. This read node1's metrics while fetching from node3 — so the
-      # ~115,000-block gap between them capped the explorer at node1's height.
-      - APP_NODE_METRICS_URL=http://node3:3003/metrics
-      # Pointed at node3. node1 is the p2p bootstrap and fell ~115,000 blocks behind; node2 then
-      # turned out to be stuck near height 100 as well. Both answer get_chain_info cheerfully with
-      # a stale height, so every service reading them saw a chain frozen near genesis while the
-      # real one was past 117,000. node3 is the only node currently holding the full chain.
-      # Being the bootstrap is a p2p role and says nothing about which node is best to read.
-      - APP_NODE_WS_URL=ws://node3:8083/ws
-      - APP_DEVELOPER_MODE=${EXPLORER_DEVELOPER_MODE:-false}
-      - APP_CLEANUP_ON_START=${EXPLORER_CLEANUP_ON_START:-false}
-      - APP_INDEXER_POLL_INTERVAL_MS=4000
-      - APP_INDEXER_START_HEIGHT=0
-      - APP_SEQ_URL=http://seq:80
       - APP_SEQ_API_KEY=${SEQ_API_KEY:-}
-    env_file:
-      - .env
     restart: unless-stopped
     # This service shares the backend's IMAGE but not its entrypoint, and the image's HEALTHCHECK
     # curls /health on 8088 — which the indexer binary does not serve. So it reported `unhealthy`
