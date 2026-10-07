@@ -13,7 +13,6 @@ failed=0
 
 # The stage file: only what the separation checks compare.
 cat > "$T/stage.env.base" <<'EOF'
-MAINNET_JWT_SECRET=jwt-mainnet-x
 JWT_SECRET=jwt-stage-y
 DEPOSIT_MNEMONIC=stage mnemonic words
 DEPOSIT_ACCOUNT_XPUB=xpub6Cstage
@@ -115,8 +114,7 @@ check "the stage xpub fails" 1 "DEPOSIT_ACCOUNT_XPUB is the same in both files" 
 check "the stage custody address fails" 1 "CUSTODY_TRON_ADDRESS is the same in both files" 's/^CUSTODY_TRON_ADDRESS=.*/CUSTODY_TRON_ADDRESS=TStageCustody/'
 check "a stage token fails" 1 "SIGNER_TOKEN is the same in both files" 's/^SIGNER_TOKEN=.*/SIGNER_TOKEN=stage-signer/'
 check "a stage database password fails" 1 "TREASURY_POSTGRES_PASSWORD is the same in both files" 's/^TREASURY_POSTGRES_PASSWORD=.*/TREASURY_POSTGRES_PASSWORD=stage-pg1/'
-check "a JWT secret that is not the mainnet hub's fails" 1 "JWT_SECRET does not match MAINNET_JWT_SECRET" 's/^JWT_SECRET=.*/JWT_SECRET=something-else/'
-check "the stage hub's JWT secret fails" 1 "JWT_SECRET is the same in both files" 's/^JWT_SECRET=.*/JWT_SECRET=jwt-stage-y/' 's/^MAINNET_JWT_SECRET=.*/MAINNET_JWT_SECRET=jwt-stage-y/'
+check "the stage hub's JWT secret fails" 1 "JWT_SECRET is the same in both files" 's/^JWT_SECRET=.*/JWT_SECRET=jwt-stage-y/'
 # The mint key lives on this host, and the address written beside it must be the chain's mint_authority.
 check "a 64-hex mint key passes, and only the verdict is said" 0 "the mint key is 64 hex characters" ''
 check "a missing mint key fails" 1 "MINT_AUTHORITY_SECRET is empty or missing" '/^MINT_AUTHORITY_SECRET=/d'
@@ -245,7 +243,7 @@ check "the last of a duplicated stage line is the one that counts" 1 "SIGNER_TOK
 check "a stage value with a comment is still the same secret" 1 "SIGNER_TOKEN is the same in both files" \
   's/^SIGNER_TOKEN=.*/SIGNER_TOKEN=stage-signer/' \
   's/^SIGNER_TOKEN=.*/SIGNER_TOKEN=stage-signer # the old one/'
-check "a stage JWT secret with a trailing space still matches" 0 "JWT_SECRET matches MAINNET_JWT_SECRET" '' 's/^MAINNET_JWT_SECRET=.*/MAINNET_JWT_SECRET=jwt-mainnet-x /'
+check "a stage JWT secret with a trailing space is still the same secret" 1 "JWT_SECRET is the same in both files" '' 's/^JWT_SECRET=.*/JWT_SECRET=jwt-mainnet-x /'
 # Cases 40 to 43 close the last reading gaps. A "name" with lower-case letters is a pasted secret that
 # has an "=" in it: the line is refused as not NAME=value, and the text before the "=" is not printed
 # (the leak case above holds the needle). On the stage side a quoted value ends at its closing quote,

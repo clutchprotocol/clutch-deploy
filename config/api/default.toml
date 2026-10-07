@@ -24,7 +24,7 @@ seq_api_key = ""
 # so a deployment that forgets it fails at boot instead of running on a value anyone can read.
 jwt_secret = ""
 jwt_expiration_hours = 6
-# "*" here; override per-environment with APP_ALLOWED_ORIGINS (see .env.example).
+# "*" here; override per-environment with APP_ALLOWED_ORIGINS (see .env.testnet.example and .env.mainnet.example).
 allowed_origins = "*"
 
 

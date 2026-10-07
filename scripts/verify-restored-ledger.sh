@@ -10,7 +10,7 @@
 #   1. Fetch the newest treasury and orchestrator dumps FROM THE REMOTE, not from local disk. The
 #      local copies share a disk with the databases they came from; restoring those tests nothing
 #      about the thing that survives losing the host.
-#   2. Decrypt with the passphrase in .env — the real one, so a passphrase that no longer opens the
+#   2. Decrypt with the passphrase in the env file — the real one, so a passphrase that no longer opens the
 #      real dumps fails here rather than on the day it matters.
 #   3. Restore each into <db>_restore_<stamp>. restore-treasury-db.sh cannot target a live database.
 #   4. Run `treasury-service --reconcile-once` against the restored treasury.

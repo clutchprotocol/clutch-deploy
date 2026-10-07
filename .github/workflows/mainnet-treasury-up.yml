@@ -53,6 +53,8 @@ jobs:
           set -euo pipefail
           cd "${{ secrets.STAGE_DEPLOY_PATH }}"
           git pull --ff-only origin main
+          # One env file per network; a host that still has the old shared .env is split first.
+          bash scripts/migrate-env-files.sh
           bash scripts/mainnet-treasury-up.sh
           CLUTCH_REMOTE_EOF
           sshpass -e ssh $SSH_OPTS "$CLUTCH_SSH_USER@$CLUTCH_SSH_HOST" "cat > $R.sh" < "$RUNNER_TEMP/clutch-remote.sh"

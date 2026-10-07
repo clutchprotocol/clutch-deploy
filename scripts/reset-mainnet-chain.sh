@@ -40,7 +40,7 @@ MODE="${MODE:?MODE must be check or reset}"
 case "$MODE" in check|reset) ;; *) echo "ABORT: MODE must be check or reset, got '$MODE'."; exit 1 ;; esac
 
 PROJECT=clutch-main
-COMPOSE="docker compose -p ${PROJECT} -f docker-compose.mainnet.yml"
+COMPOSE="docker compose -p ${PROJECT} --env-file .env.mainnet -f docker-compose.mainnet.yml"
 NET=clutch-mainnet
 CURL_IMAGE=curlimages/curl:8.10.1
 # Already on this host (the treasury databases run on it) and it has tar, so nothing is pulled.

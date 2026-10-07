@@ -14,7 +14,7 @@ passed=0
 failed=0
 out=""
 code=0
-ENVF=.env
+ENVF=.env.testnet
 
 # check <name> <condition...>: the condition is a command; its exit status is the verdict.
 check() {
@@ -69,57 +69,57 @@ after_lists() {
 NILE_NAMES="TRANSFER_RAIL GASFREE_NETWORK GASFREE_API_URL GASFREE_SERVICE_PROVIDER GASFREE_ACTIVATE_FEE_MAX_USDT GASFREE_TRANSFER_FEE_MAX_USDT MIN_DEPOSIT_USDT GASFREE_EXPECTED_IMPLEMENTATION GASFREE_EXPECTED_CONTROLLER_IMPLEMENTATION PAYOUT_FLOAT_TARGET_USDT"
 MAINNET_NAMES="$NILE_NAMES PER_TX_MINT_CAP_CLT DAILY_MINT_CAP_CLT MAX_REDEMPTION_CLT MIN_REDEMPTION_CLT PER_TX_PAYOUT_CAP_USDT REDEMPTION_FEE_USDT DAILY_PAYOUT_CAP_CLT"
 
-# ---- nile (the stage .env), unchanged behaviour -------------------------------------------------
+# ---- nile (the stage .env.testnet), unchanged behaviour -------------------------------------------------
 
-# 1. The stage .env as it was left by hand: the key, the secret and the network, one maximum twice at
+# 1. The stage .env.testnet as it was left by hand: the key, the secret and the network, one maximum twice at
 #    0, a commented line, an unrelated setting, and no newline at the end of the file.
 printf '%s\n' UNRELATED=keep-me GASFREE_API_KEY=key-marker-7f3a GASFREE_API_SECRET=secret-marker-9c1d \
-  GASFREE_NETWORK=nile GASFREE_ACTIVATE_FEE_MAX_USDT=0 "# GASFREE_API_URL=" GASFREE_ACTIVATE_FEE_MAX_USDT=0 > "$T/.env"
-printf 'LAST_LINE=1' >> "$T/.env"
-cp "$T/.env" "$T/before"
+  GASFREE_NETWORK=nile GASFREE_ACTIVATE_FEE_MAX_USDT=0 "# GASFREE_API_URL=" GASFREE_ACTIVATE_FEE_MAX_USDT=0 > "$T/.env.testnet"
+printf 'LAST_LINE=1' >> "$T/.env.testnet"
+cp "$T/.env.testnet" "$T/before"
 run nile
 check "the half-set block is completed, and the invariants hold" eval '[ "$code" -eq 0 ] && said "All invariants hold"'
-check "every value is .env.example's Nile value" matches_example .env .env.example $NILE_NAMES
-check "a setting present twice is replaced in both places" eval '[ "$(grep -cx "GASFREE_ACTIVATE_FEE_MAX_USDT=1500000" "$T/.env")" -eq 2 ]'
+check "every value is .env.testnet.example's Nile value" matches_example .env.testnet .env.testnet.example $NILE_NAMES
+check "a setting present twice is replaced in both places" eval '[ "$(grep -cx "GASFREE_ACTIVATE_FEE_MAX_USDT=1500000" "$T/.env.testnet")" -eq 2 ]'
 check "the key, the secret and the other lines are untouched" eval 'has_line GASFREE_API_KEY=key-marker-7f3a && has_line GASFREE_API_SECRET=secret-marker-9c1d && has_line UNRELATED=keep-me && has_line "# GASFREE_API_URL=" && has_line LAST_LINE=1'
 check "the key and the secret are never printed" eval '! said key-marker-7f3a && ! said secret-marker-9c1d'
-check "the file as it was is kept in .env.bak" cmp -s "$T/.env.bak" "$T/before"
+check "the file as it was is kept in .env.testnet.bak" cmp -s "$T/.env.testnet.bak" "$T/before"
 check "the writer says the file is already written if the check fails" said "is already written"
 # The fixture sets one maximum twice, so the listing has 11 lines: it is the 10 NAMES that are counted.
 check "the after listing has exactly 10 settings on nile" after_lists 10 $NILE_NAMES
 
 # 2. Run again on its own result: nothing changes.
-cp "$T/.env" "$T/after-first"
+cp "$T/.env.testnet" "$T/after-first"
 run nile
-check "a second run changes nothing" eval '[ "$code" -eq 0 ] && cmp -s "$T/.env" "$T/after-first"'
+check "a second run changes nothing" eval '[ "$code" -eq 0 ] && cmp -s "$T/.env.testnet" "$T/after-first"'
 
 # 3. The key missing, or the secret empty: refused, and the file untouched.
-printf '%s\n' GASFREE_API_SECRET=secret-marker-9c1d GASFREE_NETWORK=nile > "$T/.env"
-cp "$T/.env" "$T/before"
-rm -f "$T/.env.bak"
+printf '%s\n' GASFREE_API_SECRET=secret-marker-9c1d GASFREE_NETWORK=nile > "$T/.env.testnet"
+cp "$T/.env.testnet" "$T/before"
+rm -f "$T/.env.testnet.bak"
 run nile
-check "no GASFREE_API_KEY: refused, nothing written" eval '[ "$code" -eq 1 ] && said "GASFREE_API_KEY is not in .env" && cmp -s "$T/.env" "$T/before" && [ ! -e "$T/.env.bak" ]'
-printf '%s\n' GASFREE_API_KEY=key-marker-7f3a GASFREE_API_SECRET= > "$T/.env"
-cp "$T/.env" "$T/before"
+check "no GASFREE_API_KEY: refused, nothing written" eval '[ "$code" -eq 1 ] && said "GASFREE_API_KEY is not in .env.testnet" && cmp -s "$T/.env.testnet" "$T/before" && [ ! -e "$T/.env.testnet.bak" ]'
+printf '%s\n' GASFREE_API_KEY=key-marker-7f3a GASFREE_API_SECRET= > "$T/.env.testnet"
+cp "$T/.env.testnet" "$T/before"
 run nile
-check "an empty GASFREE_API_SECRET: refused, nothing written" eval '[ "$code" -eq 1 ] && said "GASFREE_API_SECRET is not in .env" && cmp -s "$T/.env" "$T/before"'
+check "an empty GASFREE_API_SECRET: refused, nothing written" eval '[ "$code" -eq 1 ] && said "GASFREE_API_SECRET is not in .env.testnet" && cmp -s "$T/.env.testnet" "$T/before"'
 
 # 4. A network that is neither: refused, and nothing written. The file holds a valid key pair, so a
 #    writer that took the word for a network would write it and leave a backup.
-printf '%s\n' GASFREE_API_KEY=key-marker-7f3a GASFREE_API_SECRET=secret-marker-9c1d > "$T/.env"
-cp "$T/.env" "$T/before"
-rm -f "$T/.env.bak"
+printf '%s\n' GASFREE_API_KEY=key-marker-7f3a GASFREE_API_SECRET=secret-marker-9c1d > "$T/.env.testnet"
+cp "$T/.env.testnet" "$T/before"
+rm -f "$T/.env.testnet.bak"
 run shasta
-check "an unknown network: refused" eval '[ "$code" -eq 1 ] && said "NETWORK must be nile or mainnet" && cmp -s "$T/.env" "$T/before" && [ ! -e "$T/.env.bak" ]'
+check "an unknown network: refused" eval '[ "$code" -eq 1 ] && said "NETWORK must be nile or mainnet" && cmp -s "$T/.env.testnet" "$T/before" && [ ! -e "$T/.env.testnet.bak" ]'
 
 # ---- mainnet (.env.mainnet): the GasFree block AND the decided limits ---------------------------
 
 # 5. A .env.mainnet as the maintainer left it: the key pair, stage-like limits (one twice), an
-#    unrelated setting, no newline at the end. The stage .env beside it must never change. It holds a
+#    unrelated setting, no newline at the end. The stage .env.testnet beside it must never change. It holds a
 #    key pair of its own, so a writer that wrote to it by mistake would change it, not refuse.
-rm -f "$T/.env" "$T/.env.bak"
-printf '%s\n' STAGE_MARK=untouched GASFREE_API_KEY=stage-key-marker GASFREE_API_SECRET=stage-secret-marker > "$T/.env"
-cp "$T/.env" "$T/stage-before"
+rm -f "$T/.env.testnet" "$T/.env.testnet.bak"
+printf '%s\n' STAGE_MARK=untouched GASFREE_API_KEY=stage-key-marker GASFREE_API_SECRET=stage-secret-marker > "$T/.env.testnet"
+cp "$T/.env.testnet" "$T/stage-before"
 printf '%s\n' UNRELATED=keep-me GASFREE_API_KEY=key-marker-7f3a GASFREE_API_SECRET=secret-marker-9c1d \
   PER_TX_MINT_CAP_CLT=50000000 REDEMPTION_FEE_USDT=1000000 PER_TX_MINT_CAP_CLT=50000000 > "$T/.env.mainnet"
 printf 'LAST_LINE=1' >> "$T/.env.mainnet"
@@ -130,7 +130,7 @@ check "mainnet: the block and the limits are written, and the invariants hold" e
 check "mainnet: every value is .env.mainnet.example's value" matches_example .env.mainnet .env.mainnet.example $MAINNET_NAMES
 check "mainnet: a setting present twice is replaced in both places" eval '[ "$(grep -cx "PER_TX_MINT_CAP_CLT=100000000" "$T/.env.mainnet")" -eq 2 ]'
 check "mainnet: the key, the secret and the other lines are untouched, and never printed" eval 'has_line GASFREE_API_KEY=key-marker-7f3a && has_line GASFREE_API_SECRET=secret-marker-9c1d && has_line UNRELATED=keep-me && has_line LAST_LINE=1 && ! said key-marker-7f3a && ! said secret-marker-9c1d'
-check "mainnet: the stage .env is never touched" cmp -s "$T/.env" "$T/stage-before"
+check "mainnet: the stage .env.testnet is never touched" cmp -s "$T/.env.testnet" "$T/stage-before"
 check "mainnet: the file as it was is kept in .env.mainnet.bak" cmp -s "$T/.env.mainnet.bak" "$T/mainnet-before"
 check "mainnet: the writer says to run the start workflow" said 'Run "Mainnet — start the treasury"'
 # The fixture sets one cap twice, so the listing has 18 lines: it is the 17 NAMES that are counted.
@@ -165,12 +165,12 @@ check "mainnet: a quoted GASFREE_API_SECRET: refused, nothing written" eval '[ "
 #    right after the nile run, the mainnet modes right after the mainnet run.
 printf '%s\n' MAINNET_MARK=untouched GASFREE_API_KEY=main-key-marker GASFREE_API_SECRET=main-secret-marker > "$T/.env.mainnet"
 cp "$T/.env.mainnet" "$T/mainnet-before"
-printf '%s\n' GASFREE_API_KEY=key-marker-7f3a GASFREE_API_SECRET=secret-marker-9c1d > "$T/.env"
-chmod 644 "$T/.env" "$T/.env.mainnet"
-rm -f "$T/.env.bak" "$T/.env.mainnet.bak"
+printf '%s\n' GASFREE_API_KEY=key-marker-7f3a GASFREE_API_SECRET=secret-marker-9c1d > "$T/.env.testnet"
+chmod 644 "$T/.env.testnet" "$T/.env.mainnet"
+rm -f "$T/.env.testnet.bak" "$T/.env.mainnet.bak"
 run nile
 check "nile never touches .env.mainnet" eval '[ "$code" -eq 0 ] && cmp -s "$T/.env.mainnet" "$T/mainnet-before" && [ ! -e "$T/.env.mainnet.bak" ]'
-nile_modes=$(stat -c %a "$T/.env" "$T/.env.bak" 2>&1 | tr '\n' ' ') || true
+nile_modes=$(stat -c %a "$T/.env.testnet" "$T/.env.testnet.bak" 2>&1 | tr '\n' ' ') || true
 run mainnet
 mainnet_modes=$(stat -c %a "$T/.env.mainnet" "$T/.env.mainnet.bak" 2>&1 | tr '\n' ' ') || true
 check "the written files and their backups are mode 600" eval '[ "$code" -eq 0 ] && [ "$nile_modes" = "600 600 " ] && [ "$mainnet_modes" = "600 600 " ]'

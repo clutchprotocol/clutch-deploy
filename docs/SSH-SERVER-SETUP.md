@@ -158,8 +158,8 @@ cd /root/clutch-deploy
 ## 6. Environment file
 
 ```bash
-cp .env.example .env
-nano .env
+cp .env.testnet.example .env.testnet
+nano .env.testnet
 ```
 
 Set at least:
@@ -187,14 +187,14 @@ Set `server_name` values to the hostnames you use in **Cloudflare DNS**.
 From `/root/clutch-deploy` (or wherever you cloned it):
 
 ```bash
-docker compose -p clutch-stage -f docker-compose.yml -f docker-compose.stage.cloudflare-flex.yml pull
-docker compose -p clutch-stage -f docker-compose.yml -f docker-compose.stage.cloudflare-flex.yml up -d --force-recreate
+docker compose -p clutch-stage --env-file .env.testnet -f docker-compose.yml -f docker-compose.stage.cloudflare-flex.yml pull
+docker compose -p clutch-stage --env-file .env.testnet -f docker-compose.yml -f docker-compose.stage.cloudflare-flex.yml up -d --force-recreate
 ```
 
 Status:
 
 ```bash
-docker compose -p clutch-stage -f docker-compose.yml -f docker-compose.stage.cloudflare-flex.yml ps
+docker compose -p clutch-stage --env-file .env.testnet -f docker-compose.yml -f docker-compose.stage.cloudflare-flex.yml ps
 ```
 
 Health (set `Host` to your API hostname):
@@ -219,10 +219,10 @@ More detail: [README.md](../README.md) (*Stage behind Cloudflare*).
 
 ```bash
 # Logs
-docker compose -p clutch-stage -f docker-compose.yml -f docker-compose.stage.cloudflare-flex.yml logs -f --tail=100
+docker compose -p clutch-stage --env-file .env.testnet -f docker-compose.yml -f docker-compose.stage.cloudflare-flex.yml logs -f --tail=100
 
 # Stop
-docker compose -p clutch-stage -f docker-compose.yml -f docker-compose.stage.cloudflare-flex.yml down
+docker compose -p clutch-stage --env-file .env.testnet -f docker-compose.yml -f docker-compose.stage.cloudflare-flex.yml down
 ```
 
 On Ubuntu, prefer **`docker compose`** (plugin) rather than the old standalone `docker-compose` binary.

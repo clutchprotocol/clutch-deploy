@@ -20,7 +20,7 @@
 # database and this script cannot weaken it.
 #
 # What it does NOT enforce is that two different PEOPLE ran the two halves. Both tokens live in the
-# same host `.env`, so anyone who can dispatch these workflows can dispatch both. The separation
+# same host env file, so anyone who can dispatch these workflows can dispatch both. The separation
 # here is procedural: two dispatches, each attributed to a GitHub actor in the Actions log. Treat
 # that log as the audit trail, because the database only records the role strings.
 #

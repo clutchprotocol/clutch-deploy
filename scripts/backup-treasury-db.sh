@@ -19,7 +19,7 @@
 # Readiness item D1 stays open until the dump lands elsewhere AND a restore has been performed.
 # See docs/BACKUP-RESTORE.md.
 #
-# Reads from .env, by grep rather than by sourcing: sourcing would execute whatever is in there and
+# Reads from the network's env file, by grep rather than by sourcing: sourcing would execute whatever is in there and
 # would pull DEPOSIT_MNEMONIC into the environment of a script that has no business holding it.
 
 set -euo pipefail
@@ -43,8 +43,8 @@ env_get() {
   grep -E "^$1=" "$ENV_FILE" 2>/dev/null | head -1 | cut -d= -f2- | sed -e 's/^"//' -e 's/"$//' || true
 }
 
-# The environment wins over .env, so a rehearsal can inject an ephemeral passphrase
-# without writing a secret to the host. Real backups still take theirs from .env.
+# The environment wins over the env file, so a rehearsal can inject an ephemeral passphrase
+# without writing a secret to the host. Real backups still take theirs from the env file.
 BACKUP_PASSPHRASE="${BACKUP_PASSPHRASE:-$(env_get BACKUP_PASSPHRASE)}"
 # `-` and not `:-`, on purpose. The restore rehearsal (rehearse-restore.yml) passes BACKUP_REMOTE=""
 # to mean "no upload". `:-` reads an empty value as unset and takes the real remote from the env

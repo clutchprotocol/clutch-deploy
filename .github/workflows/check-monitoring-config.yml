@@ -92,17 +92,15 @@ jobs:
       - name: Compose files must parse, including both mainnet projects
         run: |
           set -euo pipefail
-          # Dummy values for the two variables the base marks required; neither is read here.
-          printf 'JWT_SECRET=ci\nGRAFANA_ADMIN_PASSWORD=ci\n' > .env
+          # Dummy values for the two variables the base marks required; neither is read here. Each
+          # network has its own env file on the host, passed with --env-file, as here.
+          printf 'JWT_SECRET=ci\nGRAFANA_ADMIN_PASSWORD=ci\n' > /tmp/testnet.env
           echo "--- base ---"
-          docker compose -f docker-compose.yml config -q
-          echo "--- mainnet chain + app ---"
-          MAINNET_NODE1_AUTHOR_SECRET=ci MAINNET_NODE2_AUTHOR_SECRET=ci MAINNET_NODE3_AUTHOR_SECRET=ci \
-            MAINNET_JWT_SECRET=ci docker compose -f docker-compose.mainnet.yml config -q
+          docker compose --env-file /tmp/testnet.env -f docker-compose.yml config -q
           # The stage overlay declares clutch-mainnet as external. `config` does not check that a
           # network exists, so this parses here and is still the real coupling on the host.
           echo "--- base + stage overlay ---"
-          docker compose -f docker-compose.yml -f docker-compose.stage.cloudflare-flex.yml config -q
+          docker compose --env-file /tmp/testnet.env -f docker-compose.yml -f docker-compose.stage.cloudflare-flex.yml config -q
 
           # The mainnet treasury, rendered the way the host renders it: its own file and --env-file,
           # which is what keeps its secrets separate from the testnet's. `config -q` proves it parses,
@@ -114,9 +112,13 @@ jobs:
                    DEPOSIT_MNEMONIC DEPOSIT_ACCOUNT_XPUB \
                    SIGNER_TOKEN TREASURY_INITIATOR_TOKEN TREASURY_APPROVER_TOKEN \
                    TREASURY_READONLY_TOKEN TREASURY_POSTGRES_PASSWORD \
-                   ORCHESTRATOR_POSTGRES_PASSWORD JWT_SECRET PAYOUT_FLOAT_ADDRESS PILOT_ALLOWED_ADDRESSES; do
+                   ORCHESTRATOR_POSTGRES_PASSWORD JWT_SECRET PAYOUT_FLOAT_ADDRESS PILOT_ALLOWED_ADDRESSES \
+                   MAINNET_NODE1_AUTHOR_SECRET MAINNET_NODE2_AUTHOR_SECRET MAINNET_NODE3_AUTHOR_SECRET; do
             echo "$v=ci" >> /tmp/t.env
           done
+          # The mainnet chain and apps read the same file as its treasury.
+          echo "--- mainnet chain + app ---"
+          docker compose --env-file /tmp/t.env -f docker-compose.mainnet.yml config -q
           docker compose --env-file /tmp/t.env -f docker-compose.mainnet.treasury.yml config -q
           docker compose --env-file /tmp/t.env -f docker-compose.mainnet.treasury.yml config --format json > /tmp/mainnet.json
 
@@ -151,10 +153,10 @@ jobs:
       - name: GasFree settings reach every service that reads them
         run: |
           set -euo pipefail
-          # One .env name per setting feeds all three treasury services, so they cannot read
+          # One env file name per setting feeds all three treasury services, so they cannot read
           # different values. What can go wrong is a service missing a line: it then runs with
           # GasFree off while the others run with it on. Set every name to a marker and read back
-          # what each service receives. (.env exists: the step above wrote it.)
+          # what each service receives.
           {
             for v in JWT_SECRET GRAFANA_ADMIN_PASSWORD TREASURY_POSTGRES_PASSWORD ORCHESTRATOR_POSTGRES_PASSWORD \
                      MINT_AUTHORITY_SECRET TREASURY_INITIATOR_TOKEN TREASURY_APPROVER_TOKEN TREASURY_READONLY_TOKEN \
@@ -169,7 +171,7 @@ jobs:
             done
           } > /tmp/g.env
           merged=$(docker compose --env-file /tmp/g.env -f docker-compose.yml -f docker-compose.treasury.yml config --format json)
-          receives() {  # receives <service> <.env name>...: each must arrive as APP_<name>, unchanged
+          receives() {  # receives <service> <env file name>...: each must arrive as APP_<name>, unchanged
             local svc="$1" v got
             shift
             for v in "$@"; do

@@ -1,8 +1,8 @@
-# Write the GasFree rail's settings into an env file on the stage host: .env for Nile (step 2.2 of
+# Write the GasFree rail's settings into an env file on the stage host: .env.testnet for Nile (step 2.2 of
 # the rollout, clutch-treasury's docs/superpowers/plans/2026-09-25-gasfree-rollout.md, Task 10) or
 # .env.mainnet for mainnet.
 #
-# Only the settings that are not secrets: .env.example's Nile values, or for mainnet the values the
+# Only the settings that are not secrets: .env.testnet.example's Nile values, or for mainnet the values the
 # maintainer accepted on 2026-10-02 and the decided limits (.env.mainnet.example holds them). The
 # relay's key and secret are put in that file by hand, and this refuses to run without them. It
 # restarts nothing: "Deploy stage (VPS)" applies the Nile values and "Mainnet — start the treasury"
@@ -17,7 +17,7 @@ on:
   workflow_dispatch:
     inputs:
       network:
-        description: "Whose values to write: the testnet's (nile, into .env) or mainnet's (into .env.mainnet, with the decided limits)."
+        description: "Whose values to write: the testnet's (nile, into .env.testnet) or mainnet's (into .env.mainnet, with the decided limits)."
         type: choice
         default: nile
         options:
@@ -31,7 +31,7 @@ on:
         required: true
         default: ""
 
-# One shared group for the four workflows that write or read .env / .env.mainnet
+# One shared group for the four workflows that write or read .env.testnet / .env.mainnet
 # (provision-treasury-secrets, set-gasfree-settings, set-mint-caps, mainnet-treasury-up), so they
 # queue and never run together. GitHub keeps one waiting run per group: start the next one after
 # the one before it has finished.
@@ -83,6 +83,8 @@ jobs:
           set -euo pipefail
           cd "${{ secrets.STAGE_DEPLOY_PATH }}"
           git pull --ff-only origin main
+          # One env file per network; a host that still has the old shared .env is split first.
+          bash scripts/migrate-env-files.sh
           bash scripts/set-gasfree-settings.sh
           CLUTCH_REMOTE_EOF
           sshpass -e ssh $SSH_OPTS "$CLUTCH_SSH_USER@$CLUTCH_SSH_HOST" "cat > $R.sh" < "$RUNNER_TEMP/clutch-remote.sh"

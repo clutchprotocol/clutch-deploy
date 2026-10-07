@@ -105,7 +105,7 @@ missing_files_of() {
   )
 }
 
-STAGE="stage|.env|clutch-stage|treasury-service|tron-signer|payment-orchestrator|clutch-stage-treasury-service-1|clutch-stage-tron-signer-1|clutch-stage-payment-orchestrator-1|clutch-stage-treasury-postgres-1|clutch-stage-orchestrator-postgres-1|backups"
+STAGE="stage|.env.testnet|clutch-stage|treasury-service|tron-signer|payment-orchestrator|clutch-stage-treasury-service-1|clutch-stage-tron-signer-1|clutch-stage-payment-orchestrator-1|clutch-stage-treasury-postgres-1|clutch-stage-orchestrator-postgres-1|backups"
 MAINNET="mainnet|.env.mainnet|clutch-main-treasury|mainnet-treasury-service|mainnet-tron-signer|mainnet-payment-orchestrator|clutch-main-treasury-mainnet-treasury-service-1|clutch-main-treasury-mainnet-tron-signer-1|clutch-main-treasury-mainnet-payment-orchestrator-1|clutch-main-treasury-treasury-postgres-1|clutch-main-treasury-orchestrator-postgres-1|backups/mainnet"
 
 check "stage: the names the scripts used to hardcode" "$STAGE" "$(names_of stage)"
@@ -130,11 +130,11 @@ check "every stage service is in docker-compose.treasury.yml" "" "$missing"
 overlap=$(comm -12 <(containers_of stage | sort) <(containers_of mainnet | sort) | tr '\n' ' ')
 check "no mainnet container name is a stage container name" "" "$overlap"
 
-check "stage compose arguments" "-p clutch-stage -f docker-compose.yml -f docker-compose.treasury.yml -f docker-compose.stage.cloudflare-flex.yml -f docker-compose.stage.treasury.yml " "$(args_of stage)"
+check "stage compose arguments" "-p clutch-stage --env-file .env.testnet -f docker-compose.yml -f docker-compose.treasury.yml -f docker-compose.stage.cloudflare-flex.yml -f docker-compose.stage.treasury.yml " "$(args_of stage)"
 check "mainnet compose arguments" "-p clutch-main-treasury --env-file .env.mainnet -f docker-compose.mainnet.treasury.yml " "$(args_of mainnet)"
 
 check "a refused chain returns instead of exiting" "survived" "$(refusal_survived)"
-check "chain_compose passes the stage arguments to docker" "compose|-p|clutch-stage|-f|docker-compose.yml|-f|docker-compose.treasury.yml|-f|docker-compose.stage.cloudflare-flex.yml|-f|docker-compose.stage.treasury.yml|up|-d|x|" "$(compose_of stage)"
+check "chain_compose passes the stage arguments to docker" "compose|-p|clutch-stage|--env-file|.env.testnet|-f|docker-compose.yml|-f|docker-compose.treasury.yml|-f|docker-compose.stage.cloudflare-flex.yml|-f|docker-compose.stage.treasury.yml|up|-d|x|" "$(compose_of stage)"
 check "chain_compose passes the mainnet arguments to docker" "compose|-p|clutch-main-treasury|--env-file|.env.mainnet|-f|docker-compose.mainnet.treasury.yml|up|-d|x|" "$(compose_of mainnet)"
 check "chain_compose without chain_select refuses" "refused" "$(compose_unselected)"
 check "a refused chain_select clears the earlier names" "[]" "$(name_after_refusal)"

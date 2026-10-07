@@ -2,10 +2,14 @@
 .env
 .env.local
 .env.*.local
-# Backups the treasury scripts take before editing .env. They hold DEPOSIT_MNEMONIC, so each is
-# exactly as sensitive as .env itself and must never be committable.
+# One env file per network (.env.testnet, .env.mainnet); .env is the old shared file, kept ignored
+# for hosts and checkouts that still have one. Backups the treasury scripts take before editing them
+# hold DEPOSIT_MNEMONIC, so each is exactly as sensitive as the file itself and must never be committable.
 .env.bak
 .env.bak.*
+.env.testnet
+.env.testnet.bak
+.env.testnet.bak.*
 .env.mainnet
 .env.mainnet.bak
 .env.mainnet.bak.*

@@ -141,7 +141,7 @@ check "reset mode halts first, then stops, then copies, then deletes" eval \
 check "the halt is for the mainnet treasury" called "HALT chain=mainnet"
 check "all three volumes are copied, and the copy is kept with a note" eval \
   'b=$(find "$T/backups" -mindepth 1 -maxdepth 1 -name "mainnet-chain-*"); [ -s "$b/node1.tgz" ] && [ -s "$b/node2.tgz" ] && [ -s "$b/node3.tgz" ] && [ -s "$b/README" ]'
-check "the project that is deleted is the mainnet chain" called "docker compose -p clutch-main -f docker-compose.mainnet.yml down -v"
+check "the project that is deleted is the mainnet chain" called "docker compose -p clutch-main --env-file .env.mainnet -f docker-compose.mainnet.yml down -v"
 check "the note in the copy names the mint address and how the treasury signed" eval \
   'b=$(find "$T/backups" -mindepth 1 -maxdepth 1 -name "mainnet-chain-*"); grep -qF "$ADDRESS" "$b/README" && grep -qF "signed with: azure_kms" "$b/README"'
 check "the halt gives a reason that is true for every reset" called "HALT chain=mainnet reason=mainnet chain reset"

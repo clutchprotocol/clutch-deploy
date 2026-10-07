@@ -26,8 +26,6 @@
 #     apart. The stage file is read the way compose reads it (pf_get_stage) and the mnemonic is
 #     compared by its words, because tron-signer ignores the spacing: a stage secret copied by hand
 #     with a trailing space, quotes or a double space is still the same secret;
-#   - a JWT_SECRET that is not .env's MAINNET_JWT_SECRET: the mainnet hub signs user tokens with
-#     that one, and the orchestrator rejects every request signed by anything else;
 #   - a mint key that is not 64 hex characters, or whose recorded address (MINT_AUTHORITY_ADDRESS) is not
 #     the `mint_authority` of the node configs. The key is a plain secret on this host since 2026-10-05
 #     (readiness A1, "Mint key on the host"), made together with its address by mainnet-mint-key.sh.
@@ -162,20 +160,11 @@ preflight() {  # preflight <mainnet env file> <stage env file> [<node config>, d
       sv=$(printf '%s' "$sv" | tr -s '[:space:]' ' '); sv="${sv# }"; sv="${sv% }"
     fi
     if [ -n "$mv" ] && [ "$mv" = "$sv" ]; then
-      pf_bad "$n is the same in both files (never share secrets between .env and .env.mainnet)"
+      pf_bad "$n is the same in both files (never share secrets between .env.testnet and .env.mainnet)"
       same=1
     fi
   done
   [ "$same" -eq 0 ] && pf_ok "no secret is shared with the stage file"
-
-  # The stage hub's own JWT secret is JWT_SECRET in .env: the mainnet orchestrator must not trust it.
-  mv=$(pf_get "$m" JWT_SECRET)
-  sv=$(pf_get_stage "$s" MAINNET_JWT_SECRET)
-  if [ -n "$mv" ] && [ "$mv" = "$sv" ]; then
-    pf_ok "JWT_SECRET matches MAINNET_JWT_SECRET, the mainnet hub's"
-  else
-    pf_bad "JWT_SECRET does not match MAINNET_JWT_SECRET in $s (the mainnet hub signs user tokens with that one)"
-  fi
 
   # Who may use mainnet while it is a pilot: `*` (everyone, and only because someone typed it) or a
   # comma-separated list of addresses, each 0x and 40 hex characters, with no spaces. The orchestrator

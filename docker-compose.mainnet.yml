@@ -6,7 +6,10 @@
 # fail, but that turns a clean separation into a permanent stream of failed handshakes between two
 # chains that should not know each other exists.
 #
-#   docker compose -p clutch-main -f docker-compose.mainnet.yml up -d
+#   docker compose -p clutch-main --env-file .env.mainnet -f docker-compose.mainnet.yml up -d
+#
+# Every ${VAR} here comes from .env.mainnet, the one env file for all of mainnet (the treasury reads it
+# too). The testnet's is .env.testnet.
 #
 # NOTHING IS PUBLISHED. All three validators talk over this network by service name, so no port
 # needs to reach the host. The testnet base file publishes 8081-8083 for local development; doing
@@ -27,9 +30,9 @@ services:
     stop_grace_period: 30s
     environment:
       # The node reads Environment::with_prefix("APP"), so this overrides the empty
-      # author_secret_key in the committed config. The value lives only in the host's .env,
+      # author_secret_key in the committed config. The value lives only in the host's .env.mainnet,
       # generated there by mainnet-validator-keys.yml and never committed.
-      - APP_AUTHOR_SECRET_KEY=${MAINNET_NODE1_AUTHOR_SECRET:?the mainnet validator keys are not in .env — run the "Mainnet — generate validator keys" workflow}
+      - APP_AUTHOR_SECRET_KEY=${MAINNET_NODE1_AUTHOR_SECRET:?the mainnet validator keys are not in .env.mainnet — run the "Mainnet — generate validator keys" workflow}
       - APP_SEQ_API_KEY=${SEQ_API_KEY:-}
       # Keeps RocksDB on the volume below. Without it the node writes to the container's writable
       # layer and every `up -d --force-recreate` discards the chain.
@@ -48,7 +51,7 @@ services:
     image: ghcr.io/clutchprotocol/clutch-node:sha-d0c3d0a
     stop_grace_period: 30s
     environment:
-      - APP_AUTHOR_SECRET_KEY=${MAINNET_NODE2_AUTHOR_SECRET:?the mainnet validator keys are not in .env — run the "Mainnet — generate validator keys" workflow}
+      - APP_AUTHOR_SECRET_KEY=${MAINNET_NODE2_AUTHOR_SECRET:?the mainnet validator keys are not in .env.mainnet — run the "Mainnet — generate validator keys" workflow}
       - APP_SEQ_API_KEY=${SEQ_API_KEY:-}
       - DB_PATH=/app/data
     networks:
@@ -65,7 +68,7 @@ services:
     image: ghcr.io/clutchprotocol/clutch-node:sha-d0c3d0a
     stop_grace_period: 30s
     environment:
-      - APP_AUTHOR_SECRET_KEY=${MAINNET_NODE3_AUTHOR_SECRET:?the mainnet validator keys are not in .env — run the "Mainnet — generate validator keys" workflow}
+      - APP_AUTHOR_SECRET_KEY=${MAINNET_NODE3_AUTHOR_SECRET:?the mainnet validator keys are not in .env.mainnet — run the "Mainnet — generate validator keys" workflow}
       - APP_SEQ_API_KEY=${SEQ_API_KEY:-}
       - DB_PATH=/app/data
     networks:
@@ -89,10 +92,11 @@ services:
     environment:
       - APP_SEQ_API_KEY=${SEQ_API_KEY:-}
       - APP_ALLOWED_ORIGINS=${MAINNET_ALLOWED_ORIGINS:-https://app.clutchprotocol.io}
-      # A DIFFERENT secret from the testnet's, required rather than defaulted. Sharing one
-      # would make a token minted against the testnet hub valid on the mainnet hub, which is
-      # the whole reason the chains got different chain_ids.
-      - "APP_JWT_SECRET=${MAINNET_JWT_SECRET:?set MAINNET_JWT_SECRET in .env -- it must NOT be the same value as JWT_SECRET}"
+      # .env.mainnet's JWT_SECRET: the same value the mainnet orchestrator trusts, and never the
+      # testnet's (the preflight refuses that). Sharing one would make a token minted against the
+      # testnet hub valid on the mainnet hub, which is the whole reason the chains got different
+      # chain_ids. Until 2026-10-07 this was MAINNET_JWT_SECRET in the shared .env, kept equal by hand.
+      - "APP_JWT_SECRET=${JWT_SECRET:?set JWT_SECRET in .env.mainnet}"
     networks:
       # Both, and this service is the only thing that bridges them. clutch-mainnet to reach
       # the validators; the stage network because nginx lives over there and resolves
