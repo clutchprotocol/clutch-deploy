@@ -33,7 +33,7 @@ failure and deleted, for the same reason.
 
 ## Host configuration
 
-In the host's `.env`:
+In the host's `.env.testnet` (and `.env.mainnet` for mainnet):
 
 | Variable | Required | Notes |
 |----------|----------|-------|
@@ -129,7 +129,7 @@ mainnet treasury has been started for the first time. The script then runs with 
 - The dumps are written to `backups/mainnet` on the host. The stage dumps stay in `backups`.
 - They are copied to the remote named in `.env.mainnet`.
 - **`.env.mainnet` has its own `BACKUP_PASSPHRASE`, `BACKUP_REMOTE` and database passwords.**
-  Nothing is shared with `.env`.
+  Nothing is shared with `.env.testnet`.
 - `Mainnet — start the treasury` refuses a passphrase or a remote that is equal to the stage one.
   So one leaked secret cannot open the dumps of both stacks.
 - Each run prunes only its own directory: it keeps the newest `BACKUP_RETAIN` files of each

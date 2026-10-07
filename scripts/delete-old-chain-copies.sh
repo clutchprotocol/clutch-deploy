@@ -21,7 +21,7 @@
 # new chain does not start, so it is not deleted while the chain is down.
 #
 # It reads and prints names, sizes and each README (public text). It prints no secret: the copies hold
-# chain data, and the validator keys live in .env, not in a volume.
+# chain data, and the validator keys live in .env.mainnet, not in a volume.
 
 set -euo pipefail
 cd "$(dirname "$0")/.."

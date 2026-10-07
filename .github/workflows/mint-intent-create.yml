@@ -5,7 +5,7 @@
 # refuses a row where they are equal, so the role separation is enforced in the database.
 #
 # What is NOT enforced: that two different people ran the two workflows. Both tokens live in the
-# same host `.env`, so anyone who can dispatch this can dispatch the approval too. The Actions log
+# same host env file, so anyone who can dispatch this can dispatch the approval too. The Actions log
 # is the audit trail for who actually did what — the database only records the role strings.
 #
 # This is for manual corrections (an overpaid deposit owed more CLT, a credit that has to be made

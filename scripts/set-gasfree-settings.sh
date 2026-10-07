@@ -2,7 +2,7 @@
 #
 # Write the GasFree rail's settings into an env file, and for mainnet the decided limits too:
 #
-#   NETWORK=nile    bash scripts/set-gasfree-settings.sh     # the stage .env: step 2.2 of the Nile rollout
+#   NETWORK=nile    bash scripts/set-gasfree-settings.sh     # .env.testnet: step 2.2 of the Nile rollout
 #   NETWORK=mainnet bash scripts/set-gasfree-settings.sh     # .env.mainnet: the mainnet rollout
 #
 # Only settings that are not secrets. GASFREE_API_KEY and GASFREE_API_SECRET are the relay's
@@ -11,14 +11,14 @@
 # check-cap-invariants.sh refuses, and the network without the key would leave tron-signer on the TRX
 # rail while the other two are not.
 #
-# Nile writes the GasFree block with .env.example's values. Mainnet writes the block with the values
+# Nile writes the GasFree block with .env.testnet.example's values. Mainnet writes the block with the values
 # the maintainer accepted on 2026-10-02 (the live relay fees were 1.50 USDT to activate and 1.50 per
 # transfer) AND the limits of readiness item B4 with the $2.00 redemption fee, except that the payout
 # side is the pilot's until the KMS payout key (A2) ships: $50 payouts and a $200 daily payout
 # ceiling, and ONE WALLET (a float target of $1,000,000, so every sweep goes to the float). They are
 # written together because check-cap-invariants.sh relates them: the fee must cover the relay's transfer
 # maximum, and the float target must cover the largest payout plus that fee. test-set-gasfree-
-# settings.sh checks every value against .env.example and .env.mainnet.example.
+# settings.sh checks every value against .env.testnet.example and .env.mainnet.example.
 #
 # Nothing is restarted. "Deploy stage (VPS)" applies the nile values and "Mainnet — start the
 # treasury" the mainnet ones, and each runs check-cap-invariants.sh first, as this does at the end.
@@ -32,7 +32,7 @@ NETWORK="${NETWORK:?NETWORK must be set (nile or mainnet)}"
 
 case "$NETWORK" in
   nile)
-    ENV_FILE=.env
+    ENV_FILE=.env.testnet
     SETTINGS=(
       TRANSFER_RAIL=gasfree
       GASFREE_NETWORK=nile

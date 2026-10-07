@@ -1,7 +1,7 @@
 # Self-checks for the scripts that guard the treasury's settings and move its money.
 #
 # check-cap-invariants.sh gates every stage deploy (deploy-stage.sh): a bug in it either lets a
-# broken limit through or stops every deploy. No secrets, no host access, no docker — copies of the
+# broken limit through or stops every deploy. No secrets, no host access, no docker daemon — copies of the
 # scripts, fixtures, and a temp directory. Same shape as test-nginx-block.yml.
 #
 # Any edit of a script or a workflow file runs it too (the globs in `paths`), and the last step parses every
@@ -14,11 +14,13 @@ on:
     paths:
       - "scripts/**"
       - "config/node-mainnet/*.toml"
+      - "docker-compose.yml"
+      - "docker-compose.mainnet.yml"
       - "docker-compose.treasury.yml"
       - "docker-compose.mainnet.treasury.yml"
       - "docker-compose.stage.cloudflare-flex.yml"
       - "docker-compose.stage.treasury.yml"
-      - ".env.example"
+      - ".env.testnet.example"
       - ".env.mainnet.example"
       - ".github/workflows/*.yml"
   push:
@@ -26,11 +28,13 @@ on:
     paths:
       - "scripts/**"
       - "config/node-mainnet/*.toml"
+      - "docker-compose.yml"
+      - "docker-compose.mainnet.yml"
       - "docker-compose.treasury.yml"
       - "docker-compose.mainnet.treasury.yml"
       - "docker-compose.stage.cloudflare-flex.yml"
       - "docker-compose.stage.treasury.yml"
-      - ".env.example"
+      - ".env.testnet.example"
       - ".env.mainnet.example"
       - ".github/workflows/*.yml"
   workflow_dispatch:
@@ -79,6 +83,9 @@ jobs:
       - name: Mainnet old-chain copies deleter
         if: ${{ !cancelled() }}
         run: bash scripts/test-delete-old-chain-copies.sh
+      - name: Env file split
+        if: ${{ !cancelled() }}
+        run: bash scripts/test-migrate-env-files.sh
       - name: Host image cleanup
         if: ${{ !cancelled() }}
         run: bash scripts/test-prune-host-images.sh

@@ -8,7 +8,7 @@ This folder contains Docker Compose configs for the Clutch Protocol stack:
 ## Prerequisites
 
 - Docker Desktop (includes Docker Compose)
-- A `.env` file in this folder (copy from `.env.example`)
+- A `.env.testnet` file in this folder (copy from `.env.testnet.example`). Mainnet reads `.env.mainnet` (template `.env.mainnet.example`).
 
 ## Run (dev)
 
@@ -21,7 +21,7 @@ Dev assumes you have these sibling repos next to `clutch-deploy/`:
 Start dev (PowerShell):
 
 ```powershell
-docker compose -p clutch-dev -f .\docker-compose.yml -f .\docker-compose.dev.yml up -d --build
+docker compose -p clutch-dev --env-file .env.testnet -f .\docker-compose.yml -f .\docker-compose.dev.yml up -d --build
 ```
 
 Useful dev URLs:
@@ -57,7 +57,7 @@ docker compose -p clutch-nginx -f docker-compose.nginx.yml up -d
 Stop dev:
 
 ```powershell
-docker compose -p clutch-dev -f .\docker-compose.yml -f .\docker-compose.dev.yml down
+docker compose -p clutch-dev --env-file .env.testnet -f .\docker-compose.yml -f .\docker-compose.dev.yml down
 ```
 
 ## Run (stage on VPS / Cloudflare)
@@ -79,8 +79,8 @@ Use **only** `docker-compose.yml` together with `docker-compose.stage.cloudflare
 Start stage (PowerShell):
 
 ```powershell
-docker compose -p clutch-stage -f docker-compose.yml -f docker-compose.stage.cloudflare-flex.yml pull
-docker compose -p clutch-stage -f docker-compose.yml -f docker-compose.stage.cloudflare-flex.yml up -d --force-recreate
+docker compose -p clutch-stage --env-file .env.testnet -f docker-compose.yml -f docker-compose.stage.cloudflare-flex.yml pull
+docker compose -p clutch-stage --env-file .env.testnet -f docker-compose.yml -f docker-compose.stage.cloudflare-flex.yml up -d --force-recreate
 ```
 
 Use **`--build`** only when you need to rebuild an image from a local `Dockerfile` (e.g. the demo app). GitHub Actions deploy does **not** run `--build`; it pulls published images and recreates containers.
@@ -88,7 +88,7 @@ Use **`--build`** only when you need to rebuild an image from a local `Dockerfil
 Stop stage:
 
 ```powershell
-docker compose -p clutch-stage -f docker-compose.yml -f docker-compose.stage.cloudflare-flex.yml down
+docker compose -p clutch-stage --env-file .env.testnet -f docker-compose.yml -f docker-compose.stage.cloudflare-flex.yml down
 ```
 
 Files:
@@ -113,7 +113,7 @@ docker compose -p clutch-nginx -f docker-compose.stage.nginx.yml up -d
 
 Nginx sets `X-Forwarded-Proto https` so the app sees the public scheme correctly.
 
-**Frontend / SDK:** The demo resolves the Hub API from the page hostname: **`app-stage.<domain>` → `https://api-stage.<domain>`** (GraphQL HTTP and `wss://…/graphql/ws` follow). The stage compose file also passes **`VITE_API_URL`** at image build time. Set **`ALLOWED_ORIGINS`** in `.env` to include your demo origin (e.g. `https://app-stage.clutchprotocol.io`) so the Hub API accepts browser requests.
+**Frontend / SDK:** The demo resolves the Hub API from the page hostname: **`app-stage.<domain>` → `https://api-stage.<domain>`** (GraphQL HTTP and `wss://…/graphql/ws` follow). The stage compose file also passes **`VITE_API_URL`** at image build time. Set **`ALLOWED_ORIGINS`** in `.env.testnet` to include your demo origin (e.g. `https://app-stage.clutchprotocol.io`) so the Hub API accepts browser requests.
 
 ## VPS setup over SSH
 
@@ -139,7 +139,7 @@ If SSH is not on port 22, add `port: YOUR_PORT` under `with:` in the workflow (o
 ### Server one-time setup
 
 - Clone this repo on the VPS at `STAGE_DEPLOY_PATH` so `git pull` updates compose and config.
-- Copy `.env` and ensure **`ALLOWED_ORIGINS`**, **`JWT_SECRET`**, etc. exist (not stored in Git).
+- Create `.env.testnet` from `.env.testnet.example` and ensure **`ALLOWED_ORIGINS`**, **`JWT_SECRET`**, etc. exist (not stored in Git).
 - For **private** images on GHCR, run **`docker login ghcr.io`** once on the server (or use a read-only PAT).
 
 ### When it runs

@@ -29,8 +29,8 @@ cd "$(dirname "$0")/.."
 . scripts/lib/mainnet-preflight.sh
 chain_select mainnet
 
-echo "=== preflight ($CH_ENV_FILE against .env) ==="
-if ! preflight "$CH_ENV_FILE" .env; then
+echo "=== preflight ($CH_ENV_FILE against .env.testnet) ==="
+if ! preflight "$CH_ENV_FILE" .env.testnet; then
   echo ""
   echo "ABORT: the preflight found problems (above). Nothing was started."
   exit 1

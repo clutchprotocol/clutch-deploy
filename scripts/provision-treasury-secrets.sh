@@ -1,9 +1,9 @@
 #!/usr/bin/env bash
 #
-# One-shot: fill in the treasury secrets stage's .env is missing, and read the deposit wallet's
+# One-shot: fill in the treasury secrets stage's .env.testnet is missing, and read the deposit wallet's
 # public material back out.
 #
-# .env on this host is the source of truth -- deploy-stage.sh READS it and never writes it, which
+# .env.testnet on this host is the source of truth -- deploy-stage.sh READS it and never writes it, which
 # is what makes hand-provisioning work at all. This script is that hand-provisioning, done once,
 # from a workflow, so the SSH password stays in GitHub's secret store instead of someone's laptop.
 #
@@ -19,7 +19,7 @@
 #
 # # Nothing secret is ever printed
 #
-# The generated mnemonic is piped straight into .env and never touches stdout. What this prints is
+# The generated mnemonic is piped straight into the env file and never touches stdout. What this prints is
 # variable NAMES, the fee address and the payout float address. It never prints the account xpub: an
 # xpub derives every deposit address (and, with one leaked leaf key, the account key), and the
 # workflow log is public. The workflow log is readable by anyone with repo access; assume it is public.
@@ -42,7 +42,7 @@ GENERATED="TREASURY_POSTGRES_PASSWORD ORCHESTRATOR_POSTGRES_PASSWORD MINT_AUTHOR
            TREASURY_INITIATOR_TOKEN TREASURY_APPROVER_TOKEN TREASURY_READONLY_TOKEN SIGNER_TOKEN \
            JWT_SECRET GRAFANA_ADMIN_PASSWORD"
 
-# The env file to fill. Defaults to .env, the testnet stack's. The mainnet treasury runs from
+# The env file to fill. Defaults to .env.testnet, the testnet stack's. The mainnet treasury runs from
 # its own file (compose --env-file .env.mainnet) and every secret in it MUST be a different value:
 # TRON addresses are network-agnostic, so a shared DEPOSIT_MNEMONIC derives the SAME deposit
 # addresses on both networks, and two orchestrators with separate databases would hand one address
@@ -50,24 +50,24 @@ GENERATED="TREASURY_POSTGRES_PASSWORD ORCHESTRATOR_POSTGRES_PASSWORD MINT_AUTHOR
 #
 # Nothing else changes. The no-overwrite rule matters more here, not less: replacing a mnemonic
 # orphans every address already handed out, on a network where those addresses hold real money.
-ENV_FILE="${ENV_FILE:-.env}"
+ENV_FILE="${ENV_FILE:-.env.testnet}"
 
 # The mainnet mint key is not generated here. It has to be made together with its address, because the
 # address goes into the genesis, and scripts/mainnet-mint-key.sh does both, once. A key generated here
 # would have no recorded address, and that script would then refuse to make the real one.
-if [ "$ENV_FILE" != ".env" ]; then GENERATED="${GENERATED/MINT_AUTHORITY_SECRET/}"; fi
+if [ "$ENV_FILE" != ".env.testnet" ]; then GENERATED="${GENERATED/MINT_AUTHORITY_SECRET/}"; fi
 
 # The xpub probe below starts the signer PINNED for this env file's stack, the same build that
 # runs, never `latest`: a newer build is code nobody has deployed yet.
-if [ "$ENV_FILE" = ".env" ]; then PIN_ENV=stage; else PIN_ENV=mainnet; fi
+if [ "$ENV_FILE" = ".env.testnet" ]; then PIN_ENV=stage; else PIN_ENV=mainnet; fi
 SIGNER_IMAGE="ghcr.io/clutchprotocol/clutch-tron-signer:$(bash "$(dirname "$0")/set-image.sh" "$PIN_ENV" clutch-tron-signer)"
 
 if [ ! -f "$ENV_FILE" ]; then
   echo "ABORT: no $ENV_FILE here ($(pwd)). Expected the stage deploy checkout."
-  if [ "$ENV_FILE" != ".env" ]; then
+  if [ "$ENV_FILE" != ".env.testnet" ]; then
     echo "Copy .env.mainnet.example to $ENV_FILE first and fill in CUSTODY_TRON_ADDRESS,"
     echo "TRONGRID_URL and USDT_CONTRACT. Everything else in it is generated here."
-    echo "Do NOT copy secrets across from .env: a shared DEPOSIT_MNEMONIC derives the same"
+    echo "Do NOT copy secrets across from .env.testnet: a shared DEPOSIT_MNEMONIC derives the same"
     echo "deposit addresses on both networks, and two orchestrators would hand one address"
     echo "to two different users."
   fi
@@ -166,7 +166,7 @@ echo "=== pinned settings (chain and token) ==="
 pin TRONGRID_URL "https://nile.trongrid.io"
 # Nile has TWO tokens reporting the symbol USDT. This is the one the faucet actually dispenses
 # (contract name TetherToken, matching mainnet USDT). The other, TXLAQ63Xg1NAzckPwKHvzw7CSEmLMEqcdj,
-# exists and answers "USDT" but nobody can obtain it -- deploy-stage.sh aborts if .env names it,
+# exists and answers "USDT" but nobody can obtain it -- deploy-stage.sh aborts if .env.testnet names it,
 # because a stage pinned to it is untestable by construction.
 pin USDT_CONTRACT "TXYZopYRdj2D9XRtbG411XZZ3kM5VkAeBf"
 
@@ -196,19 +196,19 @@ else
 fi
 
 # Where the mainnet dumps go: stage's rclone remote, in a folder of its own (mainnet_backup_remote).
-# Only for a file other than .env, and only when it has none: a remote of your own, put in by hand
+# Only for a file other than .env.testnet, and only when it has none: a remote of your own, put in by hand
 # first, wins. The value is not printed. The log is public, and it says where the backups live.
-if [ "$ENV_FILE" != ".env" ] && [ -f .env ]; then
+if [ "$ENV_FILE" != ".env.testnet" ] && [ -f .env.testnet ]; then
   . "$(dirname "$0")/lib/chain.sh"
   echo ""
   echo "=== backup remote ==="
   if has BACKUP_REMOTE; then
     echo "    BACKUP_REMOTE: already set, left alone"
-  elif remote=$(mainnet_backup_remote "$(sed -n 's/^BACKUP_REMOTE=//p' .env | head -1)"); then
+  elif remote=$(mainnet_backup_remote "$(sed -n 's/^BACKUP_REMOTE=//p' .env.testnet | head -1)"); then
     echo "BACKUP_REMOTE=$remote" >> "$ENV_FILE"
     echo "    BACKUP_REMOTE: written (stage's remote with /mainnet added; not printed, this log is public)"
   else
-    echo "    BACKUP_REMOTE: not written. .env has none, or its value cannot be extended safely."
+    echo "    BACKUP_REMOTE: not written. .env.testnet has none, or its value cannot be extended safely."
     echo "      Put one in by hand as a plain BACKUP_REMOTE=name:path line. Until then the mainnet"
     echo "      dumps stay on this disk."
   fi
@@ -230,7 +230,7 @@ echo "=== deposit wallet ==="
 if has DEPOSIT_MNEMONIC; then
   echo "    DEPOSIT_MNEMONIC: already set, left alone"
 else
-  # Piped straight into .env: the phrase can spend every deposit address, and a workflow log is
+  # Piped straight into the env file: the phrase can spend every deposit address, and a workflow log is
   # not a place it can ever appear. Unquoted on purpose -- Compose reads the rest of the line as
   # the value, and quotes would end up inside the phrase on some Compose versions.
   #
@@ -375,28 +375,6 @@ else
 fi
 echo ""
 
-# The orchestrator and the hub must share one JWT secret or nothing a user signs in with is
-# accepted. They are named differently on purpose -- the mainnet hub reads MAINNET_JWT_SECRET from
-# .env, while the orchestrator reads JWT_SECRET from its own file -- so this script generating a
-# fresh one here silently breaks the pair. Checked rather than generated-and-hoped.
-if [ "$ENV_FILE" != ".env" ] && [ -f .env ]; then
-  HUB=$(sed -n 's/^MAINNET_JWT_SECRET=//p' .env | head -1)
-  MINE=$(sed -n 's/^JWT_SECRET=//p' "$ENV_FILE" | head -1)
-  if [ -z "$HUB" ]; then
-    echo "WARNING: .env has no MAINNET_JWT_SECRET, so the mainnet hub API is not configured yet."
-    echo "         When it is, JWT_SECRET in $ENV_FILE must be set to that same value."
-  elif [ "$HUB" != "$MINE" ]; then
-    echo "ACTION NEEDED: JWT_SECRET in $ENV_FILE does not match MAINNET_JWT_SECRET in .env."
-    echo "  The mainnet hub signs tokens with one and this orchestrator verifies with the other,"
-    echo "  so every authenticated request would be refused. Align them without printing either:"
-    echo ""
-    echo "    V=\$(sed -n 's/^MAINNET_JWT_SECRET=//p' .env | head -1)"
-    echo "    sed -i \"s|^JWT_SECRET=.*|JWT_SECRET=\$V|\" $ENV_FILE"
-    echo ""
-  else
-    echo "JWT_SECRET matches MAINNET_JWT_SECRET in .env -- the hub and this orchestrator agree."
-  fi
-fi
 echo ""
 echo "=== $ENV_FILE now defines ==="
 grep -oE '^[A-Z_]+'  "$ENV_FILE" | sort | tr '\n' ' '

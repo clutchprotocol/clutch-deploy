@@ -99,7 +99,7 @@ What the routing does, and why:
 
 **The destination is Telegram, and neither value is in the repo.** `alertmanager.yml.tpl` is the
 committed config; `deploy-stage.sh` renders `alertmanager.yml` from it with the chat id substituted
-from `.env`, and writes the bot token to its own file for `bot_token_file`. Both outputs are
+from `.env.testnet`, and writes the bot token to its own file for `bot_token_file`. Both outputs are
 gitignored.
 
 A template rather than one secret file beside a committed config, because Telegram needs two values

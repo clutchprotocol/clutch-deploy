@@ -29,7 +29,7 @@
 # (sqlx's _sqlx_migrations table has no configurable name, so sharing one database corrupts
 # both migrators). This mirrors what the test rig already does per-crate.
 #
-# Every secret comes from .env. Nothing sensitive is defaulted inline — the one exception is
+# Every secret comes from .env.testnet. Nothing sensitive is defaulted inline — the one exception is
 # noted at APP_MINT_AUTHORITY_SECRET below, and it is a hard failure by design.
 services:
   treasury-postgres:
@@ -37,7 +37,7 @@ services:
     environment:
       POSTGRES_DB: treasury
       POSTGRES_USER: treasury
-      POSTGRES_PASSWORD: ${TREASURY_POSTGRES_PASSWORD:?set TREASURY_POSTGRES_PASSWORD in .env}
+      POSTGRES_PASSWORD: ${TREASURY_POSTGRES_PASSWORD:?set TREASURY_POSTGRES_PASSWORD in .env.testnet}
     volumes:
       - treasury-postgres-data:/var/lib/postgresql/data
     healthcheck:
@@ -54,7 +54,7 @@ services:
     environment:
       POSTGRES_DB: orchestrator
       POSTGRES_USER: orchestrator
-      POSTGRES_PASSWORD: ${ORCHESTRATOR_POSTGRES_PASSWORD:?set ORCHESTRATOR_POSTGRES_PASSWORD in .env}
+      POSTGRES_PASSWORD: ${ORCHESTRATOR_POSTGRES_PASSWORD:?set ORCHESTRATOR_POSTGRES_PASSWORD in .env.testnet}
     volumes:
       - orchestrator-postgres-data:/var/lib/postgresql/data
     healthcheck:
@@ -88,10 +88,10 @@ services:
       - APP_CHAIN_ID=${CHAIN_ID:-2077}
       # No default: the node refuses to mint without the authority key, and a placeholder here
       # would turn "misconfigured" into "silently signing with the wrong key".
-      - APP_MINT_AUTHORITY_SECRET=${MINT_AUTHORITY_SECRET:?set MINT_AUTHORITY_SECRET in .env}
-      - APP_INITIATOR_TOKEN=${TREASURY_INITIATOR_TOKEN:?set TREASURY_INITIATOR_TOKEN in .env}
-      - APP_APPROVER_TOKEN=${TREASURY_APPROVER_TOKEN:?set TREASURY_APPROVER_TOKEN in .env}
-      - APP_READONLY_TOKEN=${TREASURY_READONLY_TOKEN:?set TREASURY_READONLY_TOKEN in .env}
+      - APP_MINT_AUTHORITY_SECRET=${MINT_AUTHORITY_SECRET:?set MINT_AUTHORITY_SECRET in .env.testnet}
+      - APP_INITIATOR_TOKEN=${TREASURY_INITIATOR_TOKEN:?set TREASURY_INITIATOR_TOKEN in .env.testnet}
+      - APP_APPROVER_TOKEN=${TREASURY_APPROVER_TOKEN:?set TREASURY_APPROVER_TOKEN in .env.testnet}
+      - APP_READONLY_TOKEN=${TREASURY_READONLY_TOKEN:?set TREASURY_READONLY_TOKEN in .env.testnet}
       # TronGrid: read-only deposit verification. Without a key TronGrid still answers, but
       # rate-limits hard — fine for local, set one for stage.
       - APP_TRONGRID_URL=${TRONGRID_URL:-https://nile.trongrid.io}
@@ -119,7 +119,7 @@ services:
       - APP_USDT_CONTRACT=${USDT_CONTRACT:-TXYZopYRdj2D9XRtbG411XZZ3kM5VkAeBf}
       # Sweeps: this service decides WHEN, tron-signer knows HOW and owns the keys.
       - APP_SIGNER_URL=http://tron-signer:8093
-      - APP_SIGNER_TOKEN=${SIGNER_TOKEN:?set SIGNER_TOKEN in .env}
+      - APP_SIGNER_TOKEN=${SIGNER_TOKEN:?set SIGNER_TOKEN in .env.testnet}
       # Threshold, because a sweep costs TRX for energy and per-deposit sweeping can exceed what it
       # moves at the $1 minimum. The max age stops sub-threshold balances sitting forever and
       # fragmenting the reserve across addresses nobody revisits.
@@ -129,7 +129,7 @@ services:
       # place for a spending limit: the $990 correction for an overpaid deposit was refused by the
       # per-transaction cap ("amount 990000000 exceeds per-transaction cap 50000000 — escalate to
       # multisig"), and the only ways out were a code change or splitting the payment to get under
-      # the limit. Now it is one line in .env.
+      # the limit. Now it is one line in .env.testnet.
       #
       # These are pilot figures: $50 per transaction, $500 per day. Note they now gate ORDINARY
       # deposits too, not just manual corrections -- overpayments credit what actually arrived, so
@@ -155,8 +155,8 @@ services:
       # hand: this service holds no key material and must not be able to derive a spending address
       # itself, it only needs to know where to look. This is the payout float derived at
       # m/44'/195'/0'/2/0 from the stage deposit wallet -- changing DEPOSIT_MNEMONIC changes it too.
-      # Defaulted rather than `:?required` so stage keeps working without an .env edit; override
-      # in .env if the deposit wallet (and therefore this address) ever changes.
+      # Defaulted rather than `:?required` so stage keeps working without an .env.testnet edit; override
+      # in .env.testnet if the deposit wallet (and therefore this address) ever changes.
       - APP_PAYOUT_FLOAT_ADDRESS=${PAYOUT_FLOAT_ADDRESS:-TF5p9P2UqwzDEtwvMxaXprNPxMPzMy8Uur}
       # Rolling 24h payout ceiling in CLT BASE UNITS. AppConfig::load() has no default for this --
       # absent from config/default.toml, it panics at boot, not just at first payout.
@@ -201,7 +201,7 @@ services:
       # §6). OFF while GASFREE_NETWORK is blank, which is the default: every line below is then empty,
       # and this service runs the TRX rail exactly as before.
       #
-      # The SAME .env names feed treasury-service, payment-orchestrator and tron-signer, so the three
+      # The SAME .env.testnet names feed treasury-service, payment-orchestrator and tron-signer, so the three
       # cannot read different values. check-monitoring-config.yml asserts each service maps them, and
       # check-cap-invariants.sh, run before every stage deploy, asserts the set is complete. Once any
       # user has a GasFree address, keep these set for as long as that address exists or the GasFree
@@ -238,12 +238,12 @@ services:
       - RUST_LOG=${SIGNER_LOG_LEVEL:-info}
       # No default and no TOML fallback. A placeholder here would be a valid but DIFFERENT wallet,
       # and the first symptom is deposits arriving at addresses nothing can sweep.
-      - APP_DEPOSIT_MNEMONIC=${DEPOSIT_MNEMONIC:?set DEPOSIT_MNEMONIC in .env}
+      - APP_DEPOSIT_MNEMONIC=${DEPOSIT_MNEMONIC:?set DEPOSIT_MNEMONIC in .env.testnet}
       - APP_DEPOSIT_PASSPHRASE=${DEPOSIT_PASSPHRASE:-}
-      - APP_SIGNER_TOKEN=${SIGNER_TOKEN:?set SIGNER_TOKEN in .env}
+      - APP_SIGNER_TOKEN=${SIGNER_TOKEN:?set SIGNER_TOKEN in .env.testnet}
       # Where every sweep goes. NOT a request parameter — this line is the reason a compromised
       # caller cannot redirect funds.
-      - APP_TREASURY_ADDRESS=${CUSTODY_TRON_ADDRESS:?set CUSTODY_TRON_ADDRESS in .env}
+      - APP_TREASURY_ADDRESS=${CUSTODY_TRON_ADDRESS:?set CUSTODY_TRON_ADDRESS in .env.testnet}
       - APP_TRONGRID_URL=${TRONGRID_URL:-https://nile.trongrid.io}
       - APP_TRONGRID_API_KEY=${TRONGRID_API_KEY:-}
       - APP_USDT_CONTRACT=${USDT_CONTRACT:-TXYZopYRdj2D9XRtbG411XZZ3kM5VkAeBf}
@@ -258,11 +258,11 @@ services:
       # 25 USDT default: the payout float is deliberately small, and this bounds a single request
       # against it. Raise it deliberately, not to make a failing payout succeed.
       - APP_PER_TX_PAYOUT_CAP_USDT=${PER_TX_PAYOUT_CAP_USDT:-25000000}
-      # The GasFree rail, from the same .env names as treasury-service's (see there). This service
+      # The GasFree rail, from the same .env.testnet names as treasury-service's (see there). This service
       # turns it on by GASFREE_API_KEY, the other two by GASFREE_NETWORK; check-cap-invariants.sh
       # refuses a deploy with one set and not the other. TRANSFER_RAIL=gasfree here means payouts by
       # permit from the GasFree float. The key and secret are relay credentials: they cannot move money
-      # (only a permit signed here can), and they live only in the host's .env.
+      # (only a permit signed here can), and they live only in the host's .env.testnet.
       - APP_TRANSFER_RAIL=${TRANSFER_RAIL:-trx}
       - APP_GASFREE_NETWORK=${GASFREE_NETWORK:-}
       - APP_GASFREE_API_URL=${GASFREE_API_URL:-}
@@ -302,8 +302,8 @@ services:
       # calls localhost:8091 cross-origin.
       - APP_ALLOWED_ORIGINS=${ALLOWED_ORIGINS:-*}
       - APP_TREASURY_URL=http://treasury-service:8090
-      - APP_TREASURY_INITIATOR_TOKEN=${TREASURY_INITIATOR_TOKEN:?set TREASURY_INITIATOR_TOKEN in .env}
-      - APP_TREASURY_READONLY_TOKEN=${TREASURY_READONLY_TOKEN:?set TREASURY_READONLY_TOKEN in .env}
+      - APP_TREASURY_INITIATOR_TOKEN=${TREASURY_INITIATOR_TOKEN:?set TREASURY_INITIATOR_TOKEN in .env.testnet}
+      - APP_TREASURY_READONLY_TOKEN=${TREASURY_READONLY_TOKEN:?set TREASURY_READONLY_TOKEN in .env.testnet}
       # NOT where users pay -- each intent gets its own derived address now. This is the sweep
       # destination, where the signer consolidates deposits after they are credited.
       - APP_CUSTODY_TRON_ADDRESS=${CUSTODY_TRON_ADDRESS:-}
@@ -314,7 +314,7 @@ services:
       # Hard-fails rather than defaulting. There is no safe default -- a placeholder would derive
       # addresses from a wallet nobody holds the keys to, and every deposit paid into one would be
       # unrecoverable. Read the value off the signer's /internal/xpub so it cannot be mistyped.
-      - APP_DEPOSIT_ACCOUNT_XPUB=${DEPOSIT_ACCOUNT_XPUB:?set DEPOSIT_ACCOUNT_XPUB in .env}
+      - APP_DEPOSIT_ACCOUNT_XPUB=${DEPOSIT_ACCOUNT_XPUB:?set DEPOSIT_ACCOUNT_XPUB in .env.testnet}
       # This service watches the derived addresses itself (custody.rs), matching USDT transfers by
       # DESTINATION. Must name the same network the contract lives on, or every deposit goes
       # unmatched forever.
@@ -370,7 +370,7 @@ services:
       # Rollout gate. Off means no NEW addresses are issued; it does not un-issue the ones already
       # handed out, and money sent to an address nothing watches is money nobody credits.
       - APP_PERMANENT_DEPOSIT_ADDRESSES_ENABLED=${PERMANENT_DEPOSIT_ADDRESSES_ENABLED:-true}
-      # The GasFree rail, from the same .env names as treasury-service's (see there). With
+      # The GasFree rail, from the same .env.testnet names as treasury-service's (see there). With
       # TRANSFER_RAIL=gasfree a new user is given a GasFree address, shown with the fee "up to" and
       # the minimum; a user keeps the kind of address they were given.
       - APP_TRANSFER_RAIL=${TRANSFER_RAIL:-trx}

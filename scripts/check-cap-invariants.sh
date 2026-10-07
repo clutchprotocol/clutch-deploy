@@ -11,7 +11,7 @@
 #
 #   bash scripts/check-cap-invariants.sh
 #
-# Reads the live values from .env (or the file ENV_FILE names) where set, falling back to the compose defaults, so it checks the
+# Reads the live values from .env.testnet (or the file ENV_FILE names) where set, falling back to the compose defaults, so it checks the
 # configuration that will actually run rather than the one in the file you last edited.
 #
 # "The compose defaults" are the STAGE compose file's defaults, also when ENV_FILE names
@@ -23,7 +23,7 @@ set -euo pipefail
 
 cd "$(dirname "$0")/.."
 
-# The file the live values come from: .env (the stage stack) unless ENV_FILE names another, as the
+# The file the live values come from: .env.testnet (the stage stack) unless ENV_FILE names another, as the
 # mainnet treasury's is .env.mainnet. Relative to the repository root, where this script runs.
 # A name that is not a file is refused: a typo must not fall back to the defaults and pass.
 if [ -n "${ENV_FILE:-}" ] && [ ! -f "$ENV_FILE" ]; then
@@ -37,24 +37,24 @@ if [ -n "${ENV_FILE:-}" ] && [ ! -r "$ENV_FILE" ]; then
   echo "ABORT: ENV_FILE is '$ENV_FILE', but it is not readable by this user." >&2
   exit 1
 fi
-ENV_FILE="${ENV_FILE:-.env}"
+ENV_FILE="${ENV_FILE:-.env.testnet}"
 
 fail=0
 note() { printf '  %s\n' "$1"; }
 ok()   { printf 'OK    %s\n' "$1"; }
 bad()  { printf 'FAIL  %s\n' "$1"; fail=1; }
 
-# The process environment first, then .env, then the compose default.
+# The process environment first, then the env file, then the compose default.
 #
 # The environment comes first so a cap set can be checked BEFORE the host that will run it exists:
 #
 #   PER_TX_MINT_CAP_CLT=1000000000 DAILY_MINT_CAP_CLT=2000000000 #     MAX_REDEMPTION_CLT=200000000 PER_TX_PAYOUT_CAP_USDT=200000000 #     MIN_REDEMPTION_CLT=25000000 bash scripts/check-cap-invariants.sh
 #
 # That is what readiness item B4 needs and could not have: the mainnet numbers are decided long
-# before there is a mainnet `.env` to put them in, and "we will check the relationships when we
+# before there is a `.env.mainnet` to put them in, and "we will check the relationships when we
 # provision it" is how a set gets provisioned unchecked.
 #
-# .env is read by grep rather than sourced: sourcing executes whatever is in it and would pull
+# The env file is read by grep rather than sourced: sourcing executes whatever is in it and would pull
 # DEPOSIT_MNEMONIC into this script's environment for no reason.
 val() {
   local name="$1" default="$2" v=""
@@ -176,7 +176,7 @@ if [ "$RAIL" = "gasfree" ] && [ -z "$GF_NETWORK" ]; then
   bad "TRANSFER_RAIL=gasfree needs GASFREE_NETWORK and the other GasFree settings — every treasury service refuses to start"
 fi
 # 7, the other direction. tron-signer turns GasFree on by its API key alone, and then refuses to start
-# without GASFREE_NETWORK and the rest. A key left in .env with GasFree off — the probe reads it — would
+# without GASFREE_NETWORK and the rest. A key left in an env file with GasFree off — the probe reads it — would
 # stop the signer at the next deploy.
 if [ -z "$GF_NETWORK" ] && [ -n "$(val GASFREE_API_KEY "")" ]; then
   bad "GASFREE_API_KEY is set while GASFREE_NETWORK is not — tron-signer would turn GasFree on and refuse to start. Comment out GASFREE_API_KEY and GASFREE_API_SECRET, or set the whole GasFree block (docs/ON-CALL.md, 'The GasFree rail')"

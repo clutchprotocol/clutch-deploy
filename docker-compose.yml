@@ -88,7 +88,7 @@ services:
     ports:
       - "3000:3000"
     # Everything else, the node it reads included, is in config/api/default.toml. The hub reads
-    # APP_* variables only, and it gets only these: no `env_file`, which handed it the whole .env,
+    # APP_* variables only, and it gets only these: no `env_file`, which handed it the whole .env.testnet,
     # the treasury's secrets included.
     environment:
       - APP_SEQ_API_KEY=${SEQ_API_KEY:-}
@@ -138,7 +138,7 @@ services:
   #
   # Neither Telegram value is in the image or in git. deploy-stage.sh renders alertmanager.yml from
   # the committed .tpl (substituting the chat id) and writes the bot token to its own file, both
-  # from the host's .env. Routing stays reviewable in git; the credentials stay in .env.
+  # from the host's .env.testnet. Routing stays reviewable in git; the credentials stay in .env.testnet.
   alertmanager:
     image: prom/alertmanager:v0.27.0
     networks:
@@ -171,7 +171,7 @@ services:
     environment:
       - GF_SERVER_HTTP_PORT=3030
       # Was hardcoded 'admin'. Committed value is a fallback only — override with
-      # GRAFANA_ADMIN_PASSWORD in .env per environment. Grafana re-applies this to the
+      # GRAFANA_ADMIN_PASSWORD in .env.testnet per environment. Grafana re-applies this to the
       # admin user on every restart, so a redeploy rotates it.
       - "GF_SECURITY_ADMIN_PASSWORD=${GRAFANA_ADMIN_PASSWORD:?not set. Run provision-treasury-secrets.yml}"
       - GF_SECURITY_ALLOW_EMBEDDING=true
@@ -218,7 +218,7 @@ services:
     ports:
       - "8088:8088"
     # Only what is secret or set per host; the rest is config/explorer/default.toml, which the
-    # indexer below reads too. No `env_file`: it handed the explorer the whole .env.
+    # indexer below reads too. No `env_file`: it handed the explorer the whole .env.testnet.
     environment:
       - APP_DATABASE_URL=postgres://${EXPLORER_POSTGRES_USER:-postgres}:${EXPLORER_POSTGRES_PASSWORD:-postgres}@clutch-explorer-postgres:5432/${EXPLORER_POSTGRES_DB:-clutch_explorer}
       - APP_SEQ_API_KEY=${SEQ_API_KEY:-}
@@ -244,7 +244,7 @@ services:
       - clutch-explorer-postgres
     command: ["/usr/local/bin/indexer", "--env", "default"]
     # The node it reads (node3, the same for head and blocks) and its poll settings are in
-    # config/explorer/default.toml. No `env_file`: it handed the indexer the whole .env.
+    # config/explorer/default.toml. No `env_file`: it handed the indexer the whole .env.testnet.
     environment:
       - APP_DATABASE_URL=postgres://${EXPLORER_POSTGRES_USER:-postgres}:${EXPLORER_POSTGRES_PASSWORD:-postgres}@clutch-explorer-postgres:5432/${EXPLORER_POSTGRES_DB:-clutch_explorer}
       - APP_SEQ_API_KEY=${SEQ_API_KEY:-}

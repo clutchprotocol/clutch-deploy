@@ -9,7 +9,7 @@
 # chain_select sets, and only sets, these variables:
 #
 #   CH_NAME          stage | mainnet
-#   CH_ENV_FILE      the env file that stack reads: .env | .env.mainnet
+#   CH_ENV_FILE      the env file that network reads: .env.testnet | .env.mainnet
 #   CH_PROJECT       the compose project
 #   CH_SVC_TREASURY  the compose service names of the three app services
 #   CH_SVC_SIGNER
@@ -29,7 +29,11 @@ chain_select() {
   case "${1:-stage}" in
     stage)
       CH_NAME=stage
-      CH_ENV_FILE=.env
+      CH_ENV_FILE=.env.testnet
+      # Until migrate-env-files.sh has split a host's files (the first stage deploy after it
+      # shipped does it), the testnet settings are still in .env. The tools keep working there,
+      # so halting minting never waits on that.
+      if [ ! -f .env.testnet ] && [ -f .env ]; then CH_ENV_FILE=.env; fi
       CH_PROJECT=clutch-stage
       CH_SVC_TREASURY=treasury-service
       CH_SVC_SIGNER=tron-signer
@@ -66,13 +70,13 @@ chain_select() {
 }
 
 # The arguments `docker compose` takes for the selected stack, one per line so a path with a space
-# cannot split. Stage is the four files its deploy uses; mainnet is its one file and its own env file,
-# which is what keeps its secrets apart from the testnet's.
+# cannot split. Stage is the four files its deploy uses; mainnet is its one file. Each names its own
+# env file, which is what keeps the two networks' secrets apart.
 chain_compose_args() {
   if [ "$CH_NAME" = mainnet ]; then
     printf '%s\n' -p "$CH_PROJECT" --env-file "$CH_ENV_FILE" -f docker-compose.mainnet.treasury.yml
   else
-    printf '%s\n' -p "$CH_PROJECT" -f docker-compose.yml -f docker-compose.treasury.yml \
+    printf '%s\n' -p "$CH_PROJECT" --env-file "$CH_ENV_FILE" -f docker-compose.yml -f docker-compose.treasury.yml \
       -f docker-compose.stage.cloudflare-flex.yml -f docker-compose.stage.treasury.yml
   fi
 }

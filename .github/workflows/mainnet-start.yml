@@ -40,7 +40,7 @@ jobs:
           [ -n "$DEPLOY_PATH" ] || { echo "::error::STAGE_DEPLOY_PATH is empty"; exit 1; }
           sudo apt-get update -qq && sudo apt-get install -y -qq sshpass >/dev/null
 
-          # No `set -x`: the host .env holds the deposit mnemonic and the mint credentials.
+          # No `set -x`: the host env files hold the deposit mnemonic and the mint credentials.
           # Captured and printed unconditionally, because on a failure the remote's explanation is
           # the entire value of the run.
           set +e

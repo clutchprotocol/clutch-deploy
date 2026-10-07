@@ -8,7 +8,7 @@
 # and the failure it guards against — host loss — arrives without warning.
 #
 # This does NOT close D1 on its own. D1 needs the dumps to land off host (BACKUP_REMOTE set on the
-# host's .env) and a restore to have actually been performed. See docs/BACKUP-RESTORE.md.
+# host's env file) and a restore to have actually been performed. See docs/BACKUP-RESTORE.md.
 
 name: Backup treasury databases (stage)
 

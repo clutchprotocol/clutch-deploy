@@ -21,7 +21,7 @@
 #   RESET_CHAIN=true   DESTRUCTIVE. `down -v`: wipes the chain, explorer DB, monitoring and the
 #                      treasury and orchestrator databases. Only for a genesis change.
 #
-# Whether the treasury is deployed is derived from .env, never passed in; see the comment below.
+# Whether the treasury is deployed is derived from .env.testnet, never passed in; see the comment below.
 
 set -euo pipefail
 # -E so the ERR trap survives into functions, subshells and command substitutions;
@@ -35,7 +35,14 @@ set -E
 # shellcheck disable=SC2154  # rc is assigned by the trap body itself, at fire time.
 trap 'rc=$?; echo "SCRIPT FAILED rc=$rc at line $LINENO: $BASH_COMMAND"; exit $rc' ERR
 
-# Is the treasury part of this deployment? DERIVED from the host's own .env, not from
+# One env file per network: .env.testnet for this stack, .env.mainnet for all of mainnet. The deploy
+# that shipped the split made it on this host (the old .env moved to backups/env-split-*); after that
+# this is a no-op. It writes nothing unless every project renders exactly as before.
+bash scripts/migrate-env-files.sh
+ENV_FILE=.env.testnet
+[ -f "$ENV_FILE" ] || { echo "DEPLOY ABORTED — no $ENV_FILE on this host. Nothing was changed."; exit 1; }
+
+# Is the treasury part of this deployment? DERIVED from the host's own .env.testnet, not from
 # a workflow input.
 #
 # Two reasons it can't be an input. `inputs` is only populated for workflow_dispatch —
@@ -45,7 +52,7 @@ trap 'rc=$?; echo "SCRIPT FAILED rc=$rc at line $LINENO: $BASH_COMMAND"; exit $r
 # payment-orchestrator as orphans, reporting success while doing it. And a manual toggle is state that drifts from reality.
 #
 # The secrets ARE the switch: the treasury cannot run without them, so their presence
-# is the honest signal. Add them to .env to enable it, remove them to disable. Every
+# is the honest signal. Add them to .env.testnet to enable it, remove them to disable. Every
 # trigger then behaves identically, with nothing to keep in sync.
 TREASURY_VARS="TREASURY_POSTGRES_PASSWORD ORCHESTRATOR_POSTGRES_PASSWORD \
                MINT_AUTHORITY_SECRET TREASURY_INITIATOR_TOKEN \
@@ -54,17 +61,17 @@ TREASURY_VARS="TREASURY_POSTGRES_PASSWORD ORCHESTRATOR_POSTGRES_PASSWORD \
 TREASURY_VAR_COUNT=9
 present=0; missing=""
 for v in $TREASURY_VARS; do
-  if grep -qE "^${v}=.+" .env 2>/dev/null; then present=$((present+1)); else missing="$missing $v"; fi
+  if grep -qE "^${v}=.+" "$ENV_FILE" 2>/dev/null; then present=$((present+1)); else missing="$missing $v"; fi
 done
 
 TREASURY="false"
 if [ "$present" -eq "$TREASURY_VAR_COUNT" ]; then
   TREASURY="true"
-  echo "treasury: ENABLED (all $TREASURY_VAR_COUNT secrets present in .env)"
+  echo "treasury: ENABLED (all $TREASURY_VAR_COUNT secrets present in .env.testnet)"
 elif [ "$present" -gt 0 ]; then
   # Half-configured is a mistake, not an intention — refuse rather than quietly
   # deploying core-only and orphaning whatever treasury containers are running.
-  echo "DEPLOY ABORTED — .env has $present of $TREASURY_VAR_COUNT treasury secrets. Missing:"
+  echo "DEPLOY ABORTED — .env.testnet has $present of $TREASURY_VAR_COUNT treasury secrets. Missing:"
   for v in $missing; do echo "  - $v"; done
   echo ""
   echo "Nothing was changed. Add the rest to enable the treasury, or remove them all"
@@ -79,10 +86,10 @@ elif [ "$present" -gt 0 ]; then
   echo "symptom is a user paying into an address no key exists for."
   exit 1
 else
-  echo "treasury: disabled (no treasury secrets in .env) — deploying core stack only"
+  echo "treasury: disabled (no treasury secrets in .env.testnet) — deploying core stack only"
 fi
 
-# .env overrides the compose default, so fixing the default is not enough on a host that pins it.
+# .env.testnet overrides the compose default, so fixing the default is not enough on a host that pins it.
 #
 # TXLAQ63Xg1NAzckPwKHvzw7CSEmLMEqcdj exists on Nile and reports symbol "USDT", which is why it was
 # picked — but the nileex.io faucet dispenses a DIFFERENT token, so nobody can obtain it and no
@@ -93,8 +100,8 @@ fi
 #
 # Abort rather than warn. A stage that looks deployed and cannot process a deposit is the exact
 # failure shape that has cost the most time here.
-if [ "$TREASURY" = "true" ] && grep -q '^USDT_CONTRACT=TXLAQ63Xg1NAzckPwKHvzw7CSEmLMEqcdj' .env 2>/dev/null; then
-  echo "DEPLOY ABORTED — .env pins a retired USDT contract:"
+if [ "$TREASURY" = "true" ] && grep -q '^USDT_CONTRACT=TXLAQ63Xg1NAzckPwKHvzw7CSEmLMEqcdj' "$ENV_FILE" 2>/dev/null; then
+  echo "DEPLOY ABORTED — .env.testnet pins a retired USDT contract:"
   echo "    USDT_CONTRACT=TXLAQ63Xg1NAzckPwKHvzw7CSEmLMEqcdj"
   echo ""
   echo "Nothing was changed. Replace that line with the faucet-dispensed Nile token:"
@@ -123,7 +130,7 @@ fi
 # path, after which Alertmanager fails to start for a reason that reads nothing like "nobody has
 # chosen a destination yet". Placeholders fail visibly in Alertmanager's own log instead.
 env_value() {
-  grep -E "^$1=" .env 2>/dev/null | head -1 | cut -d= -f2- | sed -e 's/^"//' -e 's/"$//' || true
+  grep -E "^$1=" "$ENV_FILE" 2>/dev/null | head -1 | cut -d= -f2- | sed -e 's/^"//' -e 's/"$//' || true
 }
 ALERT_TELEGRAM_BOT_TOKEN="$(env_value ALERT_TELEGRAM_BOT_TOKEN)"
 ALERT_TELEGRAM_CHAT_ID="$(env_value ALERT_TELEGRAM_CHAT_ID)"
@@ -140,7 +147,7 @@ if [ -n "$ALERT_TELEGRAM_BOT_TOKEN" ] && [ -n "$ALERT_TELEGRAM_CHAT_ID" ]; then
     exit 1
   fi
   sed "s/__TELEGRAM_CHAT_ID__/$ALERT_TELEGRAM_CHAT_ID/"     config/monitoring/alertmanager/alertmanager.yml.tpl     > config/monitoring/alertmanager/alertmanager.yml
-  echo "Alertmanager: Telegram destination configured from .env"
+  echo "Alertmanager: Telegram destination configured from .env.testnet"
 else
   printf '%s' 'placeholder-no-telegram-bot-token-configured' > config/monitoring/alertmanager/telegram-token
   # Delete the whole telegram block rather than rendering a placeholder chat_id into it. A
@@ -148,7 +155,7 @@ else
   # Alertmanager's own config validation, which crash-loops the container and makes "nobody has
   # chosen a destination yet" look like an outage. Shipped that way once.
   sed '/__TELEGRAM_BEGIN__/,/__TELEGRAM_END__/d'     config/monitoring/alertmanager/alertmanager.yml.tpl     > config/monitoring/alertmanager/alertmanager.yml
-  echo "Alertmanager: ALERT_TELEGRAM_BOT_TOKEN/CHAT_ID not set in .env — rules will fire and reach nobody."
+  echo "Alertmanager: ALERT_TELEGRAM_BOT_TOKEN/CHAT_ID not set in .env.testnet — rules will fire and reach nobody."
   echo "  Readiness item D3 is not closed by having the rules. Set them, then force a failure to test."
 fi
 # The token file has to be readable BY ALERTMANAGER, which runs as nobody (65534) in the official
@@ -191,17 +198,17 @@ echo "Compose files: ${FILES[*]}"
 # offline: the teardown succeeded, `pull` failed with "repository does not exist", and
 # `script_stop` aborted before anything came back up. Pulling first means an image
 # problem fails while the old stack is still serving.
-docker compose -p clutch-stage "${FILES[@]}" pull
+docker compose -p clutch-stage --env-file "$ENV_FILE" "${FILES[@]}" pull
 
 # Opt-in, never a default. A plain deploy must never destroy stage data; this exists
 # for the one case that genuinely needs it — a genesis change, where the new ChainInit
 # genesis cannot import onto the old chain and every node would refuse to start.
 if [ "${RESET_CHAIN:-false}" = "true" ]; then
   echo "reset_chain=true — tearing down WITH VOLUMES (chain, explorer DB, monitoring, treasury DBs)"
-  docker compose -p clutch-stage "${FILES[@]}" down -v --remove-orphans
+  docker compose -p clutch-stage --env-file "$ENV_FILE" "${FILES[@]}" down -v --remove-orphans
 fi
 
-docker compose -p clutch-stage "${FILES[@]}" up -d --force-recreate --remove-orphans
+docker compose -p clutch-stage --env-file "$ENV_FILE" "${FILES[@]}" up -d --force-recreate --remove-orphans
 
 # ---------------------------------------------------------------------------
 # nginx on this host is NOT ours.

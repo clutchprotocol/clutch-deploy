@@ -74,7 +74,7 @@ jobs:
           [ -n "$DEPLOY_PATH" ] || { echo "::error::STAGE_DEPLOY_PATH is empty"; exit 1; }
           sudo apt-get update -qq && sudo apt-get install -y -qq sshpass >/dev/null
 
-          # No `set -x`: the host .env holds the deposit mnemonic and the mint credentials.
+          # No `set -x`: the host env files hold the deposit mnemonic and the mint credentials.
           remote=$(cat <<'REMOTE'
           set -euo pipefail
           cd "$DEPLOY_PATH_R"
@@ -84,17 +84,19 @@ jobs:
           # fast-forward to multiple branches". A failed pull stops the run rather than deploying
           # the previous commit.
           git pull --ff-only origin main
-          C="docker compose -p clutch-main -f docker-compose.mainnet.yml"
+          # One env file per network; a host that still has the old shared .env is split first.
+          bash scripts/migrate-env-files.sh
+          C="docker compose -p clutch-main --env-file .env.mainnet -f docker-compose.mainnet.yml"
 
-          if ! grep -q '^MAINNET_JWT_SECRET=' .env; then
-            echo "::error::MAINNET_JWT_SECRET is not in .env"
-            echo "It must be a DIFFERENT value from JWT_SECRET. Sharing one would make a token"
-            echo "issued by the testnet hub valid on the mainnet hub."
-            echo "Generate one on this host with:  openssl rand -hex 32"
+          # The mainnet hub signs user tokens with .env.mainnet's JWT_SECRET, the one the mainnet
+          # orchestrator trusts. It must differ from the testnet's, or a token issued by the testnet
+          # hub would be valid on mainnet.
+          if ! grep -q '^JWT_SECRET=.' .env.mainnet; then
+            echo "::error::JWT_SECRET is not in .env.mainnet"
             exit 1
           fi
-          if [ "$(grep '^MAINNET_JWT_SECRET=' .env | cut -d= -f2-)" = "$(grep '^JWT_SECRET=' .env | cut -d= -f2-)" ]; then
-            echo "::error::MAINNET_JWT_SECRET is identical to JWT_SECRET. Refusing."
+          if [ "$(grep '^JWT_SECRET=' .env.mainnet | cut -d= -f2-)" = "$(grep '^JWT_SECRET=' .env.testnet | cut -d= -f2-)" ]; then
+            echo "::error::JWT_SECRET is the same in .env.mainnet and .env.testnet. Refusing."
             exit 1
           fi
 

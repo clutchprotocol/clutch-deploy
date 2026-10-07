@@ -18,7 +18,7 @@ set -euo pipefail
 cd "$(dirname "$0")/.."
 
 PROJECT=clutch-main
-COMPOSE="docker compose -p ${PROJECT} -f docker-compose.mainnet.yml"
+COMPOSE="docker compose -p ${PROJECT} --env-file .env.mainnet -f docker-compose.mainnet.yml"
 NET=clutch-mainnet
 CURL_IMAGE=curlimages/curl:8.10.1
 
@@ -41,12 +41,14 @@ say "check-genesis, with the mainnet rules"
 CONFIG_DIR=config/node-mainnet MAINNET=1 bash scripts/check-genesis.sh
 
 say "validator secrets"
-[ -f .env ] || die "no .env on this host"
+# One env file per network; a host that still has the old shared .env is split first (a no-op after).
+bash scripts/migrate-env-files.sh
+[ -f .env.mainnet ] || die "no .env.mainnet on this host"
 missing=""
 for i in 1 2 3; do
-  if ! grep -q "^MAINNET_NODE${i}_AUTHOR_SECRET=" .env; then missing="$missing node${i}"; fi
+  if ! grep -q "^MAINNET_NODE${i}_AUTHOR_SECRET=" .env.mainnet; then missing="$missing node${i}"; fi
 done
-[ -z "$missing" ] || die "the .env is missing validator secrets for:$missing — run the keygen workflow"
+[ -z "$missing" ] || die ".env.mainnet is missing validator secrets for:$missing — run the keygen workflow"
 echo "all three present (values not printed)"
 
 say "is a mainnet chain already running?"

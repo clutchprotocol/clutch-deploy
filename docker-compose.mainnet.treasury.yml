@@ -199,9 +199,9 @@ services:
     environment:
       - RUST_LOG=${ORCHESTRATOR_LOG_LEVEL:-info}
       - APP_DATABASE_URL=postgres://orchestrator:${ORCHESTRATOR_POSTGRES_PASSWORD}@orchestrator-postgres:5432/orchestrator
-      # The secret the MAINNET hub API signs user JWTs with (.env's MAINNET_JWT_SECRET), copied into
-      # this file's JWT_SECRET. mainnet-treasury-up.sh refuses a start when the two differ.
-      - "APP_JWT_SECRET=${JWT_SECRET:?set JWT_SECRET in .env.mainnet — it must equal MAINNET_JWT_SECRET from .env. Run provision-treasury-secrets.yml}"
+      # The secret the MAINNET hub API signs user JWTs with: the same JWT_SECRET, read from this same
+      # file by docker-compose.mainnet.yml, so the two cannot drift apart.
+      - "APP_JWT_SECRET=${JWT_SECRET:?set JWT_SECRET in .env.mainnet. Run provision-treasury-secrets.yml}"
       - APP_ALLOWED_ORIGINS=${MAINNET_ALLOWED_ORIGINS:-https://app.clutchprotocol.io}
       # Who may use mainnet while it is a pilot: the addresses, comma-separated, or * for everyone.
       # Required, so that a start with no list stops here and cannot open mainnet to everyone. An

@@ -375,7 +375,7 @@ if [ "$PROBE" = "balance" ]; then
   : "${ADDRESS:?ADDRESS must be set for the balance probe}"
 
   PG=clutch-stage-clutch-explorer-postgres-1
-  # Credentials come from EXPLORER_POSTGRES_{USER,DB} in .env, so read them out of the container
+  # Credentials come from EXPLORER_POSTGRES_{USER,DB} in .env.testnet, so read them out of the container
   # rather than hardcoding: guessing "explorer" failed with role "explorer" does not exist.
   PGU=$(docker exec "$PG" printenv POSTGRES_USER)
   PGD=$(docker exec "$PG" printenv POSTGRES_DB)
@@ -964,7 +964,7 @@ if [ "$PROBE" = "mainnet" ]; then
   # all of it would make the testnet probe harder to read for no gain.
   MP=clutch-main
   MNET=clutch-mainnet
-  MCOMPOSE="docker compose -p ${MP} -f docker-compose.mainnet.yml"
+  MCOMPOSE="docker compose -p ${MP} --env-file .env.mainnet -f docker-compose.mainnet.yml"
 
   echo "=== containers ==="
   docker ps -a --filter "label=com.docker.compose.project=${MP}" \
@@ -1080,7 +1080,7 @@ if [ "$PROBE" = "gasfree" ]; then
   # runs against the real thing.
   #
   # Read-only. It signs a GET and prints fees, which are public. The API key and secret are read
-  # from this host's .env (Nile) and .env.mainnet (mainnet) and never printed; a request that fails
+  # from this host's .env.testnet (Nile) and .env.mainnet (mainnet) and never printed; a request that fails
   # prints the server's reply, not the credentials that produced it.
 
   # A signed GET to the relay: gf_get <host> <path> <key> <secret>. The key pair is an argument,
@@ -1097,10 +1097,10 @@ if [ "$PROBE" = "gasfree" ]; then
   }
 
   echo "=== GasFree fee table ==="
-  GF_KEY=$(sed -n 's/^GASFREE_API_KEY=//p' .env 2>/dev/null | head -1)
-  GF_SECRET=$(sed -n 's/^GASFREE_API_SECRET=//p' .env 2>/dev/null | head -1)
+  GF_KEY=$(sed -n 's/^GASFREE_API_KEY=//p' .env.testnet 2>/dev/null | head -1)
+  GF_SECRET=$(sed -n 's/^GASFREE_API_SECRET=//p' .env.testnet 2>/dev/null | head -1)
   if [ -z "$GF_KEY" ] || [ -z "$GF_SECRET" ]; then
-    echo "    GASFREE_API_KEY / GASFREE_API_SECRET are not in .env."
+    echo "    GASFREE_API_KEY / GASFREE_API_SECRET are not in .env.testnet."
     echo "    Add both, unquoted, only together with the whole GasFree block (docs/ON-CALL.md, 'The GasFree rail'): alone, the next stage deploy stops at check-cap-invariants.sh."
   else
     # The Nile pair only. Mainnet has its own key pair, read below from .env.mainnet: the Nile pair
@@ -1127,8 +1127,8 @@ if [ "$PROBE" = "gasfree" ]; then
       gf_get "$2" "$3/api/v1/address/TMVQGm1qAQYVdetCeGRRkTWYYrLXuHK2HC" "$GF_KEY" "$GF_SECRET" | head -c 1500 | sed 's/^/      /'; echo
     done
     # What this host is set to, against the live network (the design's §7). The network is the one
-    # in .env; with GASFREE_NETWORK unset GasFree is off here and there is nothing to compare.
-    GF_NET=$(sed -n 's/^GASFREE_NETWORK=//p' .env 2>/dev/null | head -1)
+    # in .env.testnet; with GASFREE_NETWORK unset GasFree is off here and there is nothing to compare.
+    GF_NET=$(sed -n 's/^GASFREE_NETWORK=//p' .env.testnet 2>/dev/null | head -1)
     case "$GF_NET" in
       nile)    GF_HOST=https://open-test.gasfree.io GF_PREFIX=/nile
                GF_BEACON=TLtCGmaxH3PbuaF6kbybwteZcHptEdgQGC GF_CONTROLLER=THQGuFzL87ZqhxkgqYEryRAd7gqFqL5rdc ;;
@@ -1139,12 +1139,12 @@ if [ "$PROBE" = "gasfree" ]; then
     echo ""
     echo "=== this host's GasFree settings against the live network (GASFREE_NETWORK=${GF_NET:-unset}) ==="
     if [ -z "$GF_HOST" ]; then
-      echo "    GASFREE_NETWORK is not nile or mainnet in .env: GasFree is off here, nothing to compare."
+      echo "    GASFREE_NETWORK is not nile or mainnet in .env.testnet: GasFree is off here, nothing to compare."
     else
-      GF_TOKEN=$(sed -n 's/^USDT_CONTRACT=//p' .env 2>/dev/null | head -1)
+      GF_TOKEN=$(sed -n 's/^USDT_CONTRACT=//p' .env.testnet 2>/dev/null | head -1)
       [ -n "$GF_TOKEN" ] || GF_TOKEN=TXYZopYRdj2D9XRtbG411XZZ3kM5VkAeBf
-      GF_ACT=$(sed -n 's/^GASFREE_ACTIVATE_FEE_MAX_USDT=//p' .env 2>/dev/null | head -1)
-      GF_XFER=$(sed -n 's/^GASFREE_TRANSFER_FEE_MAX_USDT=//p' .env 2>/dev/null | head -1)
+      GF_ACT=$(sed -n 's/^GASFREE_ACTIVATE_FEE_MAX_USDT=//p' .env.testnet 2>/dev/null | head -1)
+      GF_XFER=$(sed -n 's/^GASFREE_TRANSFER_FEE_MAX_USDT=//p' .env.testnet 2>/dev/null | head -1)
       echo "--- live fees against the maxima ---"
       gf_get "$GF_HOST" "$GF_PREFIX/api/v1/config/token/all" "$GF_KEY" "$GF_SECRET" \
         | bash scripts/gasfree-fee-check.sh "$GF_TOKEN" "${GF_ACT:-0}" "${GF_XFER:-0}" | sed 's/^/    /'
@@ -1161,7 +1161,7 @@ if [ "$PROBE" = "gasfree" ]; then
           2>/dev/null | sed -n 's/.*"constant_result"[ ]*:[ ]*\["\([0-9a-fA-F]*\)".*/\1/p')
         live="${word:24:40}"
         live="${live,,}"
-        want=$(sed -n "s/^$3=//p" .env 2>/dev/null | head -1)
+        want=$(sed -n "s/^$3=//p" .env.testnet 2>/dev/null | head -1)
         want="${want#0x}"
         want="${want,,}"
         if [ -z "$live" ]; then
@@ -1178,7 +1178,7 @@ if [ "$PROBE" = "gasfree" ]; then
         'curl -fsS -H "Authorization: Bearer $APP_SIGNER_TOKEN" http://localhost:8093/internal/xpub' 2>/dev/null \
         | sed -n 's/.*"payout_gasfree_address"[ ]*:[ ]*"\([^"]*\)".*/\1/p')
       if [ -z "$GF_FLOAT" ]; then
-        echo "    tron-signer names no GasFree float: not deployed since GasFree was set in .env, or GasFree is off in tron-signer (GASFREE_API_KEY unset)"
+        echo "    tron-signer names no GasFree float: not deployed since GasFree was set in .env.testnet, or GasFree is off in tron-signer (GASFREE_API_KEY unset)"
       else
         GF_CONTRACT=$(docker exec clutch-stage-tron-signer-1 sh -c \
           "curl -fsS -X POST \"\$APP_TRONGRID_URL/wallet/getcontract\" \
@@ -1209,7 +1209,7 @@ if [ "$PROBE" = "gasfree" ]; then
     [ -n "$GFM_KEY" ] || echo "    GASFREE_API_KEY is not in .env.mainnet."
     [ -n "$GFM_SECRET" ] || echo "    GASFREE_API_SECRET is not in .env.mainnet."
     echo "    So the mainnet fees cannot be read yet."
-    echo "    Get the mainnet key at https://developer.gasfree.io/. The Nile key in .env does not work on mainnet."
+    echo "    Get the mainnet key at https://developer.gasfree.io/. The Nile key in .env.testnet does not work on mainnet."
     echo "    Add both lines to .env.mainnet, unquoted, with no spaces. Never put them in .env."
     echo "    Until GASFREE_NETWORK and the whole GasFree block are set there too, do not start or recreate"
     echo "    the mainnet tron-signer: it turns GasFree on from the key alone and refuses to start without the network."
