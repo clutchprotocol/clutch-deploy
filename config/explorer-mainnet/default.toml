@@ -8,15 +8,12 @@ log_level = "info"
 listen_addr = "0.0.0.0:8088"
 
 # node3, as the mainnet Hub API and the treasury read it. The indexer takes the chain head from the
-# metrics endpoint and fetches each block over the RPC, so these three must name the SAME node.
-clutch_node_api_url = "http://mainnet-node3:8183"
+# metrics endpoint and fetches each block over the RPC, so these two must name the SAME node.
 node_metrics_url = "http://mainnet-node3:3103/metrics"
 node_ws_url = "ws://mainnet-node3:8183/ws"
 
-strict_mode = true
 developer_mode = false
 cleanup_on_start = false
-data_source = "postgres"
 database_url = "postgres://postgres:postgres@mainnet-explorer-postgres:5432/clutch_explorer"
 indexer_poll_interval_ms = 4000
 indexer_start_height = 0
@@ -31,6 +28,11 @@ allowed_origins = "*"
 # The reserve section. Set by docker-compose.mainnet.yml (APP_TREASURY_PUBLIC_RECONCILIATION_URL) to
 # the mainnet treasury, so a change there recreates the backend. Empty here switches it off.
 treasury_public_reconciliation_url = ""
+
+# Read by nothing since clutch-explorer #13 (sha-0d385cf), but explorer images before it refuse to
+# start without it, and mainnet still runs sha-c6d0f5c. Delete this line in the same change that
+# moves the mainnet explorer pin to sha-0d385cf or later.
+clutch_node_api_url = "http://mainnet-node3:8183"
 
 # The mainnet genesis (config/node-mainnet/*.toml): 200 + 200 bps.
 ride_request_referrer_fee_bps = 200

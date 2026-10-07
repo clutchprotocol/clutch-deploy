@@ -229,7 +229,8 @@ if [ "$PROBE" = "explorer" ]; then
 
   echo ""
   echo "=== the head it is chasing (the metrics endpoint it scrapes, not RPC) ==="
-  docker exec clutch-stage-clutch-explorer-indexer-1 sh -c 'echo "$APP_NODE_METRICS_URL  $APP_NODE_WS_URL"' 2>/dev/null || true
+  # From its mounted config (config/explorer/default.toml): compose no longer sets these as env.
+  docker exec clutch-stage-clutch-explorer-indexer-1 sh -c 'grep -E "^node_(metrics|ws)_url" /app/config/default.toml' 2>/dev/null || true
   for n in 1 2 3; do
     printf "  node%s latest_block_index: " "$n"
     docker exec "clutch-stage-node${n}-1" sh -c "wget -qO- http://127.0.0.1:300${n}/metrics 2>/dev/null | grep '^latest_block_index' || curl -s http://127.0.0.1:300${n}/metrics 2>/dev/null | grep '^latest_block_index' || echo '?'"
