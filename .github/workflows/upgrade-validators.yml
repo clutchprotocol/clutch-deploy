@@ -1,0 +1,62 @@
+# Restart one chain's validators one at a time onto what main pins (scripts/upgrade-validators.sh).
+#
+# For a node build whose new rule starts at a FUTURE block, such as wallet transfers
+# (`wallet_transfers_from_block`): the pin and the switch block are moved by a reviewed PR first,
+# then this runs before the chain reaches that block. Each node must rejoin the other two at the same
+# height and block hash, with no refused blocks, and must show it loaded the rule, before the next
+# one is touched. It never runs `down` and never takes `-v`.
+#
+# The script travels from this run's checkout; the host's checkout supplies the pins and configs.
+
+name: Upgrade the validators (one at a time)
+
+on:
+  workflow_dispatch:
+    inputs:
+      chain:
+        description: "Which chain"
+        type: choice
+        default: stage
+        options:
+          - stage
+          - mainnet
+      confirm:
+        description: "Type: upgrade validators (on mainnet: upgrade validators mainnet)"
+        required: true
+
+concurrency:
+  group: upgrade-validators
+  cancel-in-progress: false
+
+jobs:
+  upgrade:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check the confirmation
+        env:
+          CHAIN: ${{ inputs.chain }}
+          CONFIRM: ${{ inputs.confirm }}
+        run: |
+          set -euo pipefail
+          want="upgrade validators"
+          [ "$CHAIN" = mainnet ] && want="upgrade validators mainnet"
+          [ "$CONFIRM" = "$want" ] || { echo "::error::type exactly: $want"; exit 1; }
+
+      - uses: actions/checkout@v4
+
+      - name: Restart the validators on the stage host
+        env:
+          CHAIN: ${{ inputs.chain }}
+          SSHPASS: ${{ secrets.STAGE_SSH_PASSWORD }}
+          CLUTCH_SSH_HOST: ${{ secrets.STAGE_HOST }}
+          CLUTCH_SSH_USER: ${{ secrets.STAGE_USER }}
+          DEPLOY_PATH: ${{ secrets.STAGE_DEPLOY_PATH }}
+        run: |
+          set -euo pipefail
+          [ -n "$DEPLOY_PATH" ] || { echo "::error::STAGE_DEPLOY_PATH is empty"; exit 1; }
+          command -v sshpass >/dev/null || { sudo apt-get update -qq && sudo apt-get install -y -qq sshpass >/dev/null; }
+          R="/tmp/clutch-ci-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
+          SSH_OPTS="-o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o ConnectTimeout=30 -o ServerAliveInterval=30"
+          sshpass -e ssh $SSH_OPTS "$CLUTCH_SSH_USER@$CLUTCH_SSH_HOST" "cat > $R.sh" < scripts/upgrade-validators.sh
+          timeout 40m sshpass -e ssh $SSH_OPTS "$CLUTCH_SSH_USER@$CLUTCH_SSH_HOST" \
+            "set -e; cd '$DEPLOY_PATH'; git pull --ff-only origin main; bash scripts/migrate-env-files.sh; REPO_DIR='$DEPLOY_PATH' CHAIN='$CHAIN' bash $R.sh; rm -f $R.sh"
