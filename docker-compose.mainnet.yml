@@ -135,7 +135,7 @@ services:
   # and two containers answering to one name there would split nginx's traffic between chains.
 
   mainnet-explorer-backend:
-    image: ghcr.io/clutchprotocol/clutch-explorer-backend:sha-c6d0f5c
+    image: ghcr.io/clutchprotocol/clutch-explorer-backend:sha-0d385cf
     stop_grace_period: 30s
     environment:
       - APP_DATABASE_URL=postgres://postgres:${MAINNET_EXPLORER_POSTGRES_PASSWORD:-postgres}@mainnet-explorer-postgres:5432/clutch_explorer
@@ -157,7 +157,7 @@ services:
     restart: unless-stopped
 
   mainnet-explorer-indexer:
-    image: ghcr.io/clutchprotocol/clutch-explorer-backend:sha-c6d0f5c
+    image: ghcr.io/clutchprotocol/clutch-explorer-backend:sha-0d385cf
     stop_grace_period: 30s
     command: ["/usr/local/bin/indexer", "--env", "default"]
     environment:
@@ -196,7 +196,7 @@ services:
     restart: unless-stopped
 
   mainnet-explorer-frontend:
-    image: ghcr.io/clutchprotocol/clutch-explorer-frontend:sha-c6d0f5c
+    image: ghcr.io/clutchprotocol/clutch-explorer-frontend:sha-0d385cf
     networks:
       - clutch-stage
     restart: unless-stopped

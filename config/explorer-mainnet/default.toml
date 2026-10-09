@@ -29,11 +29,6 @@ allowed_origins = "*"
 # the mainnet treasury, so a change there recreates the backend. Empty here switches it off.
 treasury_public_reconciliation_url = ""
 
-# Read by nothing since clutch-explorer #13 (sha-0d385cf), but explorer images before it refuse to
-# start without it, and mainnet still runs sha-c6d0f5c. Delete this line in the same change that
-# moves the mainnet explorer pin to sha-0d385cf or later.
-clutch_node_api_url = "http://mainnet-node3:8183"
-
 # The mainnet genesis (config/node-mainnet/*.toml): 200 + 200 bps.
 ride_request_referrer_fee_bps = 200
 ride_offer_referrer_fee_bps = 200
