@@ -13,10 +13,12 @@ listen_addr = "0.0.0.0:8088"
 node_metrics_url = "http://node3:3003/metrics"
 node_ws_url = "ws://node3:8083/ws"
 
-# The testnet explorer rebuilds its index from the chain on every start: it truncates its tables on
-# start and on shutdown. Harmless, because it holds only public chain data. Mainnet's are false.
-developer_mode = true
-cleanup_on_start = true
+# Keep the index across restarts, like mainnet. Both used to be true, which truncated the tables on
+# every start and stop, and with ~95,000 blocks a re-index takes most of an hour: after each deploy
+# the explorer answered "not found" for every recent block and transaction until it caught up. A
+# chain reset needs no wipe here, because the indexer finds the fork point and unwinds on its own.
+developer_mode = false
+cleanup_on_start = false
 
 database_url = "postgres://postgres:postgres@clutch-explorer-postgres:5432/clutch_explorer"
 indexer_poll_interval_ms = 4000
