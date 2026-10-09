@@ -86,7 +86,7 @@ services:
   # one is an outage rather than a loss of the chain.
 
   mainnet-hub-api:
-    image: ghcr.io/clutchprotocol/clutch-hub-api:sha-84ad5f0
+    image: ghcr.io/clutchprotocol/clutch-hub-api:sha-45e6dcc
     # The node it reads (mainnet-node3) and Seq are in config/api-mainnet/default.toml. The hub
     # reads APP_* variables only, so these are the whole of what compose sets.
     environment:
@@ -135,7 +135,7 @@ services:
   # and two containers answering to one name there would split nginx's traffic between chains.
 
   mainnet-explorer-backend:
-    image: ghcr.io/clutchprotocol/clutch-explorer-backend:sha-0d385cf
+    image: ghcr.io/clutchprotocol/clutch-explorer-backend:sha-52f5de4
     stop_grace_period: 30s
     environment:
       - APP_DATABASE_URL=postgres://postgres:${MAINNET_EXPLORER_POSTGRES_PASSWORD:-postgres}@mainnet-explorer-postgres:5432/clutch_explorer
@@ -157,7 +157,7 @@ services:
     restart: unless-stopped
 
   mainnet-explorer-indexer:
-    image: ghcr.io/clutchprotocol/clutch-explorer-backend:sha-0d385cf
+    image: ghcr.io/clutchprotocol/clutch-explorer-backend:sha-52f5de4
     stop_grace_period: 30s
     command: ["/usr/local/bin/indexer", "--env", "default"]
     environment:
@@ -196,7 +196,7 @@ services:
     restart: unless-stopped
 
   mainnet-explorer-frontend:
-    image: ghcr.io/clutchprotocol/clutch-explorer-frontend:sha-0d385cf
+    image: ghcr.io/clutchprotocol/clutch-explorer-frontend:sha-52f5de4
     networks:
       - clutch-stage
     restart: unless-stopped
