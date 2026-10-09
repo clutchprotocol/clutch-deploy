@@ -119,7 +119,7 @@ services:
     # The SAME image the testnet serves. It picks its chain and its API from the hostname it
     # is served on (apps/demo/src/chain-for-host.js), so app.clutchprotocol.io gets chain 1000
     # and api.clutchprotocol.io with nothing baked in at build time.
-    image: ghcr.io/clutchprotocol/clutch-hub-demo-app:sha-67c8464
+    image: ghcr.io/clutchprotocol/clutch-hub-demo-app:sha-84ad5f0
     networks:
       - clutch-stage
     restart: unless-stopped
