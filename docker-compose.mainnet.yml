@@ -26,7 +26,7 @@
 
 services:
   mainnet-node1:
-    image: ghcr.io/clutchprotocol/clutch-node:sha-d0c3d0a
+    image: ghcr.io/clutchprotocol/clutch-node:sha-aa4159f
     stop_grace_period: 30s
     environment:
       # The node reads Environment::with_prefix("APP"), so this overrides the empty
@@ -48,7 +48,7 @@ services:
     restart: unless-stopped
 
   mainnet-node2:
-    image: ghcr.io/clutchprotocol/clutch-node:sha-d0c3d0a
+    image: ghcr.io/clutchprotocol/clutch-node:sha-aa4159f
     stop_grace_period: 30s
     environment:
       - APP_AUTHOR_SECRET_KEY=${MAINNET_NODE2_AUTHOR_SECRET:?the mainnet validator keys are not in .env.mainnet — run the "Mainnet — generate validator keys" workflow}
@@ -65,7 +65,7 @@ services:
     restart: unless-stopped
 
   mainnet-node3:
-    image: ghcr.io/clutchprotocol/clutch-node:sha-d0c3d0a
+    image: ghcr.io/clutchprotocol/clutch-node:sha-aa4159f
     stop_grace_period: 30s
     environment:
       - APP_AUTHOR_SECRET_KEY=${MAINNET_NODE3_AUTHOR_SECRET:?the mainnet validator keys are not in .env.mainnet — run the "Mainnet — generate validator keys" workflow}

@@ -44,6 +44,14 @@ authorities = [
     "0x84f828ffd215c6b63de8f38f26b08a5077c8d209",
 ]
 block_authoring_enabled = true
+# Transfers sent from MetaMask and other Ethereum wallets (clutch-node WalletTransfer). A consensus
+# rule held in config, not genesis: node1, node2 and node3 MUST carry the same two values, or one
+# validator refuses a block another authored. 20770 is the mainnet Hub API's wallet_chain_id
+# (config/api-mainnet/default.toml). The rule starts at a FUTURE block so the validators can be
+# restarted onto it one at a time ("Upgrade the validators", scripts/upgrade-validators.sh) while
+# the old build and the new one still accept the same blocks. Decided 2026-10-09: block 17000.
+wallet_chain_id = 20770
+wallet_transfers_from_block = 17000
 
 # --- consensus params: committed to state by the genesis ChainInit tx ---------------------------
 # Byte-identical across all three nodes or they cannot peer. None of these can be changed after the
