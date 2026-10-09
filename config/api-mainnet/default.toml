@@ -26,6 +26,13 @@ jwt_expiration_hours = 6
 # "*" here; override per-environment with APP_ALLOWED_ORIGINS (see .env.testnet.example and .env.mainnet.example).
 allowed_origins = "*"
 
+# The chain id wallets see at POST /rpc, the read-only Ethereum face that lets MetaMask and Trust
+# Wallet show a CLT balance (clutch-hub services/hub-api/src/hub/eth_rpc.rs). Not the node's
+# chain_id: 1000 is registered to another network on chainlist, and a wallet names a network by
+# its id. Nothing signs with this id. 20770 mainnet, 20771 testnet; both are in ethereum-lists/chains
+# PR 8832 (opened 2026-10-08).
+wallet_chain_id = 20770
+
 
 # App-developer referrers injected by Hub API (clients must not pass referrer).
 #

@@ -86,7 +86,7 @@ services:
   # one is an outage rather than a loss of the chain.
 
   mainnet-hub-api:
-    image: ghcr.io/clutchprotocol/clutch-hub-api:sha-01c04bd
+    image: ghcr.io/clutchprotocol/clutch-hub-api:sha-84ad5f0
     # The node it reads (mainnet-node3) and Seq are in config/api-mainnet/default.toml. The hub
     # reads APP_* variables only, so these are the whole of what compose sets.
     environment:
