@@ -94,7 +94,7 @@ services:
   # Clutch Hub API (bridges apps to node)
   clutch-hub-api:
     logging: *default-logging
-    image: ghcr.io/clutchprotocol/clutch-hub-api:sha-45e6dcc
+    image: ghcr.io/clutchprotocol/clutch-hub-api:sha-6274306
     depends_on:
       - node1
       - seq
