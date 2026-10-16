@@ -92,7 +92,7 @@ sync_enabled = true
 serve_metric_enabled = true
 serve_metric_addr = "0.0.0.0:3103"
 log_level = "info"
-seq_url = "http://seq:80"
+seq_url = "http://mainnet-seq:80"
 # Deliberately empty: this file is committed, so a key written here is a published key. Supplied at
 # run time as APP_SEQ_API_KEY.
 seq_api_key = ""

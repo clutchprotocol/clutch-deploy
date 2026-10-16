@@ -1,0 +1,54 @@
+# Start (or update) mainnet's own Seq, the one seq.clutchprotocol.io serves (scripts/mainnet-seq-up.sh,
+# docker-compose.mainnet.seq.yml). It starts that one container and nothing else, and fails if any
+# other mainnet container restarted during the run. Safe to run again.
+#
+# The first run writes MAINNET_SEQ_ADMIN_PASSWORD into the host's .env.mainnet (never printed): that is
+# the login for seq.clutchprotocol.io, user admin. It also sets the retention: logs older than 7 days
+# are deleted.
+#
+# Starting it does not send any logs there. The mainnet services read their Seq address when they
+# start, so they move to it at their next restart.
+
+name: Mainnet — start Seq
+
+on:
+  workflow_dispatch:
+    inputs:
+      confirm:
+        description: 'Type "START MAINNET SEQ" to run'
+        required: true
+        default: ""
+
+concurrency:
+  group: mainnet-seq-up
+  cancel-in-progress: false
+
+jobs:
+  up:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check the confirmation
+        env:
+          CONFIRM: ${{ inputs.confirm }}
+        run: |
+          [ "$CONFIRM" = "START MAINNET SEQ" ] || { echo "Refusing: confirm was '$CONFIRM', expected 'START MAINNET SEQ'."; exit 1; }
+
+      - name: Run it via SSH
+        env:
+          SSHPASS: ${{ secrets.STAGE_SSH_PASSWORD }}
+          CLUTCH_SSH_HOST: ${{ secrets.STAGE_HOST }}
+          CLUTCH_SSH_USER: ${{ secrets.STAGE_USER }}
+        run: |
+          set -euo pipefail
+          command -v sshpass >/dev/null || { sudo apt-get update -qq && sudo apt-get install -y -qq sshpass; }
+          R="/tmp/clutch-ci-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
+          SSH_OPTS="-o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o ConnectTimeout=30 -o ServerAliveInterval=30"
+          cat > "$RUNNER_TEMP/clutch-remote.sh" <<'CLUTCH_REMOTE_EOF'
+          set -euo pipefail
+          cd "${{ secrets.STAGE_DEPLOY_PATH }}"
+          # `origin main`, and a failed pull stops the run: see deploy-stage.yml.
+          git pull --ff-only origin main
+          bash scripts/mainnet-seq-up.sh
+          CLUTCH_REMOTE_EOF
+          sshpass -e ssh $SSH_OPTS "$CLUTCH_SSH_USER@$CLUTCH_SSH_HOST" "cat > $R.sh" < "$RUNNER_TEMP/clutch-remote.sh"
+          timeout 15m sshpass -e ssh $SSH_OPTS "$CLUTCH_SSH_USER@$CLUTCH_SSH_HOST" "find /tmp -maxdepth 1 -name 'clutch-ci-*' -mtime +1 -delete 2>/dev/null; bash $R.sh; rc=\$?; rm -f $R.sh; exit \$rc"

@@ -1,0 +1,63 @@
+# Seq for MAINNET only: the logs of the mainnet validators, Hub API and explorer, served at
+# https://seq.clutchprotocol.io. The testnet keeps its own Seq (`seq` in docker-compose.yml,
+# seq-stage.clutchprotocol.io).
+#
+#   Start it with "Mainnet — start Seq" (mainnet-seq-up.yml), which runs scripts/mainnet-seq-up.sh.
+#   Never start it with a bare `docker compose up`: the script supplies the first-run password and,
+#   once Seq answers, replaces it with the real admin password and sets the 7-day retention.
+#
+# Its own compose project, `clutch-main-seq`, and its own file, on purpose:
+#   - mainnet-start.yml and mainnet-app-up.yml never start or recreate it, and starting it never
+#     touches a validator or an app service. It holds logs only, so losing it loses no money and no
+#     chain.
+#   - The first-run password below is required. In docker-compose.mainnet.yml it would make every
+#     command on the chain's project fail whenever it was not set.
+#
+# Until 2026-10-16 the mainnet services shipped to the testnet's Seq at http://seq:80. The validators
+# never reached it at all: they sit on clutch-mainnet only, and that Seq is on the stage network.
+#
+# The name is `mainnet-seq` and never `seq`: compose makes a service's name a DNS alias on every
+# network it joins, and the stage network already has a `seq`. Nothing is published.
+
+x-logging: &default-logging
+  driver: json-file
+  options:
+    max-size: "20m"
+    max-file: "3"
+
+services:
+  mainnet-seq:
+    logging: *default-logging
+    image: datalust/seq:2026.1.17182
+    environment:
+      - ACCEPT_EULA=Y
+      - SEQ_FIRSTRUN_ADMINUSERNAME=admin
+      # Used once, by an empty volume. Seq then insists on a new password at the first login, so
+      # this is a throwaway that scripts/mainnet-seq-up.sh derives and immediately replaces with
+      # MAINNET_SEQ_ADMIN_PASSWORD from .env.mainnet. Required: Seq with no admin password at all
+      # would put the mainnet logs on a public hostname with no login.
+      - "SEQ_FIRSTRUN_ADMINPASSWORD=${MAINNET_SEQ_FIRSTRUN_PASSWORD:?start mainnet Seq with scripts/mainnet-seq-up.sh}"
+      # Seq's cache aims at 90% of the machine's RAM by default. This host also runs the testnet's
+      # Seq, both chains and the treasuries.
+      - SEQ_CACHE_SYSTEMRAMTARGET=0.2
+    volumes:
+      - mainnet-seq-data:/data
+    networks:
+      # The validators, the Hub API and the explorer send their logs here.
+      - clutch-mainnet
+      # nginx resolves upstreams by container name on this network (seq.clutchprotocol.io).
+      - clutch-stage
+    restart: unless-stopped
+
+networks:
+  clutch-mainnet:
+    name: clutch-mainnet
+    external: true
+  clutch-stage:
+    name: clutch-stage_clutch-network
+    external: true
+
+volumes:
+  # Logs only. Seq deletes events older than 7 days (the retention policy the start script sets).
+  mainnet-seq-data:
+    driver: local
