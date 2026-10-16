@@ -99,7 +99,7 @@ services:
 
   mainnet-hub-api:
     logging: *default-logging
-    image: ghcr.io/clutchprotocol/clutch-hub-api:sha-45e6dcc
+    image: ghcr.io/clutchprotocol/clutch-hub-api:sha-6274306
     # The node it reads (mainnet-node3) and its Seq (mainnet-seq) are in config/api-mainnet/default.toml. The hub
     # reads APP_* variables only, so these are the whole of what compose sets.
     environment:
@@ -133,7 +133,7 @@ services:
     # The SAME image the testnet serves. It picks its chain and its API from the hostname it
     # is served on (apps/demo/src/chain-for-host.js), so app.clutchprotocol.io gets chain 1000
     # and api.clutchprotocol.io with nothing baked in at build time.
-    image: ghcr.io/clutchprotocol/clutch-hub-demo-app:sha-84ad5f0
+    image: ghcr.io/clutchprotocol/clutch-hub-demo-app:sha-a07d5ac
     networks:
       - clutch-stage
     restart: unless-stopped
