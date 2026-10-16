@@ -1,0 +1,59 @@
+# Cut down the oversized Docker container logs and cap the systemd journal (scripts/trim-host-logs.sh).
+# The host serves the testnet AND the mainnet, so this covers both. Nothing restarts.
+#
+# Two typed words:
+#   CHECK       lists the container logs over 100 MB and the journal size. Changes nothing.
+#   TRIM LOGS   cuts each of those logs to its newest 50 MB, in place, and vacuums the journal to 500 MB.
+
+name: Stage host — trim logs
+
+on:
+  workflow_dispatch:
+    inputs:
+      confirm:
+        description: 'Type "CHECK" to look, or "TRIM LOGS" to cut the big logs to 50 MB each'
+        required: true
+        default: ""
+
+concurrency:
+  group: trim-host-logs
+  cancel-in-progress: false
+
+jobs:
+  trim:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check the confirmation
+        env:
+          CONFIRM: ${{ inputs.confirm }}
+        run: |
+          case "$CONFIRM" in
+            "CHECK"|"TRIM LOGS") ;;
+            *) echo "Refusing: confirm was '$CONFIRM', expected 'CHECK' or 'TRIM LOGS'."; exit 1 ;;
+          esac
+
+      - name: Run it via SSH
+        env:
+          SSHPASS: ${{ secrets.STAGE_SSH_PASSWORD }}
+          CLUTCH_SSH_HOST: ${{ secrets.STAGE_HOST }}
+          CLUTCH_SSH_USER: ${{ secrets.STAGE_USER }}
+          CONFIRM: ${{ inputs.confirm }}
+        run: |
+          # The same transport as stage-prune-images.yml: the mode is one of two fixed words chosen
+          # on the runner and reaches the host as a file of shell-quoted assignments.
+          set -euo pipefail
+          command -v sshpass >/dev/null || { sudo apt-get update -qq && sudo apt-get install -y -qq sshpass; }
+          if [ "$CONFIRM" = "TRIM LOGS" ]; then MODE=trim; else MODE=check; fi
+          R="/tmp/clutch-ci-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
+          SSH_OPTS="-o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o ConnectTimeout=30 -o ServerAliveInterval=30"
+          : > "$RUNNER_TEMP/clutch-env.sh"
+          for v in MODE; do printf '%s=%q\n' "$v" "${!v-}" >> "$RUNNER_TEMP/clutch-env.sh"; done
+          sshpass -e ssh $SSH_OPTS "$CLUTCH_SSH_USER@$CLUTCH_SSH_HOST" "cat > $R.env" < "$RUNNER_TEMP/clutch-env.sh"
+          cat > "$RUNNER_TEMP/clutch-remote.sh" <<'CLUTCH_REMOTE_EOF'
+          set -euo pipefail
+          cd "${{ secrets.STAGE_DEPLOY_PATH }}"
+          git pull --ff-only origin main
+          MODE="$MODE" bash scripts/trim-host-logs.sh
+          CLUTCH_REMOTE_EOF
+          sshpass -e ssh $SSH_OPTS "$CLUTCH_SSH_USER@$CLUTCH_SSH_HOST" "cat > $R.sh" < "$RUNNER_TEMP/clutch-remote.sh"
+          timeout 10m sshpass -e ssh $SSH_OPTS "$CLUTCH_SSH_USER@$CLUTCH_SSH_HOST" "find /tmp -maxdepth 1 -name 'clutch-ci-*' -mtime +1 -delete 2>/dev/null; bash -c 'set -a; . $R.env; set +a; rm -f $R.env; exec bash $R.sh'"
