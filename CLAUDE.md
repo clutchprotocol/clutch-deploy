@@ -29,6 +29,8 @@ Docker Compose orchestration for the full Clutch Protocol stack. Workspace overv
 | `clutch-explorer-frontend` | GHCR / dev: `node:20-alpine` + Vite | :5174→80. |
 | `prometheus` / `grafana` / `seq` | stock images | No dev overrides (declared `{}` in dev overlay). Grafana on non-default port 3030 via `GF_SERVER_HTTP_PORT`. |
 
+**Every service in the four main compose files caps its log** (`x-logging: &default-logging`, json-file, 3 x 20 MB), since 2026-10-16: before that nothing rotated, and the container logs reached 9.2 GB of the host's 38 GB disk. A new service needs `logging: *default-logging` too. A running container keeps its old log settings until it is recreated, so the mainnet validators take the cap only at their next planned restart; until then "Stage host — trim logs" (`trim-host-logs.yml`) cuts oversized logs in place.
+
 `depends_on` is ordering-only (no `condition: service_healthy`) — services must tolerate node1/postgres not being ready yet.
 
 **Chain state was destroyed on every deploy, for TWO separate reasons.** Both are fixed; the first one was fixed months before the second was even found, which is why "the volume fix" appeared not to work.

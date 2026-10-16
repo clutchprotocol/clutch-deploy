@@ -7,9 +7,19 @@
 # new build); the monitoring images move by a reviewed edit here. scripts/test-set-image.sh fails
 # any PR that brings `latest` back.
 
+# Every service caps its own json-file log: 3 files of 20 MB, so at most 60 MB each. Nothing set
+# this before, and on 2026-10-16 the container logs held 9.2 GB of the host's 38 GB disk (the
+# mainnet Hub API 5.5 GB). A running container keeps its old settings until it is recreated.
+x-logging: &default-logging
+  driver: json-file
+  options:
+    max-size: "20m"
+    max-file: "3"
+
 services:
   # Clutch blockchain nodes
   node1:
+    logging: *default-logging
     image: ghcr.io/clutchprotocol/clutch-node:sha-aa4159f
     stop_grace_period: 30s
     # DB_PATH keeps RocksDB on the volume below. Without it the node writes to its working
@@ -32,6 +42,7 @@ services:
     restart: unless-stopped
 
   node2:
+    logging: *default-logging
     image: ghcr.io/clutchprotocol/clutch-node:sha-aa4159f
     stop_grace_period: 30s
     # DB_PATH keeps RocksDB on the volume below. Without it the node writes to its working
@@ -56,6 +67,7 @@ services:
     restart: unless-stopped
 
   node3:
+    logging: *default-logging
     image: ghcr.io/clutchprotocol/clutch-node:sha-aa4159f
     stop_grace_period: 30s
     # DB_PATH keeps RocksDB on the volume below. Without it the node writes to its working
@@ -81,6 +93,7 @@ services:
 
   # Clutch Hub API (bridges apps to node)
   clutch-hub-api:
+    logging: *default-logging
     image: ghcr.io/clutchprotocol/clutch-hub-api:sha-45e6dcc
     depends_on:
       - node1
@@ -108,6 +121,7 @@ services:
 
   # Prometheus - metrics collection
   prometheus:
+    logging: *default-logging
     image: prom/prometheus:v3.15.0
     networks:
       - clutch-network
@@ -140,6 +154,7 @@ services:
   # the committed .tpl (substituting the chat id) and writes the bot token to its own file, both
   # from the host's .env.testnet. Routing stays reviewable in git; the credentials stay in .env.testnet.
   alertmanager:
+    logging: *default-logging
     image: prom/alertmanager:v0.27.0
     networks:
       - clutch-network
@@ -156,6 +171,7 @@ services:
 
   # Grafana - dashboards 
   grafana:
+    logging: *default-logging
     image: grafana/grafana:13.2.2
     depends_on:
       - prometheus
@@ -182,6 +198,7 @@ services:
 
   # Seq - structured logging
   seq:
+    logging: *default-logging
     image: datalust/seq:2026.1.17182
     networks:
       - clutch-network
@@ -198,6 +215,7 @@ services:
 
   # Demo app (React + map-based ride request)
   clutch-hub-demo-app:
+    logging: *default-logging
     image: ghcr.io/clutchprotocol/clutch-hub-demo-app:sha-03f0f50
     ports:
       - "5173:80"
@@ -208,6 +226,7 @@ services:
     restart: unless-stopped
 
   clutch-explorer-backend:
+    logging: *default-logging
     image: ghcr.io/clutchprotocol/clutch-explorer-backend:sha-52f5de4
     stop_grace_period: 30s
     depends_on:
@@ -236,6 +255,7 @@ services:
       - ./config/explorer:/app/config:ro
 
   clutch-explorer-indexer:
+    logging: *default-logging
     image: ghcr.io/clutchprotocol/clutch-explorer-backend:sha-52f5de4
     stop_grace_period: 30s
     depends_on:
@@ -263,6 +283,7 @@ services:
       - ./config/explorer:/app/config:ro
 
   clutch-explorer-postgres:
+    logging: *default-logging
     image: postgres:16-alpine
     environment:
       - POSTGRES_DB=${EXPLORER_POSTGRES_DB:-clutch_explorer}
@@ -280,6 +301,7 @@ services:
       - clutch-network
 
   clutch-explorer-frontend:
+    logging: *default-logging
     image: ghcr.io/clutchprotocol/clutch-explorer-frontend:sha-52f5de4
     ports:
       - "5174:80"

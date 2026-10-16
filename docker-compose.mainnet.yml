@@ -24,8 +24,18 @@
 # Before the first boot:
 #   CONFIG_DIR=config/node-mainnet MAINNET=1 bash scripts/check-genesis.sh
 
+# Every service caps its own json-file log: 3 files of 20 MB, so at most 60 MB each. Nothing set
+# this before, and on 2026-10-16 the container logs held 9.2 GB of the host's 38 GB disk (the
+# mainnet Hub API 5.5 GB). A running container keeps its old settings until it is recreated.
+x-logging: &default-logging
+  driver: json-file
+  options:
+    max-size: "20m"
+    max-file: "3"
+
 services:
   mainnet-node1:
+    logging: *default-logging
     image: ghcr.io/clutchprotocol/clutch-node:sha-aa4159f
     stop_grace_period: 30s
     environment:
@@ -48,6 +58,7 @@ services:
     restart: unless-stopped
 
   mainnet-node2:
+    logging: *default-logging
     image: ghcr.io/clutchprotocol/clutch-node:sha-aa4159f
     stop_grace_period: 30s
     environment:
@@ -65,6 +76,7 @@ services:
     restart: unless-stopped
 
   mainnet-node3:
+    logging: *default-logging
     image: ghcr.io/clutchprotocol/clutch-node:sha-aa4159f
     stop_grace_period: 30s
     environment:
@@ -86,6 +98,7 @@ services:
   # one is an outage rather than a loss of the chain.
 
   mainnet-hub-api:
+    logging: *default-logging
     image: ghcr.io/clutchprotocol/clutch-hub-api:sha-45e6dcc
     # The node it reads (mainnet-node3) and Seq are in config/api-mainnet/default.toml. The hub
     # reads APP_* variables only, so these are the whole of what compose sets.
@@ -116,6 +129,7 @@ services:
     restart: unless-stopped
 
   mainnet-demo-app:
+    logging: *default-logging
     # The SAME image the testnet serves. It picks its chain and its API from the hostname it
     # is served on (apps/demo/src/chain-for-host.js), so app.clutchprotocol.io gets chain 1000
     # and api.clutchprotocol.io with nothing baked in at build time.
@@ -135,6 +149,7 @@ services:
   # and two containers answering to one name there would split nginx's traffic between chains.
 
   mainnet-explorer-backend:
+    logging: *default-logging
     image: ghcr.io/clutchprotocol/clutch-explorer-backend:sha-52f5de4
     stop_grace_period: 30s
     environment:
@@ -157,6 +172,7 @@ services:
     restart: unless-stopped
 
   mainnet-explorer-indexer:
+    logging: *default-logging
     image: ghcr.io/clutchprotocol/clutch-explorer-backend:sha-52f5de4
     stop_grace_period: 30s
     command: ["/usr/local/bin/indexer", "--env", "default"]
@@ -178,6 +194,7 @@ services:
     restart: unless-stopped
 
   mainnet-explorer-postgres:
+    logging: *default-logging
     image: postgres:16-alpine
     environment:
       - POSTGRES_DB=clutch_explorer
@@ -196,6 +213,7 @@ services:
     restart: unless-stopped
 
   mainnet-explorer-frontend:
+    logging: *default-logging
     image: ghcr.io/clutchprotocol/clutch-explorer-frontend:sha-52f5de4
     networks:
       - clutch-stage
