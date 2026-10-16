@@ -149,7 +149,7 @@ All six clutch vhosts and all four upstreams are repo-owned. Everything outside 
 
 Guards, in order: the `server_name` set must be unchanged, no upstream may disappear, `nginx -t`, then reload — with a restore from backup on failure. Then 18 post-reload gates across all six vhosts (`/health`, real WebSocket handshakes expecting 101, the nodes' `location /` expecting 404), any of which restores the previous config and fails the deploy. `scripts/test-nginx-clutch-block.sh` covers the block script against a fixture shaped like the host's config; CI runs it on any PR touching those paths.
 
-`.github/workflows/inspect-stage.yml` is a read-only probe for exactly this class of question — what is actually running and what is actually mounted. Reach for it before assuming the repo describes the host. Probes: `nginx`, `explorer`, `containers`, `git`, `treasury`, `sweeper`, `chain`, `mainnet`, `mainnet-treasury`, `gasfree`, `metrics`, `balance`, `energy`.
+`.github/workflows/inspect-stage.yml` is a read-only probe for exactly this class of question — what is actually running and what is actually mounted. Reach for it before assuming the repo describes the host. Probes: `nginx`, `explorer`, `containers`, `disk`, `git`, `treasury`, `sweeper`, `chain`, `mainnet`, `mainnet-treasury`, `gasfree`, `metrics`, `balance`, `energy`.
 
 The `nginx` probe also takes `vhost=` — a comma-separated list, restricted to `*.clutchprotocol.io` because that run log is public and the same file serves v2ray's vhosts — and dumps each whole `server` block. It reports the nginx version, every upstream name with clutch bodies, both kinds of managed block, and what the edge rate limiter would have refused.
 

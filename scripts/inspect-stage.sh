@@ -2,7 +2,7 @@
 #
 # Read-only inspection of the stage VPS. Run ON the host, from the clutch-deploy checkout.
 #
-#   PROBE=nginx|explorer|containers|git|treasury|sweeper|chain|mainnet|mainnet-treasury|gasfree|metrics|balance|energy bash scripts/inspect-stage.sh
+#   PROBE=nginx|explorer|containers|disk|git|treasury|sweeper|chain|mainnet|mainnet-treasury|gasfree|metrics|balance|energy bash scripts/inspect-stage.sh
 #
 # VHOST=<name> with PROBE=nginx also dumps that vhost's whole server block. Only
 # *.clutchprotocol.io is allowed: this log is public and the same file serves v2ray's vhosts.
@@ -235,6 +235,57 @@ if [ "$PROBE" = "explorer" ]; then
     printf "  node%s latest_block_index: " "$n"
     docker exec "clutch-stage-node${n}-1" sh -c "wget -qO- http://127.0.0.1:300${n}/metrics 2>/dev/null | grep '^latest_block_index' || curl -s http://127.0.0.1:300${n}/metrics 2>/dev/null | grep '^latest_block_index' || echo '?'"
   done
+fi
+
+if [ "$PROBE" = "disk" ]; then
+  # Where the disk went. `docker system df` counts images and volumes only; container logs
+  # (json-file, no rotation is configured in the compose files), the journal, apt's cache and the
+  # backups folder are invisible to it. Sizes and paths only: no file contents, no env.
+  #
+  # du runs as root directly, or else through a throwaway container with / mounted read-only
+  # (postgres:16-alpine, which is always on the host because the databases run it).
+  hdu() {
+    if [ "$(id -u)" = 0 ]; then
+      du "$@" 2>/dev/null
+    else
+      docker run --rm -v /:/h:ro --entrypoint du postgres:16-alpine "$@" 2>/dev/null | sed 's|/h/|/|; s|/h$|/|'
+    fi
+  }
+  hpath() { if [ "$(id -u)" = 0 ]; then echo "$1"; else echo "/h$1"; fi; }
+
+  echo "=== filesystem ==="
+  df -h / | tail -2 || true
+  echo ""
+  echo "=== docker summary ==="
+  docker system df || true
+  echo ""
+  echo "=== docker volumes by size ==="
+  docker system df -v 2>/dev/null | sed -n '/^Local Volumes space usage/,/^Build cache usage/p' | grep -v '^Build cache' || true
+  echo ""
+  echo "=== largest directories, two levels down (one filesystem) ==="
+  hdu -xk -d 2 "$(hpath /)" | sort -n | tail -25 | awk '{printf "  %8.1f MB  %s\n", $1/1024, $2}'
+  echo ""
+  echo "=== /var/lib/docker by part ==="
+  hdu -xk -d 1 "$(hpath /var/lib/docker)" | sort -n | awk '{printf "  %8.1f MB  %s\n", $1/1024, $2}'
+  echo ""
+  echo "=== container log files, largest first (no log content) ==="
+  docker ps -a --no-trunc --format '{{.ID}} {{.Names}}' | while read -r id name; do
+    kb=$(hdu -k "$(hpath "/var/lib/docker/containers/$id")" | tail -1 | awk '{print $1}')
+    echo "${kb:-0} $name"
+  done | sort -rn | head -15 | awk '{printf "  %8.1f MB  %s\n", $1/1024, $2}'
+  echo "  log driver: $(docker info --format '{{.LoggingDriver}}' 2>/dev/null || echo '?')"
+  echo "  daemon log options: $(grep -o '"log-opts"[^}]*}' /etc/docker/daemon.json 2>/dev/null || echo 'none (no rotation set in /etc/docker/daemon.json)')"
+  echo ""
+  echo "=== systemd journal ==="
+  journalctl --disk-usage 2>/dev/null || hdu -sh "$(hpath /var/log/journal)" || echo "  ?"
+  echo ""
+  echo "=== other usual suspects ==="
+  for d in /var/log /var/cache/apt /var/lib/snapd /tmp /root /home "$(pwd)/backups"; do
+    printf '  %-45s %s\n' "$d" "$(hdu -sh "$(hpath "$d")" | tail -1 | awk '{print $1}')"
+  done
+  echo ""
+  echo "=== backups folder (names and sizes only) ==="
+  ls -la backups 2>/dev/null | sed 's/^/  /' || echo "  (no backups folder)"
 fi
 
 if [ "$PROBE" = "containers" ]; then
