@@ -491,6 +491,11 @@ if [ "$TREASURY" = "true" ]; then
   # explorer's API is behind the name. / is its frontend.
   edge_check explorer.clutchprotocol.io /api/v1/stats 200 || { restore_nginx; exit 1; }
   edge_check explorer.clutchprotocol.io /              200 || { restore_nginx; exit 1; }
+  # seq. -- mainnet's own Seq. /api answers 200 without a login (the API's index); the ingestion
+  # endpoints must answer 403 from nginx itself, because Seq would take anyone's log lines there.
+  edge_check seq.clutchprotocol.io /api                 200 || { restore_nginx; exit 1; }
+  edge_check seq.clutchprotocol.io /ingest/clef         403 || { restore_nginx; exit 1; }
+  edge_check seq.clutchprotocol.io /api/events/raw      403 || { restore_nginx; exit 1; }
 
   # The three nodes. /metrics is what Prometheus scrapes, /ws is what the Hub API reads the chain
   # over, and `location /` returning 404 is a route rather than an accident -- these hosts expose
