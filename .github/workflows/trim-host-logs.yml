@@ -3,7 +3,8 @@
 #
 # Two typed words:
 #   CHECK       lists the container logs over 100 MB and the journal size. Changes nothing.
-#   TRIM LOGS   cuts each of those logs to its newest 50 MB, in place, and vacuums the journal to 500 MB.
+#   TRIM LOGS   cuts each of those logs to its newest 50 MB, in place, vacuums the journal to 500 MB and
+#               removes Seq's own diagnostic log files older than 2 days.
 
 name: Stage host — trim logs
 

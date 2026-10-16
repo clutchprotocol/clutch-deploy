@@ -14,8 +14,10 @@
 # (default 50), starting at a whole line so `docker logs` can still read it. Same file, same inode:
 # the container keeps running and keeps appending, nothing restarts. The older lines are gone for
 # good: Seq held only about 6 MB of events on 2026-10-16, so it is not a copy of them. The newest
-# part is kept on purpose, so whatever made a log this big can still be read. The journal is vacuumed down to JOURNAL_MAX (default 500M). Nothing else is touched:
-# no volume, no chain data, no database, no backup.
+# part is kept on purpose, so whatever made a log this big can still be read. The journal is
+# vacuumed down to JOURNAL_MAX (default 500M), and Seq's own diagnostic log files in /data/Logs older
+# than 2 days are removed (not the events Seq collects). Nothing else is touched:
+# no other volume, no chain data, no database, no backup.
 #
 # Prints container names and sizes only, never log content.
 
@@ -70,6 +72,14 @@ echo ""
 echo "=== systemd journal ==="
 journalctl --disk-usage 2>/dev/null || echo "  journalctl not available"
 echo "  would vacuum to: $JOURNAL_MAX"
+echo ""
+# Seq's own diagnostic log files (not the events it collects), 2.6 GB on 2026-10-16. Seq writes a
+# new file each day; files older than 2 days are only read when debugging Seq itself.
+SEQ=clutch-stage-seq-1
+echo "=== Seq's own diagnostic logs older than 2 days ==="
+seq_old=$(docker exec "$SEQ" sh -c 'find /data/Logs -type f -mtime +2 2>/dev/null | wc -l' 2>/dev/null || echo 0)
+seq_mb=$(docker exec "$SEQ" sh -c 'find /data/Logs -type f -mtime +2 -exec du -k {} + 2>/dev/null | awk "{s+=\$1} END {print int(s/1024)}"' 2>/dev/null || echo '?')
+echo "  ${seq_old} file(s), ${seq_mb} MB"
 
 if [ "$MODE" = check ]; then
   echo ""
@@ -82,6 +92,9 @@ echo "=== cutting each down to its newest ${KEEP_MB} MB ==="
 for f in $targets; do
   keep_tail "$f" && echo "  done: $(docker ps -a --no-trunc --filter "id=$(basename "$(dirname "$f")")" --format '{{.Names}}')"
 done
+echo ""
+echo "=== removing Seq's own diagnostic logs older than 2 days ==="
+docker exec "$SEQ" sh -c 'find /data/Logs -type f -mtime +2 -delete' 2>/dev/null && echo "  done" || echo "  skipped: could not reach $SEQ"
 echo ""
 echo "=== vacuuming the journal ==="
 if [ "$(id -u)" = 0 ]; then
