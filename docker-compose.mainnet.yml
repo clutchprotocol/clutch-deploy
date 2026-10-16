@@ -100,7 +100,7 @@ services:
   mainnet-hub-api:
     logging: *default-logging
     image: ghcr.io/clutchprotocol/clutch-hub-api:sha-45e6dcc
-    # The node it reads (mainnet-node3) and Seq are in config/api-mainnet/default.toml. The hub
+    # The node it reads (mainnet-node3) and its Seq (mainnet-seq) are in config/api-mainnet/default.toml. The hub
     # reads APP_* variables only, so these are the whole of what compose sets.
     environment:
       - APP_SEQ_API_KEY=${SEQ_API_KEY:-}
@@ -162,7 +162,8 @@ services:
       - APP_TREASURY_PUBLIC_RECONCILIATION_URL=http://mainnet-treasury-service:8090/public/reconciliation
     networks:
       # clutch-mainnet for the validators and its database; the stage network because nginx
-      # resolves upstreams by container name over there, and Seq lives there.
+      # resolves upstreams by container name over there. Its Seq is mainnet-seq
+      # (docker-compose.mainnet.seq.yml), on clutch-mainnet.
       - clutch-mainnet
       - clutch-stage
     volumes:
@@ -185,7 +186,8 @@ services:
       disable: true
     networks:
       - clutch-mainnet
-      # Seq only: nothing reaches the indexer.
+      # Only for the testnet's Seq, which it used until 2026-10-16; mainnet-seq is on clutch-mainnet.
+      # Nothing reaches the indexer.
       - clutch-stage
     volumes:
       - ./config/explorer-mainnet:/app/config:ro

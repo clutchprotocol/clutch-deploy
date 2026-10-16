@@ -4,7 +4,10 @@ that shares the Seq container's network, so Seq is at http://127.0.0.1:80.
   python3 seq-retention.py check
   python3 seq-retention.py apply <days>
 
-The admin password arrives in SEQ_PW (never an argument, never printed). Logs in like the Seq UI
+The admin password arrives in SEQ_PW (never an argument, never printed). On a Seq that has never
+been logged in to, SEQ_FIRSTRUN_PW is the first-run password from the container's environment: Seq
+refuses it until it is changed, so the first login changes it to SEQ_PW (scripts/mainnet-seq-up.sh).
+SEQ_BASE overrides the address (for tests). Logs in like the Seq UI
 does: POST api/users/login, keep the session cookie, send the returned CSRF token as
 X-Seq-CsrfToken. "apply" adds a policy that deletes every log event older than <days>, unless a
 policy that deletes everything at that age or sooner is already there.
@@ -16,7 +19,7 @@ import sys
 import urllib.error
 import urllib.request
 
-BASE = "http://127.0.0.1:80/"
+BASE = os.environ.get("SEQ_BASE", "http://127.0.0.1:80/")
 jar = http.cookiejar.CookieJar()
 opener = urllib.request.build_opener(urllib.request.HTTPCookieProcessor(jar))
 headers = {"Accept": "application/json", "Content-Type": "application/json"}
@@ -45,6 +48,13 @@ def main():
     pw = os.environ.get("SEQ_PW", "")
     user = os.environ.get("SEQ_USER", "admin")
     code, me = call("POST", "api/users/login", {"Username": user, "Password": pw})
+    first = os.environ.get("SEQ_FIRSTRUN_PW", "")
+    if code != 200 and first:
+        # A new Seq: only the first-run password works, and Seq makes its first login change it.
+        code, me = call("POST", "api/users/login",
+                        {"Username": user, "Password": first, "NewPassword": pw})
+        if code == 200 and me:
+            print(f"  first login as {user}: the first-run password was replaced by the admin password")
     if code != 200 or not me:
         print(f"  login as {user}: HTTP {code}. Nothing was changed.")
         return 1

@@ -18,8 +18,8 @@ database_url = "postgres://postgres:postgres@mainnet-explorer-postgres:5432/clut
 indexer_poll_interval_ms = 4000
 indexer_start_height = 0
 
-# The testnet's Seq: the mainnet explorer reaches it on the stage network, as the mainnet Hub API does.
-seq_url = "http://seq:80"
+# Mainnet's own Seq (docker-compose.mainnet.seq.yml, seq.clutchprotocol.io), on clutch-mainnet.
+seq_url = "http://mainnet-seq:80"
 seq_api_key = ""
 
 # A public read API: any site may call it.
