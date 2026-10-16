@@ -99,7 +99,7 @@ services:
 
   mainnet-hub-api:
     logging: *default-logging
-    image: ghcr.io/clutchprotocol/clutch-hub-api:sha-45e6dcc
+    image: ghcr.io/clutchprotocol/clutch-hub-api:sha-6274306
     # The node it reads (mainnet-node3) and its Seq (mainnet-seq) are in config/api-mainnet/default.toml. The hub
     # reads APP_* variables only, so these are the whole of what compose sets.
     environment:
