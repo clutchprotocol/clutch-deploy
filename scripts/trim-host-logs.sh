@@ -13,7 +13,7 @@
 # What it does. A container log over MIN_MB (default 100) is cut down IN PLACE to its newest KEEP_MB
 # (default 50), starting at a whole line so `docker logs` can still read it. Same file, same inode:
 # the container keeps running and keeps appending, nothing restarts. The older lines are gone for
-# good: Seq held only about 6 MB of events on 2026-10-16, so it is not a copy of them. The newest
+# good: Seq may hold some of them, but it is not relied on as a copy. The newest
 # part is kept on purpose, so whatever made a log this big can still be read. The journal is
 # vacuumed down to JOURNAL_MAX (default 500M), and Seq's own diagnostic log files in /data/Logs older
 # than 2 days are removed (not the events Seq collects). Nothing else is touched:
