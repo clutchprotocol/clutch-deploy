@@ -47,8 +47,18 @@
 
 name: clutch-main-treasury
 
+# Every service caps its own json-file log: 3 files of 20 MB, so at most 60 MB each. Nothing set
+# this before, and on 2026-10-16 the container logs held 9.2 GB of the host's 38 GB disk (the
+# mainnet Hub API 5.5 GB). A running container keeps its old settings until it is recreated.
+x-logging: &default-logging
+  driver: json-file
+  options:
+    max-size: "20m"
+    max-file: "3"
+
 services:
   treasury-postgres:
+    logging: *default-logging
     image: postgres:16-alpine
     environment:
       POSTGRES_DB: treasury
@@ -66,6 +76,7 @@ services:
       - treasury-network
 
   orchestrator-postgres:
+    logging: *default-logging
     image: postgres:16-alpine
     environment:
       POSTGRES_DB: orchestrator
@@ -84,6 +95,7 @@ services:
 
   # PRIVATE ZONE. Deliberately has no `ports:` — adding one exposes the mint authority.
   mainnet-treasury-service:
+    logging: *default-logging
     image: ghcr.io/clutchprotocol/clutch-treasury:sha-df5243a
     depends_on:
       treasury-postgres:
@@ -154,6 +166,7 @@ services:
   # building and broadcasting a sweep needs TronGrid, and `internal: true` has no outbound route.
   # What keeps that acceptable is the API shape: /internal/sweep takes an INDEX and nothing else.
   mainnet-tron-signer:
+    logging: *default-logging
     image: ghcr.io/clutchprotocol/clutch-tron-signer:sha-df5243a
     environment:
       - RUST_LOG=${SIGNER_LOG_LEVEL:-info}
@@ -192,6 +205,7 @@ services:
   # network (and only it, of this file's services) so that nginx can reach it, and serves only the
   # accounts in PILOT_ALLOWED_ADDRESSES.
   mainnet-payment-orchestrator:
+    logging: *default-logging
     image: ghcr.io/clutchprotocol/clutch-orchestrator:sha-b702959
     depends_on:
       orchestrator-postgres:
