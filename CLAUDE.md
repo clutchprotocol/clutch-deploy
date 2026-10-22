@@ -156,6 +156,8 @@ Guards, in order: the `server_name` set must be unchanged, no upstream may disap
 
 The `nginx` probe also takes `vhost=` — a comma-separated list, restricted to `*.clutchprotocol.io` because that run log is public and the same file serves v2ray's vhosts — and dumps each whole `server` block. It reports the nginx version, every upstream name with clutch bodies, both kinds of managed block, and what the edge rate limiter would have refused.
 
+**A validator can hang while its container stays "healthy"** (mainnet-node2, 2026-10-20 04:43 UTC, found 2026-10-22): its log stopped, it froze at height 58641, Prometheus still scraped it, and the other two kept the chain going at a block every ~30s instead of 20s. `PROBE=mainnet` shows it as one node behind with a log that ends days ago. "Restart one validator" (`restart-validator.yml`, `scripts/restart-validator.sh`, confirm `restart validator mainnet` on mainnet) `docker restart`s that one container, refuses unless the other two agree, waits until it has caught up, and fails if anything refuses a block or the other two were touched. `upgrade-validators.yml` cannot be used for this: it refuses unless all three agree first.
+
 **Read node heights from `chain`, and trust nothing else.** Two earlier ways of getting that number were wrong in ways that misdirected an investigation: grepping node logs returns the block numbers a node is SERVING to a syncing peer (node3 appeared to fall from 117,573 to 17,463 while it was feeding node1), and the JSON-RPC ports speak WebSocket only, so curling them returns nothing at all. The probe scrapes `latest_block_index` from the Prometheus endpoint on 3001-3003.
 
 Three write workflows exist alongside it, each requiring a typed confirmation:
