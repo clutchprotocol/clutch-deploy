@@ -1,0 +1,68 @@
+# Restart ONE validator that has stopped following the chain (scripts/restart-validator.sh).
+#
+# A plain `docker restart` of that one container: same image, same config, same volume. It refuses
+# unless the other two validators agree, waits until the restarted one has caught up with them,
+# and fails if it or a peer refuses blocks or if either of the other two was restarted. It never
+# runs `down` and never takes `-v`.
+
+name: Restart one validator
+
+on:
+  workflow_dispatch:
+    inputs:
+      chain:
+        description: "Which chain"
+        type: choice
+        default: stage
+        options:
+          - stage
+          - mainnet
+      node:
+        description: "Which validator"
+        type: choice
+        default: "2"
+        options:
+          - "1"
+          - "2"
+          - "3"
+      confirm:
+        description: "Type: restart validator (on mainnet: restart validator mainnet)"
+        required: true
+
+concurrency:
+  group: upgrade-validators
+  cancel-in-progress: false
+
+jobs:
+  restart:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check the confirmation
+        env:
+          CHAIN: ${{ inputs.chain }}
+          CONFIRM: ${{ inputs.confirm }}
+        run: |
+          set -euo pipefail
+          want="restart validator"
+          [ "$CHAIN" = mainnet ] && want="restart validator mainnet"
+          [ "$CONFIRM" = "$want" ] || { echo "::error::type exactly: $want"; exit 1; }
+
+      - uses: actions/checkout@v4
+
+      - name: Restart the validator on the stage host
+        env:
+          CHAIN: ${{ inputs.chain }}
+          NODE: ${{ inputs.node }}
+          SSHPASS: ${{ secrets.STAGE_SSH_PASSWORD }}
+          CLUTCH_SSH_HOST: ${{ secrets.STAGE_HOST }}
+          CLUTCH_SSH_USER: ${{ secrets.STAGE_USER }}
+          DEPLOY_PATH: ${{ secrets.STAGE_DEPLOY_PATH }}
+        run: |
+          set -euo pipefail
+          [ -n "$DEPLOY_PATH" ] || { echo "::error::STAGE_DEPLOY_PATH is empty"; exit 1; }
+          command -v sshpass >/dev/null || { sudo apt-get update -qq && sudo apt-get install -y -qq sshpass >/dev/null; }
+          R="/tmp/clutch-ci-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
+          SSH_OPTS="-o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o ConnectTimeout=30 -o ServerAliveInterval=30"
+          sshpass -e ssh $SSH_OPTS "$CLUTCH_SSH_USER@$CLUTCH_SSH_HOST" "cat > $R.sh" < scripts/restart-validator.sh
+          timeout 40m sshpass -e ssh $SSH_OPTS "$CLUTCH_SSH_USER@$CLUTCH_SSH_HOST" \
+            "set -e; cd '$DEPLOY_PATH'; git pull --ff-only origin main; bash scripts/migrate-env-files.sh; REPO_DIR='$DEPLOY_PATH' CHAIN='$CHAIN' NODE='$NODE' bash $R.sh; rm -f $R.sh"
