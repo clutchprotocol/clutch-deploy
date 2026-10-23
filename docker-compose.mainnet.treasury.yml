@@ -96,7 +96,7 @@ services:
   # PRIVATE ZONE. Deliberately has no `ports:` — adding one exposes the mint authority.
   mainnet-treasury-service:
     logging: *default-logging
-    image: ghcr.io/clutchprotocol/clutch-treasury:sha-df5243a
+    image: ghcr.io/clutchprotocol/clutch-treasury:sha-5a24d19
     depends_on:
       treasury-postgres:
         condition: service_healthy
@@ -174,7 +174,7 @@ services:
   # What keeps that acceptable is the API shape: /internal/sweep takes an INDEX and nothing else.
   mainnet-tron-signer:
     logging: *default-logging
-    image: ghcr.io/clutchprotocol/clutch-tron-signer:sha-df5243a
+    image: ghcr.io/clutchprotocol/clutch-tron-signer:sha-5a24d19
     environment:
       - RUST_LOG=${SIGNER_LOG_LEVEL:-info}
       - APP_DEPOSIT_MNEMONIC=${DEPOSIT_MNEMONIC:?set DEPOSIT_MNEMONIC in .env.mainnet}
@@ -213,7 +213,7 @@ services:
   # accounts in PILOT_ALLOWED_ADDRESSES.
   mainnet-payment-orchestrator:
     logging: *default-logging
-    image: ghcr.io/clutchprotocol/clutch-orchestrator:sha-b702959
+    image: ghcr.io/clutchprotocol/clutch-orchestrator:sha-5a24d19
     depends_on:
       orchestrator-postgres:
         condition: service_healthy
