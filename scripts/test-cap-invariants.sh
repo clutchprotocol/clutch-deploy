@@ -102,6 +102,17 @@ else
   echo "ok    the API key and secret never appear in the output"
 fi
 
+# The service fee (invariants 11 and 12).
+OP=0x466e50fa1c0609744e0752a5b494511a5bb99006
+check "the service fee is off by default" 0 "All invariants hold"
+check "a complete service fee passes" 0 "the service fee settings are complete" SERVICE_FEE_BPS=100 SERVICE_FEE_MIN_USDT=500000 SERVICE_FEE_ADDRESS=$OP
+check "a service fee of 0 bps is off and needs nothing else" 0 "All invariants hold" SERVICE_FEE_BPS=0
+check "a service fee without its address is refused" 1 "SERVICE_FEE_ADDRESS must be" SERVICE_FEE_BPS=100 SERVICE_FEE_MIN_USDT=500000
+check "a TRON address for the service fee is refused" 1 "SERVICE_FEE_ADDRESS must be" SERVICE_FEE_BPS=100 SERVICE_FEE_MIN_USDT=500000 SERVICE_FEE_ADDRESS=TKtWbdzEq5ss9vTS9kwRhBp5mXmBfBns3E
+check "a service fee without its minimum is refused" 1 "SERVICE_FEE_MIN_USDT must be set" SERVICE_FEE_BPS=100 SERVICE_FEE_ADDRESS=$OP
+check "a service fee above 10% is refused" 1 "above 1000" SERVICE_FEE_BPS=1001 SERVICE_FEE_MIN_USDT=0 SERVICE_FEE_ADDRESS=$OP
+check "a service fee minimum at the deposit minimum is refused" 1 "is not below MIN_DEPOSIT_USDT" "${NILE[@]}" SERVICE_FEE_BPS=100 SERVICE_FEE_MIN_USDT=1000000 SERVICE_FEE_ADDRESS=$OP
+
 echo ""
 echo "$passed passed, $failed failed"
 [ "$failed" -eq 0 ]

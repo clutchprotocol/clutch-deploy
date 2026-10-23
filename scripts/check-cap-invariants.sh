@@ -246,6 +246,38 @@ if [ -n "$GF_NETWORK" ]; then
   fi
 fi
 
+# 11. The operator's service fee on top-ups (clutch-treasury service_fee.rs). Off while SERVICE_FEE_BPS is
+#     unset or 0. On, treasury-service refuses to start without a minimum and a 0x address, or above
+#     10%, so every one of these would stop minting at the next restart.
+SF_BPS=$(val SERVICE_FEE_BPS "")
+if [ -n "$SF_BPS" ] && [ "$SF_BPS" != 0 ]; then
+  SF_MIN=$(val SERVICE_FEE_MIN_USDT "")
+  SF_ADDR=$(val SERVICE_FEE_ADDRESS "")
+  sf_ok=1
+  case "$SF_BPS" in
+    *[!0-9]*) bad "SERVICE_FEE_BPS must be a whole number of basis points, got '$SF_BPS'"; sf_ok=0 ;;
+    *) if [ "$SF_BPS" -gt 1000 ]; then bad "SERVICE_FEE_BPS is $SF_BPS, above 1000 (10%) — treasury-service refuses it as a likely typo"; sf_ok=0; fi ;;
+  esac
+  case "$SF_MIN" in
+    ''|*[!0-9]*) bad "SERVICE_FEE_MIN_USDT must be set to a whole number of micro-USDT (0 for none), got '$SF_MIN'"; sf_ok=0 ;;
+  esac
+  if ! printf '%s' "$SF_ADDR" | grep -qE '^0[xX][0-9a-fA-F]{40}$'; then
+    bad "SERVICE_FEE_ADDRESS must be the 0x address the fee is minted to, got '$SF_ADDR'"
+    sf_ok=0
+  fi
+  if [ "$sf_ok" -eq 1 ]; then
+    note "service fee                    ${SF_BPS} bps, at least $(usd "$SF_MIN"), never on a first top-up"
+    # 12. The fee comes out of what a deposit mints. A minimum at or above the smallest deposit that
+    #     mints would take every small top-up whole; the treasury then charges nothing, quietly.
+    MIN_DEP=$(val MIN_DEPOSIT_USDT "")
+    if [ -n "$MIN_DEP" ] && [ "$SF_MIN" -ge "$MIN_DEP" ]; then
+      bad "SERVICE_FEE_MIN_USDT ($(usd "$SF_MIN")) is not below MIN_DEPOSIT_USDT ($(usd "$MIN_DEP")) — the smallest top-ups would pay no fee at all"
+    else
+      ok "the service fee settings are complete"
+    fi
+  fi
+fi
+
 echo ""
 if [ "$fail" -eq 0 ]; then
   echo "All invariants hold. This says nothing about whether the VALUES are right —"
