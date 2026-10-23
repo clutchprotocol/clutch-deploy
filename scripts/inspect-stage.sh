@@ -2,7 +2,7 @@
 #
 # Read-only inspection of the stage VPS. Run ON the host, from the clutch-deploy checkout.
 #
-#   PROBE=nginx|explorer|containers|disk|git|treasury|sweeper|chain|mainnet|mainnet-treasury|gasfree|metrics|balance|energy bash scripts/inspect-stage.sh
+#   PROBE=nginx|explorer|containers|disk|git|treasury|sweeper|chain|mainnet|mainnet-treasury|gasfree|metrics|balance|energy|bsc bash scripts/inspect-stage.sh
 #
 # VHOST=<name> with PROBE=nginx also dumps that vhost's whole server block. Only
 # *.clutchprotocol.io is allowed: this log is public and the same file serves v2ray's vhosts.
@@ -1488,6 +1488,42 @@ if [ "$PROBE" = "mainnet-treasury" ]; then
       *)                      echo "    the GasFree float's activation could not be read" ;;
     esac
   fi
+fi
+
+if [ "$PROBE" = "bsc" ]; then
+  # BEP-20 top-ups (clutch-treasury bsc_verifier.rs / bsc_watch.rs): the settings both services run
+  # with, what the BSC node says about them, and each service's start line. Read-only; everything
+  # printed is public chain state or a public address.
+  for TRIPLE in clutch-stage-treasury-service-1:clutch-stage-payment-orchestrator-1:clutch-stage-orchestrator-postgres-1 \
+                clutch-main-treasury-mainnet-treasury-service-1:clutch-main-treasury-mainnet-payment-orchestrator-1:clutch-main-treasury-orchestrator-postgres-1; do
+    IFS=: read -r TC OC PC <<< "$TRIPLE"
+    docker inspect "$TC" >/dev/null 2>&1 || continue
+    echo "=== $TC ==="
+    envv() { docker exec "$TC" printenv "$1" 2>/dev/null || true; }
+    ENABLED=$(envv APP_BSC_TOPUPS_ENABLED); RPC=$(envv APP_BSC_RPC_URL); CHAIN=$(envv APP_BSC_CHAIN_ID)
+    USDT=$(envv APP_BSC_USDT_CONTRACT); DEC=$(envv APP_BSC_USDT_DECIMALS); PAYIN=$(envv APP_BSC_PAY_IN_ADDRESS)
+    echo "    enabled=${ENABLED:-unset} chain=${CHAIN:-unset} decimals=${DEC:-unset} confirmations=$(envv APP_BSC_CONFIRMATIONS)"
+    echo "    rpc=${RPC:-unset}"
+    echo "    usdt=${USDT:-unset}"
+    echo "    pay_in=${PAYIN:-unset}"
+    echo "    start lines:"
+    docker logs "$TC" 2>&1 | grep -a "bsc top-ups:" | tail -1 | sed 's/^/      treasury: /'
+    docker logs "$OC" 2>&1 | grep -a "bsc top-ups:" | tail -1 | sed 's/^/      orchestrator: /'
+    [ -n "$RPC" ] || continue
+    rpc() { curl -fsS -m 15 -X POST -H 'Content-Type: application/json' -d "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"$1\",\"params\":$2}" "$RPC" 2>&1 \
+              | sed -n 's/.*"result"[ ]*:[ ]*"\([^"]*\)".*/\1/p'; }
+    echo "    node: eth_chainId=$(rpc eth_chainId '[]') (want $(printf '0x%x' "${CHAIN:-0}")) eth_blockNumber=$(rpc eth_blockNumber '[]')"
+    if [ -n "$USDT" ]; then
+      echo "    token: decimals()=$(rpc eth_call "[{\"to\":\"$USDT\",\"data\":\"0x313ce567\"},\"latest\"]") (want ${DEC:-18} as hex)"
+      echo "    token: symbol()=$(rpc eth_call "[{\"to\":\"$USDT\",\"data\":\"0x95d89b41\"},\"latest\"]" | tail -c 129 | xxd -r -p 2>/dev/null | tr -cd '[:print:]')"
+      if [ -n "$PAYIN" ]; then
+        P=$(printf '%s' "${PAYIN#0x}" | tr 'A-F' 'a-f')
+        echo "    pay_in balanceOf()=$(rpc eth_call "[{\"to\":\"$USDT\",\"data\":\"0x70a08231000000000000000000000000$P\"},\"latest\"]")"
+      fi
+    fi
+    echo "    orchestrator watch cursor:"
+    docker exec "$PC" sh -c 'psql -U "$POSTGRES_USER" -d "$POSTGRES_DB" -Atc "SELECT pay_in, last_block FROM bsc_watch; SELECT count(*) || '"'"' bsc payers'"'"' FROM bsc_payers; SELECT count(*) || '"'"' bsc deposits'"'"' FROM deposit_intents WHERE network = '"'"'bsc'"'"'; SELECT count(*) || '"'"' unattributed'"'"' FROM bsc_unattributed"' 2>&1 | sed 's/^/      /'
+  done
 fi
 
 # Always succeed. This is a read-only probe whose OUTPUT is the deliverable — a trailing non-zero
