@@ -62,6 +62,9 @@ jobs:
       - name: Pilot allowlist writer
         if: ${{ !cancelled() }}
         run: bash scripts/test-set-pilot-allowlist.sh
+      - name: Service fee writer
+        if: ${{ !cancelled() }}
+        run: bash scripts/test-set-service-fee.sh
       - name: Mainnet compose guard
         if: ${{ !cancelled() }}
         run: bash scripts/test-check-mainnet-compose.sh

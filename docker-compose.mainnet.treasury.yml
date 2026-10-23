@@ -144,6 +144,13 @@ services:
       # Taken off the USDT leg of every redemption, in micro-USDT. On the GasFree rail it must cover
       # the relay's transfer fee at its maximum (check-cap-invariants.sh).
       - APP_REDEMPTION_FEE_USDT=${REDEMPTION_FEE_USDT:?set REDEMPTION_FEE_USDT in .env.mainnet}
+      # The operator's service fee on top-ups (clutch-treasury service_fee.rs): SERVICE_FEE_BPS of
+      # what a deposit mints, at least SERVICE_FEE_MIN_USDT, minted as CLT to SERVICE_FEE_ADDRESS,
+      # never on a user's first top-up. OFF while SERVICE_FEE_BPS is blank or 0. Written by
+      # set-service-fee.yml; the orchestrator reads the first two to show it in the deposit panel.
+      - APP_SERVICE_FEE_BPS=${SERVICE_FEE_BPS:-}
+      - APP_SERVICE_FEE_MIN_USDT=${SERVICE_FEE_MIN_USDT:-}
+      - APP_SERVICE_FEE_ADDRESS=${SERVICE_FEE_ADDRESS:-}
       # Every hour, not the service's default 24 h: TreasuryReconciliationStale expects a run within 2 h.
       - APP_RECONCILIATION_INTERVAL_SECS=${RECONCILIATION_INTERVAL_SECS:-3600}
       # The GasFree rail: the SAME .env names as the stage file, so the three services cannot read
@@ -241,6 +248,10 @@ services:
       # this is safe to leave on before the activation, and withdrawals begin when the activation runs.
       - APP_MAX_REDEMPTION_CLT=${MAX_REDEMPTION_CLT:?set MAX_REDEMPTION_CLT in .env.mainnet}
       - APP_MIN_REDEMPTION_CLT=${MIN_REDEMPTION_CLT:?set MIN_REDEMPTION_CLT in .env.mainnet}
+      # The treasury's service fee, shown in the deposit panel. 0, not blank, when unset: this
+      # service reads them as numbers.
+      - APP_SERVICE_FEE_BPS=${SERVICE_FEE_BPS:-0}
+      - APP_SERVICE_FEE_MIN_USDT=${SERVICE_FEE_MIN_USDT:-0}
       - APP_REDEMPTIONS_ENABLED=true
       - APP_DEPOSIT_HOT_WINDOW_HOURS=${DEPOSIT_HOT_WINDOW_HOURS:-24}
       - APP_PERMANENT_DEPOSIT_ADDRESSES_ENABLED=${PERMANENT_DEPOSIT_ADDRESSES_ENABLED:-true}
