@@ -227,7 +227,7 @@ services:
 
   clutch-explorer-backend:
     logging: *default-logging
-    image: ghcr.io/clutchprotocol/clutch-explorer-backend:sha-52f5de4
+    image: ghcr.io/clutchprotocol/clutch-explorer-backend:sha-a383f34
     stop_grace_period: 30s
     depends_on:
       - node1
@@ -256,7 +256,7 @@ services:
 
   clutch-explorer-indexer:
     logging: *default-logging
-    image: ghcr.io/clutchprotocol/clutch-explorer-backend:sha-52f5de4
+    image: ghcr.io/clutchprotocol/clutch-explorer-backend:sha-a383f34
     stop_grace_period: 30s
     depends_on:
       - node1
@@ -302,7 +302,7 @@ services:
 
   clutch-explorer-frontend:
     logging: *default-logging
-    image: ghcr.io/clutchprotocol/clutch-explorer-frontend:sha-52f5de4
+    image: ghcr.io/clutchprotocol/clutch-explorer-frontend:sha-a383f34
     ports:
       - "5174:80"
     depends_on:
