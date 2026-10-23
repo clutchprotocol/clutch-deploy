@@ -96,7 +96,7 @@ services:
   # PRIVATE ZONE. Deliberately has no `ports:` — adding one exposes the mint authority.
   mainnet-treasury-service:
     logging: *default-logging
-    image: ghcr.io/clutchprotocol/clutch-treasury:sha-5a24d19
+    image: ghcr.io/clutchprotocol/clutch-treasury:sha-0d0a848
     depends_on:
       treasury-postgres:
         condition: service_healthy
@@ -151,9 +151,9 @@ services:
       - APP_SERVICE_FEE_BPS=${SERVICE_FEE_BPS:-}
       - APP_SERVICE_FEE_MIN_USDT=${SERVICE_FEE_MIN_USDT:-}
       - APP_SERVICE_FEE_ADDRESS=${SERVICE_FEE_ADDRESS:-}
-      # TronLink direct top-ups: OFF on mainnet until it has been tested on stage and the maintainer
-      # says go. Both this service and the orchestrator read the switch.
-      - APP_DIRECT_TOPUPS_ENABLED=${DIRECT_TOPUPS_ENABLED:-false}
+      # TronLink direct top-ups: on since 2026-10-23, after a passing TronLink test on stage and the
+      # maintainer's go. Both this service and the orchestrator read the switch.
+      - APP_DIRECT_TOPUPS_ENABLED=${DIRECT_TOPUPS_ENABLED:-true}
       # Every hour, not the service's default 24 h: TreasuryReconciliationStale expects a run within 2 h.
       - APP_RECONCILIATION_INTERVAL_SECS=${RECONCILIATION_INTERVAL_SECS:-3600}
       # The GasFree rail: the SAME .env names as the stage file, so the three services cannot read
@@ -177,7 +177,7 @@ services:
   # What keeps that acceptable is the API shape: /internal/sweep takes an INDEX and nothing else.
   mainnet-tron-signer:
     logging: *default-logging
-    image: ghcr.io/clutchprotocol/clutch-tron-signer:sha-5a24d19
+    image: ghcr.io/clutchprotocol/clutch-tron-signer:sha-0d0a848
     environment:
       - RUST_LOG=${SIGNER_LOG_LEVEL:-info}
       - APP_DEPOSIT_MNEMONIC=${DEPOSIT_MNEMONIC:?set DEPOSIT_MNEMONIC in .env.mainnet}
@@ -216,7 +216,7 @@ services:
   # accounts in PILOT_ALLOWED_ADDRESSES.
   mainnet-payment-orchestrator:
     logging: *default-logging
-    image: ghcr.io/clutchprotocol/clutch-orchestrator:sha-5a24d19
+    image: ghcr.io/clutchprotocol/clutch-orchestrator:sha-0d0a848
     depends_on:
       orchestrator-postgres:
         condition: service_healthy
@@ -255,8 +255,8 @@ services:
       # service reads them as numbers.
       - APP_SERVICE_FEE_BPS=${SERVICE_FEE_BPS:-0}
       - APP_SERVICE_FEE_MIN_USDT=${SERVICE_FEE_MIN_USDT:-0}
-      # TronLink direct top-ups: the same switch and float as mainnet-treasury-service. OFF for now.
-      - APP_DIRECT_TOPUPS_ENABLED=${DIRECT_TOPUPS_ENABLED:-false}
+      # TronLink direct top-ups: the same switch and float as mainnet-treasury-service.
+      - APP_DIRECT_TOPUPS_ENABLED=${DIRECT_TOPUPS_ENABLED:-true}
       - "APP_PAYOUT_FLOAT_ADDRESS=${PAYOUT_FLOAT_ADDRESS:?set PAYOUT_FLOAT_ADDRESS in .env.mainnet — provision-treasury-secrets.sh writes it}"
       - APP_REDEMPTIONS_ENABLED=true
       - APP_DEPOSIT_HOT_WINDOW_HOURS=${DEPOSIT_HOT_WINDOW_HOURS:-24}
