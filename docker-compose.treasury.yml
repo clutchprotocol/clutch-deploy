@@ -212,6 +212,11 @@ services:
       - APP_SERVICE_FEE_BPS=${SERVICE_FEE_BPS:-}
       - APP_SERVICE_FEE_MIN_USDT=${SERVICE_FEE_MIN_USDT:-}
       - APP_SERVICE_FEE_ADDRESS=${SERVICE_FEE_ADDRESS:-}
+      # TronLink direct top-ups (clutch-treasury tron_verifier.rs, evaluate_direct): a user pays from
+      # their own TRON address straight to the GasFree float, credited by sender. Both this service
+      # and the orchestrator read the switch, and both derive the float from APP_PAYOUT_FLOAT_ADDRESS.
+      # On for stage.
+      - APP_DIRECT_TOPUPS_ENABLED=${DIRECT_TOPUPS_ENABLED:-true}
       # Every hour, not the service's default 24 h: TreasuryReconciliationStale expects a run within
       # 2 h, and the GasFree rollout reads a fresh run after every step. The TRX rail's sweep pass
       # stays hourly either way (min(this, 3600) in treasury-service's main.rs).
@@ -387,6 +392,10 @@ services:
       # service reads them as numbers.
       - APP_SERVICE_FEE_BPS=${SERVICE_FEE_BPS:-0}
       - APP_SERVICE_FEE_MIN_USDT=${SERVICE_FEE_MIN_USDT:-0}
+      # TronLink direct top-ups (clutch-treasury direct.rs): the same switch and the same float as
+      # treasury-service above. The float's GasFree account is where users pay.
+      - APP_DIRECT_TOPUPS_ENABLED=${DIRECT_TOPUPS_ENABLED:-true}
+      - APP_PAYOUT_FLOAT_ADDRESS=${PAYOUT_FLOAT_ADDRESS:-TF5p9P2UqwzDEtwvMxaXprNPxMPzMy8Uur}
       - APP_REDEMPTIONS_ENABLED=true
       # How long a user's address stays on the fast poll tier after they open the deposit panel.
       # Larger values collapse tiering back into polling every address every pass — a cost
