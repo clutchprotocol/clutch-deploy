@@ -43,6 +43,7 @@ on:
           - metrics
           - balance
           - energy
+          - bsc
 
 concurrency:
   group: inspect-stage

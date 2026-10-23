@@ -154,6 +154,19 @@ services:
       # TronLink direct top-ups: on since 2026-10-23, after a passing TronLink test on stage and the
       # maintainer's go. Both this service and the orchestrator read the switch.
       - APP_DIRECT_TOPUPS_ENABLED=${DIRECT_TOPUPS_ENABLED:-true}
+      # BEP-20 USDT top-ups on BNB Smart Chain (clutch-treasury bsc_verifier.rs / bsc_watch.rs, spec
+      # docs/superpowers/specs/2026-10-23-bsc-usdt-design.md, phase 1: deposits only). A user pays from
+      # their own Ethereum wallet to BSC_PAY_IN_ADDRESS, credited by sender. Receiving needs only that
+      # address: its key is NOT on the host. OFF until BSC_TOPUPS_ENABLED=true AND BSC_PAY_IN_ADDRESS is
+      # set; both services read the same values with the shared `bsc` crate and refuse a half-set group.
+      # BSC mainnet (56). PROBE=bsc reads them back with the token's decimals().
+      - APP_BSC_TOPUPS_ENABLED=${BSC_TOPUPS_ENABLED:-false}
+      - APP_BSC_CHAIN_ID=${BSC_CHAIN_ID:-56}
+      - APP_BSC_RPC_URL=${BSC_RPC_URL:-https://bsc-rpc.publicnode.com}
+      - APP_BSC_USDT_CONTRACT=${BSC_USDT_CONTRACT:-0x55d398326f99059fF775485246999027B3197955}
+      - APP_BSC_USDT_DECIMALS=${BSC_USDT_DECIMALS:-18}
+      - APP_BSC_PAY_IN_ADDRESS=${BSC_PAY_IN_ADDRESS:-}
+      - APP_BSC_CONFIRMATIONS=${BSC_CONFIRMATIONS:-15}
       # Every hour, not the service's default 24 h: TreasuryReconciliationStale expects a run within 2 h.
       - APP_RECONCILIATION_INTERVAL_SECS=${RECONCILIATION_INTERVAL_SECS:-3600}
       # The GasFree rail: the SAME .env names as the stage file, so the three services cannot read
@@ -257,6 +270,14 @@ services:
       - APP_SERVICE_FEE_MIN_USDT=${SERVICE_FEE_MIN_USDT:-0}
       # TronLink direct top-ups: the same switch and float as mainnet-treasury-service.
       - APP_DIRECT_TOPUPS_ENABLED=${DIRECT_TOPUPS_ENABLED:-true}
+      # BEP-20 top-ups: the same group as treasury-service above (see there).
+      - APP_BSC_TOPUPS_ENABLED=${BSC_TOPUPS_ENABLED:-false}
+      - APP_BSC_CHAIN_ID=${BSC_CHAIN_ID:-56}
+      - APP_BSC_RPC_URL=${BSC_RPC_URL:-https://bsc-rpc.publicnode.com}
+      - APP_BSC_USDT_CONTRACT=${BSC_USDT_CONTRACT:-0x55d398326f99059fF775485246999027B3197955}
+      - APP_BSC_USDT_DECIMALS=${BSC_USDT_DECIMALS:-18}
+      - APP_BSC_PAY_IN_ADDRESS=${BSC_PAY_IN_ADDRESS:-}
+      - APP_BSC_CONFIRMATIONS=${BSC_CONFIRMATIONS:-15}
       - "APP_PAYOUT_FLOAT_ADDRESS=${PAYOUT_FLOAT_ADDRESS:?set PAYOUT_FLOAT_ADDRESS in .env.mainnet — provision-treasury-secrets.sh writes it}"
       - APP_REDEMPTIONS_ENABLED=true
       - APP_DEPOSIT_HOT_WINDOW_HOURS=${DEPOSIT_HOT_WINDOW_HOURS:-24}
