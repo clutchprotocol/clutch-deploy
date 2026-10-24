@@ -133,7 +133,7 @@ services:
     # The SAME image the testnet serves. It picks its chain and its API from the hostname it
     # is served on (apps/demo/src/chain-for-host.js), so app.clutchprotocol.io gets chain 1000
     # and api.clutchprotocol.io with nothing baked in at build time.
-    image: ghcr.io/clutchprotocol/clutch-hub-demo-app:sha-4a1c68c
+    image: ghcr.io/clutchprotocol/clutch-hub-demo-app:sha-7e1696a
     networks:
       - clutch-stage
     restart: unless-stopped
@@ -150,7 +150,7 @@ services:
 
   mainnet-explorer-backend:
     logging: *default-logging
-    image: ghcr.io/clutchprotocol/clutch-explorer-backend:sha-52f5de4
+    image: ghcr.io/clutchprotocol/clutch-explorer-backend:sha-a383f34
     stop_grace_period: 30s
     environment:
       - APP_DATABASE_URL=postgres://postgres:${MAINNET_EXPLORER_POSTGRES_PASSWORD:-postgres}@mainnet-explorer-postgres:5432/clutch_explorer
@@ -174,7 +174,7 @@ services:
 
   mainnet-explorer-indexer:
     logging: *default-logging
-    image: ghcr.io/clutchprotocol/clutch-explorer-backend:sha-52f5de4
+    image: ghcr.io/clutchprotocol/clutch-explorer-backend:sha-a383f34
     stop_grace_period: 30s
     command: ["/usr/local/bin/indexer", "--env", "default"]
     environment:
@@ -216,7 +216,7 @@ services:
 
   mainnet-explorer-frontend:
     logging: *default-logging
-    image: ghcr.io/clutchprotocol/clutch-explorer-frontend:sha-52f5de4
+    image: ghcr.io/clutchprotocol/clutch-explorer-frontend:sha-a383f34
     networks:
       - clutch-stage
     restart: unless-stopped
