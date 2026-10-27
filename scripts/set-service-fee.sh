@@ -116,6 +116,24 @@ else
 fi
 
 echo ""
+echo "=== nginx reads the orchestrator's address again ==="
+# nginx resolves the orchestrator's name when it loads its config and keeps that address. The
+# recreated orchestrator can get another one, and /payment/ then answers 502 until something reloads
+# nginx: every top-up panel showed "The service is temporarily unavailable" on mainnet from this
+# script's run on 2026-10-26 06:30 UTC until the next reload. Same step as mainnet-treasury-up.sh.
+NGINX_C=$(docker ps --format '{{.Names}}' | grep -x 'nginx-stage' || true)
+if [ -z "$NGINX_C" ]; then
+  echo "ABORT: no running container named nginx-stage, so nothing could reload it, and /payment/ may answer 502."
+  exit 1
+fi
+if ! docker exec "$NGINX_C" nginx -t >/dev/null 2>&1; then
+  echo "ABORT: nginx -t fails, so nginx was not reloaded, and /payment/ may answer 502. Run on the host: docker exec $NGINX_C nginx -t"
+  exit 1
+fi
+docker exec "$NGINX_C" nginx -s reload
+echo "    nginx: reloaded"
+
+echo ""
 echo "=== what the treasury says ==="
 for i in $(seq 1 30); do
   line=$(docker logs --since "$since" "$CH_TREASURY" 2>&1 | grep -oE 'service fee: (off|on, .*)' | tail -1 || true)
