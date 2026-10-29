@@ -1521,8 +1521,19 @@ if [ "$PROBE" = "bsc" ]; then
         echo "    pay_in balanceOf()=$(rpc eth_call "[{\"to\":\"$USDT\",\"data\":\"0x70a08231000000000000000000000000$P\"},\"latest\"]")"
       fi
     fi
+    # Each user's own BSC deposit address (clutch-treasury, spec 2026-10-29): the signer's start line,
+    # without the xpub, and its gas account's BNB, which pays for every sweep.
+    SC="${TC%treasury-service-1}tron-signer-1"
+    LINE=$(docker logs "$SC" 2>&1 | grep -a "bsc deposit addresses:" | tail -1)
+    echo "    deposit addresses: $(printf '%s' "${LINE:-no start line (signer image from before them)}" | sed -e 's/.*bsc deposit addresses: //' -e 's/account xpub [^,]*, //')"
+    GAS=$(printf '%s' "$LINE" | sed -n 's/.*gas account \(0x[0-9a-fA-F]\{40\}\).*/\1/p')
+    if [ -n "$GAS" ]; then
+      WEI=$(rpc eth_getBalance "[\"$GAS\",\"latest\"]")
+      echo "    gas account $GAS holds $(python3 -c "print('%.6f BNB' % (int('${WEI:-0x0}', 16) / 1e18))" 2>/dev/null || echo "$WEI wei")"
+      echo "    orchestrator xpub set: $(docker exec "$OC" sh -c '[ -n "$APP_BSC_DEPOSIT_ACCOUNT_XPUB" ] && echo yes || echo no' 2>/dev/null)"
+    fi
     echo "    orchestrator watch cursor:"
-    docker exec "$PC" sh -c 'psql -U "$POSTGRES_USER" -d "$POSTGRES_DB" -Atc "SELECT pay_in, last_block FROM bsc_watch; SELECT count(*) || '"'"' bsc payers'"'"' FROM bsc_payers; SELECT count(*) || '"'"' bsc deposits'"'"' FROM deposit_intents WHERE network = '"'"'bsc'"'"'; SELECT count(*) || '"'"' unattributed'"'"' FROM bsc_unattributed"' 2>&1 | sed 's/^/      /'
+    docker exec "$PC" sh -c 'psql -U "$POSTGRES_USER" -d "$POSTGRES_DB" -Atc "SELECT pay_in, last_block FROM bsc_watch; SELECT count(*) || '"'"' bsc payers'"'"' FROM bsc_payers; SELECT count(*) || '"'"' bsc deposits'"'"' FROM deposit_intents WHERE network = '"'"'bsc'"'"'; SELECT count(*) || '"'"' bsc deposit addresses'"'"' FROM deposit_addresses WHERE bsc_address IS NOT NULL; SELECT count(*) || '"'"' unattributed'"'"' FROM bsc_unattributed"' 2>&1 | sed 's/^/      /'
   done
 fi
 

@@ -314,6 +314,19 @@ services:
       # Sweeps pay into the GasFree float until it holds this much, then into custody (design §4).
       - APP_PAYOUT_FLOAT_TARGET_USDT=${PAYOUT_FLOAT_TARGET_USDT:-}
       - APP_HTTP_ADDR=0.0.0.0:8093
+      # Each user's own BNB Chain deposit address (clutch-treasury, spec 2026-10-29): a SECOND mnemonic,
+      # never the TRON one, at MetaMask's path m/44'/60'/0'/0/i. Empty is off. With it set the signer
+      # sweeps those addresses to BSC_PAY_IN_ADDRESS (an index is all it is told) and pays the gas from
+      # its gas account m/44'/60'/0'/1/0, which needs a little BNB (PROBE=bsc names it). Written by
+      # provision-treasury-secrets.sh together with BSC_DEPOSIT_ACCOUNT_XPUB below; the two go together.
+      - APP_BSC_DEPOSIT_MNEMONIC=${BSC_DEPOSIT_MNEMONIC:-}
+      - APP_BSC_TOPUPS_ENABLED=${BSC_TOPUPS_ENABLED:-true}
+      - APP_BSC_CHAIN_ID=${BSC_CHAIN_ID:-97}
+      - APP_BSC_RPC_URL=${BSC_RPC_URL:-https://bsc-testnet-rpc.publicnode.com}
+      - APP_BSC_USDT_CONTRACT=${BSC_USDT_CONTRACT:-0x337610d27c682E347C9cD60BD4b3b107C9d34dDd}
+      - APP_BSC_USDT_DECIMALS=${BSC_USDT_DECIMALS:-18}
+      - APP_BSC_PAY_IN_ADDRESS=${BSC_PAY_IN_ADDRESS:-0xb45e67756b2a82f83b0846ba3a7e4459f28cf6a6}
+      - APP_BSC_CONFIRMATIONS=${BSC_CONFIRMATIONS:-15}
     restart: unless-stopped
     networks:
       - treasury-network   # treasury-service reaches it here
@@ -354,6 +367,9 @@ services:
       # addresses from a wallet nobody holds the keys to, and every deposit paid into one would be
       # unrecoverable. Read the value off the signer's /internal/xpub so it cannot be mistyped.
       - APP_DEPOSIT_ACCOUNT_XPUB=${DEPOSIT_ACCOUNT_XPUB:?set DEPOSIT_ACCOUNT_XPUB in .env.testnet}
+      # The public half of BSC_DEPOSIT_MNEMONIC (m/44'/60'/0'). Set, it gives every user their own BNB
+      # Chain deposit address; empty, BNB Chain is pay-from-your-wallet only.
+      - APP_BSC_DEPOSIT_ACCOUNT_XPUB=${BSC_DEPOSIT_ACCOUNT_XPUB:-}
       # This service watches the derived addresses itself (custody.rs), matching USDT transfers by
       # DESTINATION. Must name the same network the contract lives on, or every deposit goes
       # unmatched forever.
