@@ -1,0 +1,64 @@
+# Wipe ONE stage validator's chain data and let it sync again from the other two (scripts/resync-validator.sh).
+#
+# For a validator on a private fork: a node authors at its slot without asking whether it is behind, and it
+# cannot switch chains, so no restart helps (Restart one validator). Stage node1 was in that state after the
+# deploy of 2026-10-29.
+#
+# STAGE ONLY, node 1 or 2. It refuses unless the other two validators run and agree, and unless the target's
+# head is NOT a block of their chain: a node that is only behind, or at the same head, is left alone. The
+# old data is copied to backups/ on the host before anything is removed. It waits until the sync has
+# visibly started, not until it ends: about 160,000 blocks at 100 per 10 seconds take around 4.5 hours.
+# Watch it with Inspect stage (probe chain).
+
+name: Stage — wipe and resync one validator
+
+on:
+  workflow_dispatch:
+    inputs:
+      node:
+        description: "Which stage validator to wipe (node3 is read by the Hub API, the explorer and the treasury)"
+        type: choice
+        default: "1"
+        options:
+          - "1"
+          - "2"
+      confirm:
+        description: "Type: wipe node1 (or wipe node2, the same number)"
+        required: true
+
+# The same group as Restart one validator and Upgrade validators: one validator operation at a time.
+concurrency:
+  group: upgrade-validators
+  cancel-in-progress: false
+
+jobs:
+  resync:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check the confirmation
+        env:
+          NODE: ${{ inputs.node }}
+          CONFIRM: ${{ inputs.confirm }}
+        run: |
+          set -euo pipefail
+          want="wipe node${NODE}"
+          [ "$CONFIRM" = "$want" ] || { echo "::error::type exactly: $want"; exit 1; }
+
+      - uses: actions/checkout@v4
+
+      - name: Wipe and resync the validator on the stage host
+        env:
+          NODE: ${{ inputs.node }}
+          SSHPASS: ${{ secrets.STAGE_SSH_PASSWORD }}
+          CLUTCH_SSH_HOST: ${{ secrets.STAGE_HOST }}
+          CLUTCH_SSH_USER: ${{ secrets.STAGE_USER }}
+          DEPLOY_PATH: ${{ secrets.STAGE_DEPLOY_PATH }}
+        run: |
+          set -euo pipefail
+          [ -n "$DEPLOY_PATH" ] || { echo "::error::STAGE_DEPLOY_PATH is empty"; exit 1; }
+          command -v sshpass >/dev/null || { sudo apt-get update -qq && sudo apt-get install -y -qq sshpass >/dev/null; }
+          R="/tmp/clutch-ci-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
+          SSH_OPTS="-o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o ConnectTimeout=30 -o ServerAliveInterval=30"
+          sshpass -e ssh $SSH_OPTS "$CLUTCH_SSH_USER@$CLUTCH_SSH_HOST" "cat > $R.sh" < scripts/resync-validator.sh
+          timeout 20m sshpass -e ssh $SSH_OPTS "$CLUTCH_SSH_USER@$CLUTCH_SSH_HOST" \
+            "set -e; cd '$DEPLOY_PATH'; git pull --ff-only origin main; bash scripts/migrate-env-files.sh; REPO_DIR='$DEPLOY_PATH' NODE='$NODE' bash $R.sh; rm -f $R.sh"

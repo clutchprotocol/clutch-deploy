@@ -92,6 +92,9 @@ jobs:
           # The real configs. Stage is red while a placeholder address is still in it.
           CONFIG_DIR=config/node-stage bash scripts/check-genesis.sh
           CONFIG_DIR=config/node-mainnet MAINNET=1 bash scripts/check-genesis.sh
+      - name: Stage validator resync gates
+        if: ${{ !cancelled() }}
+        run: bash scripts/test-resync-validator.sh
       - name: Mainnet chain reset gates
         if: ${{ !cancelled() }}
         run: bash scripts/test-reset-mainnet-chain.sh
