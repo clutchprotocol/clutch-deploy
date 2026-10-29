@@ -59,7 +59,10 @@ case "$NETWORK" in
       GASFREE_SERVICE_PROVIDER=TLntW9Z59LYY5KEi9cmwk3PKjQga828ird
       GASFREE_ACTIVATE_FEE_MAX_USDT=2000000
       GASFREE_TRANSFER_FEE_MAX_USDT=2000000
-      MIN_DEPOSIT_USDT=5000000
+      # $1 after the fee (was $5 until 2026-10-29, Mehran's decision): the same as stage. The fee is
+      # taken first, so a GasFree address still needs $5 on a first deposit and $3 after; Pay from
+      # TronLink and BNB Chain pay no relay fee, so $1 is $1 there.
+      MIN_DEPOSIT_USDT=1000000
       GASFREE_EXPECTED_IMPLEMENTATION=a3b0edffa1b94e93d297dcc9b6860175e9b537ec
       GASFREE_EXPECTED_CONTROLLER_IMPLEMENTATION=c8b13e3104f8a2d6e915ac132bdeda7faaf84d7d
       # ONE WALLET (accepted 2026-10-05, readiness A2 "One wallet"). A sweep goes to the float while
