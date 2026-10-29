@@ -103,6 +103,7 @@ authorities = [
 - A second rotation adds a second table, oldest first. A retired set keeps its own size and slot length (`60 / len`), so adding or removing an authority is covered too.
 - The same tables go in all three files. Nodes at the head never read them, so they need no reset and no coordinated restart: add them after the rotation, in a second deploy.
 - They need a clutch-node image with `previous_authorities` ([clutch-node #27](https://github.com/clutchprotocol/clutch-node/pull/27)). An older image ignores the table, and the problem stays.
+- A node that restarted behind before the table was there may have made blocks of its own and sit on a private fork (stage node1 did). Declaring the set does not heal that: wipe it with "Stage — wipe and resync one validator" (`resync-validator.yml`). While it resyncs below `until_block` it cannot fork itself again, because its new key is not in the retired set.
 - The old keys stay dead. The head is checked against `authorities` alone, and the retired set only checks blocks up to `until_block`.
 
 ## Replacing a key, same set size
