@@ -348,11 +348,13 @@ else
 fi
 
 # Each user's own BNB Chain deposit address (clutch-treasury, spec 2026-10-29): a SECOND mnemonic,
-# never a path on DEPOSIT_MNEMONIC, so one leak cannot take both chains. Generated here for the
-# testnet only; a mainnet one is put in .env.mainnet by hand, and this then reads its xpub.
+# never a path on DEPOSIT_MNEMONIC, so one leak cannot take both chains. Generated here for both
+# networks, like DEPOSIT_MNEMONIC (mainnet on Mehran's go, 2026-10-29): on mainnet it is a hot key
+# by design, holding money only between a deposit and its sweep to the pay-in address, whose key is
+# off the host. Never replaced once written: back .env.mainnet up again after the first run.
 echo ""
 echo "=== BNB Chain deposit wallet ==="
-if ! has BSC_DEPOSIT_MNEMONIC && [ "$ENV_FILE" = ".env.testnet" ]; then
+if ! has BSC_DEPOSIT_MNEMONIC; then
   docker run --rm python:3-alpine sh -c \
     'pip install -q mnemonic && python -c "from mnemonic import Mnemonic; print(Mnemonic(\"english\").generate(128))"' \
     | sed 's/^/BSC_DEPOSIT_MNEMONIC=/' >> "$ENV_FILE"
