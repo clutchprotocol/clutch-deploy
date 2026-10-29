@@ -220,6 +220,19 @@ services:
       # Sweeps pay into the GasFree float until it holds this much, then into custody.
       - APP_PAYOUT_FLOAT_TARGET_USDT=${PAYOUT_FLOAT_TARGET_USDT:-}
       - APP_HTTP_ADDR=0.0.0.0:8093
+      # Each user's own BNB Chain deposit address (clutch-treasury, spec 2026-10-29): a SECOND mnemonic,
+      # never the TRON one, at MetaMask's path m/44'/60'/0'/0/i. Empty is off. With it set the signer
+      # sweeps those addresses to BSC_PAY_IN_ADDRESS (an index is all it is told) and pays the gas from
+      # its gas account m/44'/60'/0'/1/0, which needs a little BNB (PROBE=bsc names it). Written by
+      # provision-treasury-secrets.sh together with BSC_DEPOSIT_ACCOUNT_XPUB below; the two go together.
+      - APP_BSC_DEPOSIT_MNEMONIC=${BSC_DEPOSIT_MNEMONIC:-}
+      - APP_BSC_TOPUPS_ENABLED=${BSC_TOPUPS_ENABLED:-true}
+      - APP_BSC_CHAIN_ID=${BSC_CHAIN_ID:-56}
+      - APP_BSC_RPC_URL=${BSC_RPC_URL:-https://bsc-rpc.publicnode.com}
+      - APP_BSC_USDT_CONTRACT=${BSC_USDT_CONTRACT:-0x55d398326f99059fF775485246999027B3197955}
+      - APP_BSC_USDT_DECIMALS=${BSC_USDT_DECIMALS:-18}
+      - APP_BSC_PAY_IN_ADDRESS=${BSC_PAY_IN_ADDRESS:-0xb45e67756b2a82f83b0846ba3a7e4459f28cf6a6}
+      - APP_BSC_CONFIRMATIONS=${BSC_CONFIRMATIONS:-15}
     restart: unless-stopped
     networks:
       - treasury-network   # mainnet-treasury-service reaches it here
@@ -253,6 +266,9 @@ services:
       - APP_CUSTODY_TRON_ADDRESS=${CUSTODY_TRON_ADDRESS:?set CUSTODY_TRON_ADDRESS in .env.mainnet}
       # PUBLIC material by design: an account-level xpub derives receive addresses and nothing else.
       - APP_DEPOSIT_ACCOUNT_XPUB=${DEPOSIT_ACCOUNT_XPUB:?set DEPOSIT_ACCOUNT_XPUB in .env.mainnet}
+      # The public half of BSC_DEPOSIT_MNEMONIC (m/44'/60'/0'). Set, it gives every user their own BNB
+      # Chain deposit address; empty, BNB Chain is pay-from-your-wallet only.
+      - APP_BSC_DEPOSIT_ACCOUNT_XPUB=${BSC_DEPOSIT_ACCOUNT_XPUB:-}
       - "APP_TRONGRID_URL=${TRONGRID_URL:?set TRONGRID_URL in .env.mainnet}"
       - APP_TRONGRID_API_KEY=${TRONGRID_API_KEY:-}
       - "APP_USDT_CONTRACT=${USDT_CONTRACT:?set USDT_CONTRACT in .env.mainnet}"

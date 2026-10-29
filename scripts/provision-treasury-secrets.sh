@@ -347,11 +347,85 @@ else
   echo "    PAYOUT_FLOAT_ADDRESS: written"
 fi
 
+# Each user's own BNB Chain deposit address (clutch-treasury, spec 2026-10-29): a SECOND mnemonic,
+# never a path on DEPOSIT_MNEMONIC, so one leak cannot take both chains. Generated here for the
+# testnet only; a mainnet one is put in .env.mainnet by hand, and this then reads its xpub.
+echo ""
+echo "=== BNB Chain deposit wallet ==="
+if ! has BSC_DEPOSIT_MNEMONIC && [ "$ENV_FILE" = ".env.testnet" ]; then
+  docker run --rm python:3-alpine sh -c \
+    'pip install -q mnemonic && python -c "from mnemonic import Mnemonic; print(Mnemonic(\"english\").generate(128))"' \
+    | sed 's/^/BSC_DEPOSIT_MNEMONIC=/' >> "$ENV_FILE"
+  has BSC_DEPOSIT_MNEMONIC || { echo "ABORT: BSC mnemonic generation produced nothing."; exit 1; }
+  echo "    BSC_DEPOSIT_MNEMONIC: generated (12 words, never printed)"
+fi
+BSC_GAS=""
+if has BSC_DEPOSIT_MNEMONIC; then
+  # The same defaults the compose files apply, so the probe derives from the same settings the signer
+  # runs with. Derivation needs none of them, but the signer refuses to start without the group.
+  if [ "$ENV_FILE" = ".env.testnet" ]; then
+    D_CHAIN=97; D_RPC=https://bsc-testnet-rpc.publicnode.com; D_USDT=0x337610d27c682E347C9cD60BD4b3b107C9d34dDd
+  else
+    D_CHAIN=56; D_RPC=https://bsc-rpc.publicnode.com; D_USDT=0x55d398326f99059fF775485246999027B3197955
+  fi
+  BSC_PROBE="$PROBE-bsc"
+  docker rm -f "$BSC_PROBE" >/dev/null 2>&1 || true
+  trap 'cleanup; docker rm -f "$BSC_PROBE" >/dev/null 2>&1 || true' EXIT
+  docker run -d --name "$BSC_PROBE" \
+    -e APP_PER_TX_PAYOUT_CAP_USDT="$PAYOUT_CAP" \
+    -e APP_DEPOSIT_MNEMONIC="$(val DEPOSIT_MNEMONIC)" \
+    -e APP_SIGNER_TOKEN="$(val SIGNER_TOKEN)" \
+    -e APP_TREASURY_ADDRESS="$(val CUSTODY_TRON_ADDRESS)" \
+    -e APP_TRONGRID_URL="$TRONGRID" \
+    -e APP_USDT_CONTRACT="$USDT" \
+    -e APP_BSC_DEPOSIT_MNEMONIC="$(val BSC_DEPOSIT_MNEMONIC)" \
+    -e APP_BSC_TOPUPS_ENABLED=true \
+    -e APP_BSC_CHAIN_ID="$(val BSC_CHAIN_ID | grep . || echo $D_CHAIN)" \
+    -e APP_BSC_RPC_URL="$(val BSC_RPC_URL | grep . || echo $D_RPC)" \
+    -e APP_BSC_USDT_CONTRACT="$(val BSC_USDT_CONTRACT | grep . || echo $D_USDT)" \
+    -e APP_BSC_USDT_DECIMALS="$(val BSC_USDT_DECIMALS | grep . || echo 18)" \
+    -e APP_BSC_PAY_IN_ADDRESS="$(val BSC_PAY_IN_ADDRESS | grep . || echo 0xb45e67756b2a82f83b0846ba3a7e4459f28cf6a6)" \
+    "$SIGNER_IMAGE" >/dev/null
+  BJSON=""
+  for _ in $(seq 1 30); do
+    BJSON=$(docker exec "$BSC_PROBE" sh -c \
+      'curl -fsS -H "Authorization: Bearer $APP_SIGNER_TOKEN" http://localhost:8093/internal/bsc/xpub' 2>/dev/null || true)
+    if [ -n "$BJSON" ]; then break; fi
+    sleep 1
+  done
+  if [ -z "$BJSON" ]; then
+    echo "ABORT: the signer never answered /internal/bsc/xpub (an image from before BSC deposit addresses?). Its log:"
+    docker logs "$BSC_PROBE" 2>&1 | grep -v -i mnemonic | tail -20
+    exit 1
+  fi
+  BXPUB=$(printf '%s' "$BJSON" | sed -n 's/.*"account_xpub"[ ]*:[ ]*"\([^"]*\)".*/\1/p')
+  BSC_GAS=$(printf '%s' "$BJSON" | sed -n 's/.*"gas_address"[ ]*:[ ]*"\([^"]*\)".*/\1/p')
+  [ -n "$BXPUB" ] && [ -n "$BSC_GAS" ] || { echo "ABORT: could not parse the signer's BSC answer."; exit 1; }
+  if has BSC_DEPOSIT_ACCOUNT_XPUB; then
+    if [ "$(val BSC_DEPOSIT_ACCOUNT_XPUB)" = "$BXPUB" ]; then
+      echo "    BSC_DEPOSIT_ACCOUNT_XPUB: already set and matches the mnemonic"
+    else
+      echo "ABORT: BSC_DEPOSIT_ACCOUNT_XPUB in $ENV_FILE does NOT match BSC_DEPOSIT_MNEMONIC."
+      echo "  Users would be shown BNB Chain addresses the signer cannot sweep. Find which one is wrong first."
+      exit 1
+    fi
+  else
+    echo "BSC_DEPOSIT_ACCOUNT_XPUB=$BXPUB" >> "$ENV_FILE"
+    echo "    BSC_DEPOSIT_ACCOUNT_XPUB: written"
+  fi
+else
+  echo "    BSC_DEPOSIT_MNEMONIC: not set, BNB Chain deposit addresses stay off"
+fi
+
 chmod 600 "$ENV_FILE"
 echo ""
 echo "=== public material (the account xpub is not printed: this log is public; it is in the env file and on the signer's /internal/xpub) ==="
 echo "    fee_address  = $FEE"
 echo "    payout_float = $FLOAT"
+if [ -n "$BSC_GAS" ]; then
+  echo "    bsc_gas      = $BSC_GAS  (send it a little BNB, 0.01 covers about a thousand sweeps;"
+  echo "                   on the testnet, BNB from the BSC testnet faucet)"
+fi
 echo ""
 # Named from the configured network, not hardcoded. It used to say "Nile TRX" always, which on a
 # mainnet env file is an instruction to fund a real address with worthless test TRX -- and the
