@@ -1,0 +1,118 @@
+# Generate the stage validator keys, on the host, once.
+#
+# Until now the three stage validators signed with keys that are committed in this repository
+# (config/node/*.toml, and in clutch-node), so anyone could author blocks on the stage chain (2077).
+# A security report showed it on 2026-10-29. Those keys stay in config/node as the public DEV set,
+# for local runs. Stage needs keys that have never left the machine that will use them.
+#
+# So they are generated ON the stage host and written straight into its .env.testnet, the same way
+# "Mainnet — generate validator keys (once)" does it for mainnet. The secrets never travel through
+# GitHub, never appear in this log, and are never seen by anyone who did not already have access to
+# that host. Only the ADDRESSES are printed, because those are public and have to be committed into
+# config/node-stage/*.toml: each node's own author_public_key, and the shared authorities list.
+#
+# Run this ONCE. It refuses to run again if the keys are already in .env.testnet. Running it early is
+# harmless: nothing reads the new lines until the stage overlay asks for them, and until then the
+# nodes keep running as they are.
+name: Stage — generate validator keys (once)
+
+on:
+  workflow_dispatch:
+    inputs:
+      confirm:
+        description: "Type GENERATE to run"
+        required: true
+
+jobs:
+  keygen:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check the confirmation
+        env:
+          CONFIRM: ${{ inputs.confirm }}
+        run: |
+          set -euo pipefail
+          [ "$CONFIRM" = "GENERATE" ] || { echo "::error::type GENERATE to run"; exit 1; }
+
+      - uses: actions/checkout@v4
+
+      - name: Generate on the host
+        env:
+          STAGE_HOST: ${{ secrets.STAGE_HOST }}
+          STAGE_USER: ${{ secrets.STAGE_USER }}
+          STAGE_SSH_PASSWORD: ${{ secrets.STAGE_SSH_PASSWORD }}
+          DEPLOY_PATH: ${{ secrets.STAGE_DEPLOY_PATH }}
+        run: |
+          set -euo pipefail
+          if [ -z "$DEPLOY_PATH" ]; then
+            echo "::error::STAGE_DEPLOY_PATH is empty"; exit 1
+          fi
+          sudo apt-get update -qq && sudo apt-get install -y -qq sshpass >/dev/null
+
+          # No `set -x` anywhere below: this touches the .env.testnet that holds the deposit mnemonic and
+          # the mint credentials, and a trace would print them into a public log.
+          remote=$(cat <<'REMOTE'
+          set -euo pipefail
+          cd "$DEPLOY_PATH_R"
+          # One env file per network; a host that still has the old shared .env is split first.
+          bash scripts/migrate-env-files.sh
+          [ -f .env.testnet ] || { echo "::error::no .env.testnet at $DEPLOY_PATH_R"; exit 1; }
+
+          # Refuse to replace keys that may already be in use.
+          existing=""
+          for i in 1 2 3; do
+            # An `if`, not `grep ... && x=y`: under `set -e` that list fails the whole script the
+            # moment grep matches nothing, which is the normal case here.
+            if grep -q "^TESTNET_NODE${i}_AUTHOR_SECRET=" .env.testnet; then
+              existing="$existing node${i}"
+            fi
+          done
+          if [ -n "$existing" ]; then
+            echo "::error::.env.testnet already holds validator secrets for:$existing"
+            echo "Refusing to overwrite. If their addresses are already in config/node-stage and the"
+            echo "nodes run on them, replacing the keys leaves authorities nobody can sign for. If you"
+            echo "are certain they are unused, remove those lines from .env.testnet by hand and run"
+            echo "this again."
+            exit 1
+          fi
+
+          # The pinned treasury image carries ceremony-check, the same tool the mainnet keys came from.
+          image="ghcr.io/clutchprotocol/clutch-treasury:$(bash scripts/set-image.sh stage clutch-treasury)"
+          docker pull -q "$image" >/dev/null
+
+          work=$(mktemp -d)
+          # Run as the invoking user so the secrets file is readable here and not left root-owned.
+          docker run --rm --user "$(id -u):$(id -g)" -v "$work:/out" "$image" \
+            ceremony-check validator-keys 3 /out/secrets
+
+          # Append secrets to .env.testnet without ever echoing them. A last line with no newline
+          # would swallow the first secret, so end it first.
+          [ -z "$(tail -c1 .env.testnet)" ] || echo >> .env.testnet
+          while read -r idx addr sec; do
+            printf 'TESTNET_NODE%s_AUTHOR_SECRET=%s\n' "$idx" "$sec" >> .env.testnet
+          done < "$work/secrets"
+
+          shred -u "$work/secrets" 2>/dev/null || rm -f "$work/secrets"
+          rmdir "$work" 2>/dev/null || true
+          echo "wrote 3 secret(s) into $DEPLOY_PATH_R/.env.testnet"
+          REMOTE
+          )
+
+          set +e
+          out=$(sshpass -p "$STAGE_SSH_PASSWORD" ssh -o StrictHostKeyChecking=no \
+                  "$STAGE_USER@$STAGE_HOST" \
+                  "DEPLOY_PATH_R='$DEPLOY_PATH' bash -s" <<< "$remote" 2>&1)
+          rc=$?
+          set -e
+          echo "$out"
+          [ "$rc" -eq 0 ] || exit "$rc"
+
+          echo ""
+          echo "=== next ==="
+          # Single quotes: a backtick inside double quotes is command substitution, so the field
+          # names below would be executed as commands rather than printed.
+          echo 'Put the addresses above into config/node-stage/*.toml: each node own author_public_key,'
+          echo 'and the same authorities list in all three files, in this order (node1, node2, node3).'
+          echo 'Order and length decide the slot schedule, so they must match.'
+          echo 'The secrets are in the host .env.testnet and belong nowhere else.'
+          echo 'Then merge the rotation pull request: its deploy restarts the three nodes together.'
