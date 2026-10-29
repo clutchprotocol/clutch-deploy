@@ -9,7 +9,7 @@ libp2p_topic_name = "test-net"
 blockchain_name = "clutch-node-test-2"
 # The address of this node's key. All three addresses come from one run of the workflow
 # "Stage — generate validator keys (once)", which prints them and keeps the secrets on the host.
-author_public_key = "0xREPLACE_WITH_NODE2_ADDRESS"
+author_public_key = "0xe505a85e1969f0530c23b3ec480c65cb66bcc032"
 # Supplied at run time as APP_AUTHOR_SECRET_KEY from the host's .env.testnet, which compose fills from
 # TESTNET_NODE2_AUTHOR_SECRET (docker-compose.stage.cloudflare-flex.yml). The node reads
 # Environment::with_prefix("APP"), so the env var wins.
@@ -30,9 +30,9 @@ bootstrap_nodes = ["/dns4/node1/tcp/4001"]
 # Order and length decide the slot schedule (authorities[slot % len]), so this list must be identical
 # and in the same order in node1, node2 and node3. Node N is the Nth address.
 authorities = [
-    "0xREPLACE_WITH_NODE1_ADDRESS",
-    "0xREPLACE_WITH_NODE2_ADDRESS",
-    "0xREPLACE_WITH_NODE3_ADDRESS",
+    "0xf0010031deb596784a382ef574894d9bef7ac8b7",
+    "0xe505a85e1969f0530c23b3ec480c65cb66bcc032",
+    "0x592b232a8dc3b2af68b113d5922d2786ed33f472",
 ]
 block_authoring_enabled = true
 # Transfers sent from MetaMask and other Ethereum wallets (clutch-node WalletTransfer). A consensus
