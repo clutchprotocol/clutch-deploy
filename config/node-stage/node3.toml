@@ -88,3 +88,17 @@ seq_url = "http://seq:80"
 # reads -- a bare SEQ_API_KEY in compose overrides nothing). Empty only costs log ingestion,
 # so it is defaulted rather than required.
 seq_api_key = ""
+
+# The authority set this chain had before the rotation of 2026-10-29: the three dev keys that were in git
+# (config/node). Block 163,015 is the last block they authored; block 163,016 is the first of the
+# current set. A node that is behind that block, or new, needs this to sync past it: it checks every old
+# block against the set that signed it. A TOML array of tables has to come after every plain key, so this
+# stays the last thing in the file. Needs a clutch-node image with previous_authorities (clutch-node #27);
+# an older image ignores it. See docs/AUTHORITY-ROTATION.md, "Declare the retired set".
+[[previous_authorities]]
+until_block = 163015
+authorities = [
+    "0x9b6e8afff8329743cac73dbef83ca3cbf9a74c20",
+    "0x6fc11ba44483201f6e9c5eba6435805bb94ad080",
+    "0xc4f3f661a43e099aedb8e396d9de1a831a1b4adc",
+]

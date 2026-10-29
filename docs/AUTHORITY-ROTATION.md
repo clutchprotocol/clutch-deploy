@@ -19,8 +19,9 @@ Until 2026-10-29 stage ran the dev keys, and someone moved CLT out of two of the
 2. Put the addresses into `config/node-stage/node{1,2,3}.toml`: each node's own `author_public_key`, and the same `authorities` list in all three, in order.
 3. Merge. The deploy runs `up -d --force-recreate`, so all three nodes restart together with the new keys.
 4. Check as in "Replacing a key" below: no `author verification failed` that keeps coming after all three are up (a few while they restart are normal), `PROBE=chain` shows the same block on all three, and `/api/v1/validators` on the stage explorer lists the new addresses.
+5. Declare the retired set, as in "Declare the retired set" below: a node that is behind the rotation, or new, cannot sync past it until every node's config names the old keys. Stage node1 was behind and hit exactly this on 2026-10-29. For stage the last block of the old keys was 163,015, and `config/node-stage/node{1,2,3}.toml` now end with that table.
 
-The old three addresses stay in the chain's history and their accounts keep what they held. Nothing needs to move. All three keys are replaced at once, which the rehearsal below did not do (it replaces one); the mechanism is the same.
+The old three addresses stay in the chain's history and their accounts keep what they held. Nothing needs to move.
 
 ## What is and is not committed to genesis
 
@@ -37,7 +38,7 @@ the eight above does.
 
 ## What makes it non-trivial anyway
 
-Two couplings, neither obvious from the config file:
+Three couplings, neither obvious from the config file:
 
 **1. The slot-to-author mapping depends on order *and* length.**
 `author_at_slot` is `authorities[slot % authorities.len()]`. A node with a stale list expects a
@@ -78,6 +79,32 @@ calculation divides by zero. An empty set divides by zero at construction. Both 
 startup with a message naming the reason (`clutch-node` `ff53d5c`), along with a duplicate
 authority, which otherwise silently takes two slots per round.
 
+**3. History is checked against the set that signed it.**
+A rotation leaves old blocks signed by keys that are no longer in the list, and a node checks every block it imports, sync included. See "Declare the retired set" below.
+
+## Declare the retired set
+
+A node checks every block it imports against the authority set that was valid at that block's height, and it knows only the sets its config names. A node that only knows the new list refuses every old block: `Block author verification failed: expected author <new>, but found <old>`. Nodes at the head never import old blocks, so a rotation looks fine until a node is behind or new. On 2026-10-29 stage node1 was already behind when the stage keys were replaced. It logged that line about 2,800 times in 30 minutes and stayed at block 144,511.
+
+So after every rotation, add the retired set to every node's config, at the END of the file (a TOML array of tables comes after every plain key):
+
+```toml
+[[previous_authorities]]
+until_block = 163015
+authorities = [
+    "0x9b6e8afff8329743cac73dbef83ca3cbf9a74c20",
+    "0x6fc11ba44483201f6e9c5eba6435805bb94ad080",
+    "0xc4f3f661a43e099aedb8e396d9de1a831a1b4adc",
+]
+```
+
+- `until_block` is the LAST block the retired set authored. On the explorer it is the block before the first one by a new key. Stage: block 163,015 was made by an old key at 14:44:40 UTC and block 163,016 by a new key at 14:45:20 UTC. Use the exact number: it decides which set checks which block.
+- Keep the old order. The slot of a block picks its author by position.
+- A second rotation adds a second table, oldest first. A retired set keeps its own size and slot length (`60 / len`), so adding or removing an authority is covered too.
+- The same tables go in all three files. Nodes at the head never read them, so they need no reset and no coordinated restart: add them after the rotation, in a second deploy.
+- They need a clutch-node image with `previous_authorities` ([clutch-node #27](https://github.com/clutchprotocol/clutch-node/pull/27)). An older image ignores the table, and the problem stays.
+- The old keys stay dead. The head is checked against `authorities` alone, and the retired set only checks blocks up to `until_block`.
+
 ## Replacing a key, same set size
 
 Cadence is unchanged, so this is the simpler case.
@@ -101,6 +128,7 @@ Cadence is unchanged, so this is the simpler case.
      the assumption that equal heights mean equal chains is not one worth making on a redeemable
      token.
    - `containers` — no node restarting in a loop.
+6. Declare the retired set, as in "Declare the retired set" above: find the last block the old key authored, add `[[previous_authorities]]` to all three files, and deploy again. Do it the same day. Until then a node that is behind the rotation, or new, cannot sync past it.
 
 ## Adding or removing an authority
 
@@ -112,6 +140,7 @@ Everything above, plus:
   stalls you want to know which change did it.
 - Check the new size against the 60 ceiling. The node now refuses to start past it rather than
   panicking later, but a refusal at boot is still an outage if you deploy it to every node at once.
+- **Declare the retired set too.** It keeps its own size and slot length (`60 / len`) in `previous_authorities`, so the blocks it signed are still checked the way they were made.
 
 ## The rehearsal, which is what closes C3
 
@@ -127,11 +156,14 @@ It asserts four things, in this order:
    replaced at the same index on all three nodes and all three restart together. If it restarted,
    something in `ChainInit` changed when it should not have.
 2. All three hold the **same block** at the same height afterwards, compared by hash.
-3. A node with **no data at all** can still sync the whole history. This one is not obvious and is
-   the reason the rehearsal is worth running: existing blocks were authored by the key that was
-   just rotated out, and a fresh node validates that history against the *current* list. It passes
-   — but had it not, rotation would work for every running node and silently break every new one,
-   which you would discover on the day you add a server. That is the same day you rotate.
+3. A node with **no data at all** can sync the whole history. The rehearsal wipes node2 and waits
+   for it to reach the head. It passed twice on 2026-09-18, with ONE key replaced. **That did not
+   predict stage.** On 2026-10-29 all three stage keys were replaced, and a node that was behind
+   could not sync past the rotation: it checks every old block against the set that signed it, and
+   a node that only knows the new list refuses them all (see "Declare the retired set"). Why the
+   rehearsal passed has not been found, and it has not been run since. So assertion 3 is no
+   evidence that a rotation is safe for a lagging or new node. Known gap: the rehearsal should
+   declare the retired set in the wiped node's config and run against an image that supports it.
 4. A node given a **different order** rejects blocks and says so in its log, as described above.
    That is the failure this whole procedure guards against, and the rehearsal is where you get to
    see it once with nothing at stake.
