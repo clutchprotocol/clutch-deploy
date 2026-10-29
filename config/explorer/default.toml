@@ -31,6 +31,6 @@ allowed_origins = "*"
 # the testnet treasury. Empty here switches it off, which is what a stack without the treasury gets.
 treasury_public_reconciliation_url = ""
 
-# The testnet genesis (config/node/*.toml): 200 + 200 bps.
+# The testnet genesis (config/node-stage/*.toml): 200 + 200 bps.
 ride_request_referrer_fee_bps = 200
 ride_offer_referrer_fee_bps = 200

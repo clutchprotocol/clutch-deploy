@@ -34,7 +34,7 @@ case "$CHAIN" in
   stage)
     C="docker compose -p clutch-stage --env-file .env.testnet -f docker-compose.yml -f docker-compose.stage.cloudflare-flex.yml"
     NET=clutch-stage_clutch-network
-    CONF=config/node
+    CONF=config/node-stage
     svc()     { echo "node$1"; }
     ws_url()  { echo "ws://node$1:808$1/ws"; }
     metrics() { echo "http://node$1:300$1/metrics"; }

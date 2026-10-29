@@ -13,6 +13,8 @@ on:
   pull_request:
     paths:
       - "scripts/**"
+      - "config/node/*.toml"
+      - "config/node-stage/*.toml"
       - "config/node-mainnet/*.toml"
       - "docker-compose.yml"
       - "docker-compose.mainnet.yml"
@@ -27,6 +29,8 @@ on:
     branches: [main]
     paths:
       - "scripts/**"
+      - "config/node/*.toml"
+      - "config/node-stage/*.toml"
       - "config/node-mainnet/*.toml"
       - "docker-compose.yml"
       - "docker-compose.mainnet.yml"
@@ -80,6 +84,14 @@ jobs:
       - name: Mainnet mint key writer
         if: ${{ !cancelled() }}
         run: bash scripts/test-mainnet-mint-key.sh
+      - name: Node configs hold no public key
+        if: ${{ !cancelled() }}
+        run: |
+          set -euo pipefail
+          bash scripts/test-check-genesis-keys.sh
+          # The real configs. Stage is red while a placeholder address is still in it.
+          CONFIG_DIR=config/node-stage bash scripts/check-genesis.sh
+          CONFIG_DIR=config/node-mainnet MAINNET=1 bash scripts/check-genesis.sh
       - name: Mainnet chain reset gates
         if: ${{ !cancelled() }}
         run: bash scripts/test-reset-mainnet-chain.sh

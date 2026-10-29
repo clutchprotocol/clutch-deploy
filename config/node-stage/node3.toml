@@ -1,0 +1,90 @@
+# Clutch STAGE validator 3 (chain 2077). docker-compose.stage.cloudflare-flex.yml mounts this folder
+# over /app/config/node. config/node is the local DEV set: its secrets are public because they are in
+# git, so nothing public may run on stage and this folder holds addresses only.
+#
+# Everything else was copied from config/node/node3.toml. The consensus values (chain_id to
+# ride_auto_release_secs) are the stage chain's genesis and are owned by this folder now: change them
+# only together with a chain reset.
+libp2p_topic_name = "test-net"
+blockchain_name = "clutch-node-test-3"
+# The address of this node's key. All three addresses come from one run of the workflow
+# "Stage — generate validator keys (once)", which prints them and keeps the secrets on the host.
+author_public_key = "0xREPLACE_WITH_NODE3_ADDRESS"
+# Supplied at run time as APP_AUTHOR_SECRET_KEY from the host's .env.testnet, which compose fills from
+# TESTNET_NODE3_AUTHOR_SECRET (docker-compose.stage.cloudflare-flex.yml). The node reads
+# Environment::with_prefix("APP"), so the env var wins.
+#
+# EMPTY ON PURPOSE, and it must stay empty. This file is committed, so a secret written here is a
+# published key: that is how the first three stage keys were lost. scripts/check-genesis.sh fails on one.
+author_secret_key = ""
+# MUST stay false anywhere the chain matters. On shutdown, developer_mode makes the node
+# DELETE its own RocksDB (blockchain.rs shutdown_blockchain -> cleanup_db -> delete_database).
+# On stage that meant every deploy destroyed the chain of whichever node finished its
+# graceful stop inside the 30s grace period; the ones SIGKILLed first kept theirs, so the
+# loss looked random and was blamed on volumes, on resyncing, and on the deploy script in
+# turn. The volumes were fine the whole time -- the node was erasing itself.
+developer_mode = false
+websocket_addr = "0.0.0.0:8083"
+listen_addrs = ["/ip4/0.0.0.0/tcp/4003"]
+bootstrap_nodes = ["/dns4/node1/tcp/4001"]
+# Order and length decide the slot schedule (authorities[slot % len]), so this list must be identical
+# and in the same order in node1, node2 and node3. Node N is the Nth address.
+authorities = [
+    "0xREPLACE_WITH_NODE1_ADDRESS",
+    "0xREPLACE_WITH_NODE2_ADDRESS",
+    "0xREPLACE_WITH_NODE3_ADDRESS",
+]
+block_authoring_enabled = true
+# Transfers sent from MetaMask and other Ethereum wallets (clutch-node WalletTransfer). A consensus
+# rule held in config, not genesis: node1, node2 and node3 MUST carry the same two values, or one
+# validator refuses a block another authored. 20771 is the Hub API's wallet_chain_id
+# (config/api/default.toml). From block 0 is safe here because no earlier block can hold one, and
+# a stage deploy restarts all three validators together. Mainnet needs a future height and a
+# planned rolling upgrade instead (clutch-node CLAUDE.md, "Wallet transfers").
+wallet_chain_id = 20771
+wallet_transfers_from_block = 0
+# Consensus params — committed to state by the genesis ChainInit tx. These MUST be
+# byte-identical across node1/node2/node3: the genesis hash covers them and peers
+# compare it at handshake, so a divergent value makes this node unable to peer.
+chain_id = 2077
+is_testnet = true
+tx_fee = 1000
+mint_authority = "0x662c5f11ed534ae93f29ed5e02a928081056f5f9"
+faucet_address = "0x88f9c89f2e06410755b987bf9a6da20361ba7e7a"
+# Zero. The faucet endpoint was removed long before this, but the BALANCE was the actual risk:
+# it TRANSFERRED rather than minted, so the CLT it held had no USDT behind it and was excluded
+# from reserve liability by construction. That was harmless while CLT only ever flowed one way.
+# Redemptions are live now, and nothing in the burn path asks where the burned CLT came from —
+# which made this account a route from unbacked genesis supply to real USDT out of the payout
+# float, gated only by whoever holds its key.
+#
+# faucet_address stays because it is committed into the genesis hash and removing the field would
+# change the ChainInit encoding. With a zero allocation the account is inert: it is credited
+# nothing and holds nothing.
+#
+# Genesis-only. Changing this forks the chain, so it takes effect on a reset and nowhere else.
+faucet_allocation = 0
+ride_request_referrer_fee_bps = 200
+ride_offer_referrer_fee_bps = 200
+
+# The ride-cancel auto-release window (readiness item H1). Past it, a RideCancel pays the unpaid
+# remainder to the DRIVER rather than refunding the passenger -- which is what stops a rider taking
+# the trip and getting the money back by cancelling. Genesis-committed like everything else in this
+# block: it decides who receives money, so a node with a different value computes a different
+# balance from the same block.
+#
+# 300 seconds here, NOT the 7200 of the decision of record. Two hours cannot be exercised on a
+# development chain -- nobody waits that long to test a cancel, so the rule would ship having never
+# executed against a real ride. Five minutes is reachable in one sitting. check-genesis.sh enforces
+# 7200 under MAINNET=1, so this value cannot leak into a mainnet genesis.
+ride_auto_release_secs = 300
+sync_enabled = true
+serve_metric_enabled = true
+serve_metric_addr = "0.0.0.0:3003"
+log_level = "info"
+seq_url = "http://seq:80"
+# Deliberately EMPTY. This file is committed, so a key written here is a published key.
+# Supplied at run time as APP_SEQ_API_KEY from .env (the APP_ prefix is what config actually
+# reads -- a bare SEQ_API_KEY in compose overrides nothing). Empty only costs log ingestion,
+# so it is defaulted rather than required.
+seq_api_key = ""
