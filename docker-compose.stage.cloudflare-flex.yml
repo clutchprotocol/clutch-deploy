@@ -3,14 +3,36 @@
 #
 # docker compose -p clutch-stage -f docker-compose.yml -f docker-compose.stage.cloudflare-flex.yml up -d
 services:
+  # The stage validators run on keys that are NOT in git. config/node, which the base file mounts, is
+  # the local dev set and its secrets are public (that is how the first three stage keys were lost), so
+  # stage mounts config/node-stage over it: addresses only. Each secret comes from .env.testnet as
+  # APP_AUTHOR_SECRET_KEY, and `:?` stops any compose command on this stack, before it touches a
+  # container, while the keys are not there yet: a node must never start with an empty secret.
+  # "Stage — generate validator keys (once)" writes them. Every stage command passes this file
+  # (deploy-stage.sh, chain.sh, restart-validator.sh, upgrade-validators.sh). Stage started from the
+  # base file alone would run the public dev keys again and say nothing, so it never is.
+  # config/node must stay in the repo: it is the mount point of the nested mount below, and Docker
+  # cannot create a missing one inside the read-only /app/config.
   node1:
     ports: !reset []
+    environment:
+      - APP_AUTHOR_SECRET_KEY=${TESTNET_NODE1_AUTHOR_SECRET:?the stage validator keys are not in .env.testnet — run the "Stage — generate validator keys" workflow}
+    volumes:
+      - ./config/node-stage:/app/config/node:ro
 
   node2:
     ports: !reset []
+    environment:
+      - APP_AUTHOR_SECRET_KEY=${TESTNET_NODE2_AUTHOR_SECRET:?the stage validator keys are not in .env.testnet — run the "Stage — generate validator keys" workflow}
+    volumes:
+      - ./config/node-stage:/app/config/node:ro
 
   node3:
     ports: !reset []
+    environment:
+      - APP_AUTHOR_SECRET_KEY=${TESTNET_NODE3_AUTHOR_SECRET:?the stage validator keys are not in .env.testnet — run the "Stage — generate validator keys" workflow}
+    volumes:
+      - ./config/node-stage:/app/config/node:ro
 
   clutch-hub-api:
     ports: !reset []

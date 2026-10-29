@@ -100,8 +100,26 @@ jobs:
           docker compose --env-file /tmp/testnet.env -f docker-compose.yml config -q
           # The stage overlay declares clutch-mainnet as external. `config` does not check that a
           # network exists, so this parses here and is still the real coupling on the host.
+          # It also marks the three validator secrets required, so they are added for this render only:
+          # the base above must not need them (local dev has none).
           echo "--- base + stage overlay ---"
-          docker compose --env-file /tmp/testnet.env -f docker-compose.yml -f docker-compose.stage.cloudflare-flex.yml config -q
+          cp /tmp/testnet.env /tmp/stage.env
+          printf 'TESTNET_NODE1_AUTHOR_SECRET=ci\nTESTNET_NODE2_AUTHOR_SECRET=ci\nTESTNET_NODE3_AUTHOR_SECRET=ci\n' >> /tmp/stage.env
+          docker compose --env-file /tmp/stage.env -f docker-compose.yml -f docker-compose.stage.cloudflare-flex.yml config -q
+
+          # Stage must run the addresses-only config with the secret from .env.testnet, never the dev set
+          # that the base mounts. `config` does not show what a merge did to a volume list, so read it.
+          echo "--- stage validators: keys from the env file, config from config/node-stage ---"
+          docker compose --env-file /tmp/stage.env -f docker-compose.yml -f docker-compose.stage.cloudflare-flex.yml config --format json > /tmp/stage-nodes.json
+          jq -e '[.services.node1, .services.node2, .services.node3] | all(
+                   ((.volumes | map(select(.target == "/app/config/node" and .read_only == true and (.source | endswith("/config/node-stage")))) | length) == 1)
+                   and (.environment.APP_AUTHOR_SECRET_KEY == "ci"))' /tmp/stage-nodes.json >/dev/null \
+            || { echo "::error::a stage validator does not mount config/node-stage read-only at /app/config/node, or does not get APP_AUTHOR_SECRET_KEY: stage would run the public dev keys"; exit 1; }
+          # And without the secrets the stage stack must not render at all, so a compose command can
+          # never start a validator with an empty key.
+          if docker compose --env-file /tmp/testnet.env -f docker-compose.yml -f docker-compose.stage.cloudflare-flex.yml config -q 2>/dev/null; then
+            echo "::error::the stage overlay renders without the validator secrets: a node could start with an empty key"; exit 1
+          fi
 
           # The mainnet treasury, rendered the way the host renders it: its own file and --env-file,
           # which is what keeps its secrets separate from the testnet's. `config -q` proves it parses,

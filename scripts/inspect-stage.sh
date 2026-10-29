@@ -833,7 +833,7 @@ if [ "$PROBE" = "chain" ]; then
   done
   if [ "$any_reject" -gt 0 ]; then
     echo "    *** ${any_reject} node(s) are refusing blocks the rest of the network accepts. ***"
-    echo "    Compare \`authorities\` in config/node/node{1,2,3}.toml: it must be byte-identical"
+    echo "    Compare \`authorities\` in config/node-stage/node{1,2,3}.toml: it must be byte-identical"
     echo "    and in the same ORDER on every node. See docs/AUTHORITY-ROTATION.md."
   fi
 

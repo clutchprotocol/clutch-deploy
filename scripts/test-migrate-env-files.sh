@@ -34,6 +34,9 @@ SIGNER_TOKEN=signer-testnet
 DEPOSIT_MNEMONIC=testnet words go here
 CUSTODY_TRON_ADDRESS=TTestnetCustody
 DEPOSIT_ACCOUNT_XPUB=xpub-testnet
+TESTNET_NODE1_AUTHOR_SECRET=testnet-node1-secret
+TESTNET_NODE2_AUTHOR_SECRET=testnet-node2-secret
+TESTNET_NODE3_AUTHOR_SECRET=testnet-node3-secret
 EOF
 # .env.mainnet as it is before the split: the example's settings plus the treasury's.
 {
@@ -97,7 +100,7 @@ bk=$(ls -d "$W"/backups/env-split-* 2>/dev/null | head -1)
 [ -n "$bk" ] && [ "$(stat -c %a "$bk")" = 700 ] && cmp -s "$bk/.env" "$T/old.env" && cmp -s "$bk/.env.mainnet" "$T/old.mainnet" \
   && ok "both old files are in backups/env-split-*, mode 700" || bad "both old files are in backups/env-split-*, mode 700"
 leak=""
-for v in aaaa1 aaaa2 aaaa3 mexp-1 jwt-mainnet-1 jwt-testnet-1 seq-key-1 "testnet words" "mainnet words"; do
+for v in aaaa1 aaaa2 aaaa3 mexp-1 jwt-mainnet-1 jwt-testnet-1 seq-key-1 testnet-node1-secret "testnet words" "mainnet words"; do
   printf '%s' "$out" | grep -qF "$v" && leak="$leak $v"
 done
 [ -z "$leak" ] && ok "no value is printed" || bad "no value is printed:$leak"

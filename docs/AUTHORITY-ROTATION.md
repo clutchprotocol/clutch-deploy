@@ -3,6 +3,25 @@
 Readiness item **C3**. How to replace, add or remove an Aura authority without splitting the
 network.
 
+## Where each network's files are
+
+- **Local dev:** `config/node/`. The secrets are public, on purpose. Never point a network other people can reach at it.
+- **Stage:** `config/node-stage/`. Addresses only. The secrets are `TESTNET_NODE{1,2,3}_AUTHOR_SECRET` in the host's `.env.testnet`, which compose passes to the nodes as `APP_AUTHOR_SECRET_KEY`.
+- **Mainnet:** `config/node-mainnet/`. Addresses only. The secrets are `MAINNET_NODE{1,2,3}_AUTHOR_SECRET` in `.env.mainnet`.
+
+The steps below say `config/node/` because that is where they were first written. For stage or mainnet, edit the same three files in that network's folder. `scripts/check-genesis.sh` fails a folder other than `config/node` that holds a secret or reuses a dev address.
+
+### Stage: the first move off the dev keys
+
+Until 2026-10-29 stage ran the dev keys, and someone moved CLT out of two of the authority accounts (a report, confirmed on the stage explorer). The fix needs no chain reset, because `authorities` is not in the genesis. It is a coordinated restart of the three nodes, which a stage deploy already is.
+
+1. Run **Stage — generate validator keys (once)** and type `GENERATE`. It writes the three secrets into the host's `.env.testnet` and prints the three addresses.
+2. Put the addresses into `config/node-stage/node{1,2,3}.toml`: each node's own `author_public_key`, and the same `authorities` list in all three, in order.
+3. Merge. The deploy runs `up -d --force-recreate`, so all three nodes restart together with the new keys.
+4. Check as in "Replacing a key" below: no `author verification failed` that keeps coming after all three are up (a few while they restart are normal), `PROBE=chain` shows the same block on all three, and `/api/v1/validators` on the stage explorer lists the new addresses.
+
+The old three addresses stay in the chain's history and their accounts keep what they held. Nothing needs to move. All three keys are replaced at once, which the rehearsal below did not do (it replaces one); the mechanism is the same.
+
 ## What is and is not committed to genesis
 
 This is the part that decides how big the job is, and an earlier version of the readiness doc had

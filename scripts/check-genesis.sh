@@ -10,7 +10,8 @@
 # the wrong place to discover it: a genesis mistake found at boot on mainnet is found after the
 # chain has been announced.
 #
-#   bash scripts/check-genesis.sh                    # checks config/node/*.toml
+#   bash scripts/check-genesis.sh                    # checks config/node/*.toml (the local dev set)
+#   CONFIG_DIR=config/node-stage bash scripts/check-genesis.sh   # stage: also no secret, no dev address
 #   MAINNET=1 bash scripts/check-genesis.sh          # also enforces the mainnet-only rules
 #
 # `authorities` is NOT in the genesis hash — it is per-node config — but a disagreement there is
@@ -154,6 +155,69 @@ case "$MINT_AUTH" in
          || bad "mint_authority is not 0x + 40 hex: $MINT_AUTH" ;;
   *)   bad "mint_authority is not set to an 0x address: '$MINT_AUTH'" ;;
 esac
+
+# --- keys: what a committed config may hold ----------------------------------------------------------
+# config/node is the local DEV set. Its secrets are public because they are in git, on purpose, and so
+# are its three authority addresses. Any other folder (stage, mainnet) belongs to a chain other people
+# can reach, so it must hold no secret and must not reuse a dev address. The first three stage keys were
+# lost exactly that way: stage ran the dev set (reported 2026-10-29).
+echo ""
+echo "=== keys ==="
+is_addr() { [[ "$1" =~ ^0x[0-9a-fA-F]{40}$ ]]; }
+
+for f in "${FILES[@]}"; do
+  pk=$(get "$f" author_public_key || true)
+  if ! is_addr "$pk"; then
+    bad "${f##*/}: author_public_key is not 0x + 40 hex: '$pk'"
+  else
+    mine_list=",$(authorities_of "$f"),"
+    case "${mine_list,,}" in
+      *",${pk,,},"*) ok "${f##*/}: author_public_key is one of the authorities" ;;
+      *) bad "${f##*/}: author_public_key is not in its authorities list, so this node would never author" ;;
+    esac
+  fi
+done
+for a in $(printf '%s' "$first_auth" | tr ',' ' '); do
+  is_addr "$a" || bad "authorities holds '$a', which is not 0x + 40 hex"
+done
+
+if [ "${CONFIG_DIR%/}" = "config/node" ]; then
+  note "config/node is the dev set: public secrets are allowed here, and only here"
+else
+  secret_in=""
+  for f in "${FILES[@]}"; do
+    [ -z "$(get "$f" author_secret_key || true)" ] || secret_in="$secret_in ${f##*/}"
+  done
+  if [ -n "$secret_in" ]; then
+    bad "author_secret_key is set in:$secret_in"
+    note "This file is committed, so the key is public. Leave it empty and supply APP_AUTHOR_SECRET_KEY"
+    note "from the host's env file."
+  else
+    ok "no secret is committed"
+  fi
+
+  # Every address a folder names (its own key and its authorities), lower case, one per line.
+  addresses_in() {
+    local f
+    for f in "$@"; do
+      get "$f" author_public_key || true
+      authorities_of "$f" | tr ',' '\n'
+    done | tr 'A-F' 'a-f' | grep . | sort -u || true
+  }
+  if compgen -G "config/node/*.toml" >/dev/null; then
+    dev=$(addresses_in config/node/*.toml)
+    mine=$(addresses_in "${FILES[@]}")
+    overlap=$(comm -12 <(printf '%s\n' "$dev") <(printf '%s\n' "$mine") | tr '\n' ' ')
+    if [ -n "${overlap// /}" ]; then
+      bad "uses an address from the public dev set: $overlap"
+      note "Its secret is in git (config/node), so anyone can sign as it."
+    else
+      ok "no address from the public dev set"
+    fi
+  else
+    note "there is no config/node here, so the dev addresses were not compared"
+  fi
+fi
 
 # --- mainnet-only ------------------------------------------------------------------------------
 echo ""
