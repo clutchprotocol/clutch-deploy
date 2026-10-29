@@ -120,14 +120,16 @@ for i in 1 2 3; do describe "$i"; done
 wait_for_agreement || die "the validators do not agree before anything was touched; not starting"
 height=$(head_of 1 | cut -d' ' -f1)
 
-# The switch must still be ahead, with room for three restarts, unless every validator already
+# A switch that is still ahead must have room for three restarts, unless every validator already
 # runs this image (a re-run, or a chain like stage that switched on at genesis with this build).
+# A switch the chain has already passed is no risk: the old and the new build were already the same
+# for it (mainnet's is at 17000 and the chain was at 96,000 when this refused a plain upgrade).
 pending=0
 for i in 1 2 3; do
   id=$(container "$i")
   [ -n "$id" ] && [ "$(docker inspect -f '{{.Config.Image}}' "$id")" = "$image" ] || pending=1
 done
-if [ "$pending" -eq 1 ] && [ "$FROM_BLOCK" -gt 0 ] && [ $(( FROM_BLOCK - height )) -lt "$MARGIN" ]; then
+if [ "$pending" -eq 1 ] && [ "$FROM_BLOCK" -gt "$height" ] && [ $(( FROM_BLOCK - height )) -lt "$MARGIN" ]; then
   die "the switch is at block $FROM_BLOCK and the chain is at $height: fewer than $MARGIN blocks left to restart three validators one at a time. Move the switch later."
 fi
 echo "::notice title=before::chain at $height, switch at $FROM_BLOCK, image $image"
