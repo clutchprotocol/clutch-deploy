@@ -36,7 +36,7 @@ x-logging: &default-logging
 services:
   mainnet-node1:
     logging: *default-logging
-    image: ghcr.io/clutchprotocol/clutch-node:sha-aa4159f
+    image: ghcr.io/clutchprotocol/clutch-node:sha-9e82112
     stop_grace_period: 30s
     environment:
       # The node reads Environment::with_prefix("APP"), so this overrides the empty
@@ -59,7 +59,7 @@ services:
 
   mainnet-node2:
     logging: *default-logging
-    image: ghcr.io/clutchprotocol/clutch-node:sha-aa4159f
+    image: ghcr.io/clutchprotocol/clutch-node:sha-9e82112
     stop_grace_period: 30s
     environment:
       - APP_AUTHOR_SECRET_KEY=${MAINNET_NODE2_AUTHOR_SECRET:?the mainnet validator keys are not in .env.mainnet — run the "Mainnet — generate validator keys" workflow}
@@ -77,7 +77,7 @@ services:
 
   mainnet-node3:
     logging: *default-logging
-    image: ghcr.io/clutchprotocol/clutch-node:sha-aa4159f
+    image: ghcr.io/clutchprotocol/clutch-node:sha-9e82112
     stop_grace_period: 30s
     environment:
       - APP_AUTHOR_SECRET_KEY=${MAINNET_NODE3_AUTHOR_SECRET:?the mainnet validator keys are not in .env.mainnet — run the "Mainnet — generate validator keys" workflow}
