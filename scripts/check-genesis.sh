@@ -198,19 +198,24 @@ else
 
   # Every address a folder names (its own key and its authorities), lower case, one per line.
   addresses_in() {
+    local f
     for f in "$@"; do
       get "$f" author_public_key || true
       authorities_of "$f" | tr ',' '\n'
     done | tr 'A-F' 'a-f' | grep . | sort -u || true
   }
-  dev=$(addresses_in config/node/*.toml)
-  mine=$(addresses_in "${FILES[@]}")
-  overlap=$(comm -12 <(printf '%s\n' "$dev") <(printf '%s\n' "$mine") | tr '\n' ' ')
-  if [ -n "${overlap// /}" ]; then
-    bad "uses an address from the public dev set: $overlap"
-    note "Its secret is in git (config/node), so anyone can sign as it."
+  if compgen -G "config/node/*.toml" >/dev/null; then
+    dev=$(addresses_in config/node/*.toml)
+    mine=$(addresses_in "${FILES[@]}")
+    overlap=$(comm -12 <(printf '%s\n' "$dev") <(printf '%s\n' "$mine") | tr '\n' ' ')
+    if [ -n "${overlap// /}" ]; then
+      bad "uses an address from the public dev set: $overlap"
+      note "Its secret is in git (config/node), so anyone can sign as it."
+    else
+      ok "no address from the public dev set"
+    fi
   else
-    ok "no address from the public dev set"
+    note "there is no config/node here, so the dev addresses were not compared"
   fi
 fi
 

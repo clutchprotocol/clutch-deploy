@@ -11,6 +11,8 @@ services:
   # "Stage — generate validator keys (once)" writes them. Every stage command passes this file
   # (deploy-stage.sh, chain.sh, restart-validator.sh, upgrade-validators.sh). Stage started from the
   # base file alone would run the public dev keys again and say nothing, so it never is.
+  # config/node must stay in the repo: it is the mount point of the nested mount below, and Docker
+  # cannot create a missing one inside the read-only /app/config.
   node1:
     ports: !reset []
     environment:
