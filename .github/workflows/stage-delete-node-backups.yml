@@ -1,0 +1,47 @@
+# One-time cleanup of backups/stage-node1-data-20261029T165633Z only.
+# Run CHECK first and confirm recovery using Inspect stage (probe chain).
+name: Stage - delete recovered node1 fork backup
+
+on:
+  workflow_dispatch:
+    inputs:
+      confirm:
+        description: 'Type "CHECK" to list the copies, or "DELETE NODE1 BACKUP" to delete them'
+        required: true
+        default: ""
+
+# The same group as the resync, which makes the copies this deletes: the two never run together.
+concurrency:
+  group: upgrade-validators
+  cancel-in-progress: false
+
+jobs:
+  delete:
+    runs-on: ubuntu-latest
+    steps:
+      # Through env, never interpolated into the script body.
+      - name: Check the confirmation
+        env:
+          CONFIRM: ${{ inputs.confirm }}
+        run: |
+          case "$CONFIRM" in
+            "CHECK"|"DELETE NODE1 BACKUP") ;;
+            *) echo "::error::confirm was '$CONFIRM', expected 'CHECK' or 'DELETE NODE1 BACKUP'."; exit 1 ;;
+          esac
+
+      - name: Run it on the stage host
+        env:
+          CONFIRM: ${{ inputs.confirm }}
+          SSHPASS: ${{ secrets.STAGE_SSH_PASSWORD }}
+          CLUTCH_SSH_HOST: ${{ secrets.STAGE_HOST }}
+          CLUTCH_SSH_USER: ${{ secrets.STAGE_USER }}
+          DEPLOY_PATH: ${{ secrets.STAGE_DEPLOY_PATH }}
+        run: |
+          set -euo pipefail
+          [ -n "$DEPLOY_PATH" ] || { echo "::error::STAGE_DEPLOY_PATH is empty"; exit 1; }
+          command -v sshpass >/dev/null || { sudo apt-get update -qq && sudo apt-get install -y -qq sshpass >/dev/null; }
+          # One of two fixed words, chosen here on the runner.
+          if [ "$CONFIRM" = "DELETE NODE1 BACKUP" ]; then MODE=delete; else MODE=check; fi
+          SSH_OPTS="-o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o ConnectTimeout=30 -o ServerAliveInterval=30"
+          timeout 5m sshpass -e ssh $SSH_OPTS "$CLUTCH_SSH_USER@$CLUTCH_SSH_HOST" \
+            "set -e; cd '$DEPLOY_PATH'; git pull --ff-only origin main; MODE='$MODE' bash scripts/delete-stage-node-backups.sh"

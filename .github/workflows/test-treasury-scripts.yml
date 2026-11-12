@@ -101,6 +101,9 @@ jobs:
       - name: Mainnet old-chain copies deleter
         if: ${{ !cancelled() }}
         run: bash scripts/test-delete-old-chain-copies.sh
+      - name: Stage validator backup deleter
+        if: ${{ !cancelled() }}
+        run: bash scripts/test-delete-stage-node-backups.sh
       - name: Env file split
         if: ${{ !cancelled() }}
         run: bash scripts/test-migrate-env-files.sh
